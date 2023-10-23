@@ -1,6 +1,6 @@
 <?php
 	return [
-		'emonHpLocalEndpoint'     => "http://emonhp.local/feed",
+		'emonHpLocalEndpoint'     => env("EMON_HP_LOCAL_ENDPOINT", "http://emonhp.local/feed"),
 		'emonHpLocalReadKey'      => env("EMON_HP_LOCAL_READ_KEY"),
 		'emonHpLocalReadWriteKey' => env("EMON_HP_LOCAL_READWRITE_KEY"),
 		'emonCmsEndpoint'         => "https://emoncms.org/feed",
