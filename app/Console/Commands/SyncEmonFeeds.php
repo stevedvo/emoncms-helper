@@ -2,6 +2,7 @@
 	namespace App\Console\Commands;
 
 	use App\Http\Controllers\EmonController;
+	use App\Models\ActivityLog;
 	use Illuminate\Console\Command;
 	use Illuminate\Support\Facades\Log;
 
@@ -28,8 +29,35 @@
 		 */
 		public function handle() : void
 		{
-			Log::info(__CLASS__."->".__FUNCTION__."(): command start");
-			EmonController::SyncEmonFeeds();
-			Log::info(__CLASS__."->".__FUNCTION__."(): command end");
+			try
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => "Command Start.",
+				]);
+
+				EmonController::SyncEmonFeeds();
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => "Command End.",
+				]);
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
 		}
 	}
