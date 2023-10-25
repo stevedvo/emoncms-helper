@@ -1,25 +1,25 @@
 <?php
 	namespace App\Console\Commands;
 
-	use App\Http\Controllers\EmonController;
+	use App\Http\Controllers\NibeController;
 	use App\Models\ActivityLog;
 	use Illuminate\Console\Command;
 
-	class SyncEmonFeeds extends Command
+	class GetNibeData extends Command
 	{
 		/**
 		 * The name and signature of the console command.
 		 *
 		 * @var string
 		 */
-		protected $signature = "emon:sync";
+		protected $signature = "nibe:getData";
 
 		/**
 		 * The console command description.
 		 *
 		 * @var string
 		 */
-		protected $description = "Compare feeds from emonCMS and emonHP.local and sync missing data";
+		protected $description = "Get latest parameter values from NIBE Uplink API";
 
 		/**
 		 * Execute the console command.
@@ -38,7 +38,7 @@
 					'message'    => "Command Start.",
 				]);
 
-				EmonController::SyncEmonFeeds();
+				NibeController::GetNibeData();
 
 				ActivityLog::create(
 				[

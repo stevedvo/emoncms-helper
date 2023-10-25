@@ -6,4 +6,5 @@
 		'emonCmsEndpoint'         => "https://emoncms.org/feed",
 		'emonCmsReadKey'          => env("EMON_CMS_READ_KEY"),
 		'emonCmsReadWriteKey'     => env("EMON_CMS_READWRITE_KEY"),
+		'emonSyncPeriodHours'     => env("EMON_SYNC_PERIOD_HOURS", "3"),
 	];

@@ -8,8 +8,6 @@
 	use App\Models\FeedItem;
 	use Carbon\CarbonImmutable;
 	use Illuminate\Support\Collection;
-	use Illuminate\Support\Facades\DB;
-	use Illuminate\Support\Facades\Log;
 	 
 	class EmonController extends Controller
 	{
@@ -23,7 +21,7 @@
 
 				$now = CarbonImmutable::now();
 				$endTime = $now->subMinutes(5);
-				$startTime = $endTime->subHours(3);
+				$startTime = $endTime->subHours(config("emon.emonSyncPeriodHours"));
 				$startTimeMilliseconds = $startTime->format("U").$startTime->format("v");
 				$endTimeMilliseconds = $endTime->format("U").$endTime->format("v");
 
@@ -131,7 +129,7 @@
 										}
 									}
 									break;
-									
+
 									case "heatmeter_DeltaT":
 									{
 										// need to ignore nulls unless there is an actual flowT for this timestamp in which case make the null a 0
@@ -139,7 +137,7 @@
 										$newFeedItemsToSync++;
 									}
 									break;
-									
+
 									case "heatmeter_Power":
 									case "heatmeter_FlowRate":
 									{
