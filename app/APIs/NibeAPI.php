@@ -6,6 +6,7 @@
 	use App\Models\NibeParameter;
 	use App\Models\Setting;
 	use Carbon\CarbonImmutable;
+	use Illuminate\Database\Eloquent\Collection;
 	use Illuminate\Support\Facades\Log;
 
 	class NibeAPI
@@ -79,11 +80,11 @@
 			}
 		}
 
-		public function getParameters() : array
+		public function getParameterData(Collection $nibeParameters) : array
 		{
 			try
 			{
-				$url = $this->nibeFunctionUrl."/systems/".$this->nibeSystemId."/parameters?parameterIds=".implode("&parameterIds=", NibeParameter::pluck("parameterId")->all());
+				$url = $this->nibeFunctionUrl."/systems/".$this->nibeSystemId."/parameters?parameterIds=".implode("&parameterIds=", $nibeParameters->keys()->all());
 				$response = API::get($url)->headers(['Authorization' => "Bearer ".$this->nibeTokenCurrent->value])->send();
 
 				return json_decode((string)$response->getBody(), true);
