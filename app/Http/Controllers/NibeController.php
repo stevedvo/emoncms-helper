@@ -58,16 +58,11 @@
 
 		public static function syncNibeData(CarbonImmutable $timestamp, array $emonPostArray, Collection $nibeFeedItems) : void
 		{
+			$syncSuccess = false;
+
 			try
 			{
 				$syncSuccess = EmonAPI::postInputData("local", $timestamp->format("U"), "nibe", json_encode($emonPostArray));
-
-				$nibeFeedItems->each(function(NibeFeedItem $nibeFeedItem, int $i) use ($syncSuccess)
-				{
-					$nibeFeedItem->syncAttempts++;
-					$nibeFeedItem->syncStatus = $syncSuccess ? "success" : "failed";
-					$nibeFeedItem->save();
-				});
 			}
 			catch (Throwable $e)
 			{
@@ -79,5 +74,12 @@
 					'message'    => $e->getMessage(),
 				]);
 			}
+
+			$nibeFeedItems->each(function(NibeFeedItem $nibeFeedItem, int $i) use ($syncSuccess)
+			{
+				$nibeFeedItem->syncAttempts++;
+				$nibeFeedItem->syncStatus = $syncSuccess ? "success" : "failed";
+				$nibeFeedItem->save();
+			});
 		}
 	}

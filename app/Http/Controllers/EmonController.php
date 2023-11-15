@@ -100,8 +100,11 @@
 
 								if ($remoteFeedItems->has($localFeedItem->timestamp))
 								{
-									$remoteFeedItemsMatched++;
-									continue;
+									if ($remoteFeedItems->get($localFeedItem->timestamp)->value == $localFeedItem->value)
+									{
+										$remoteFeedItemsMatched++;
+										continue;
+									}
 								}
 
 								$existingFeedItem = $existingFeedItems->where("localFeedId", $localFeedItem->localFeedId)->where("timestamp", $localFeedItem->timestamp)->first();
