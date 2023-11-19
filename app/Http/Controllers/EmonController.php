@@ -8,13 +8,16 @@
 	use App\Models\FeedItem;
 	use Carbon\CarbonImmutable;
 	use Illuminate\Support\Collection;
+	use Illuminate\Support\Facades\Log;
 	 
 	class EmonController extends Controller
 	{
+		public static $maxSyncAttempts = 5;
+
 		public static function SyncEmonFeeds() : void
 		{
 			// 1st task: get the feeds from local and from remote and compare them to find any that are missing/incorrect
-			static::GetEmonFeeds();
+			// static::GetEmonFeeds();
 
 			// 2nd task: find any feed items which have not been sync'd from local to remote and attempt to sync
 			static::PostEmonFeeds();
@@ -237,9 +240,27 @@
 		{
 			try
 			{
-				// get from feed_items where syncStatus is 'pending' or 'failed' and syncAttempts <= maxSyncAttempts
-				// find any where value is null, mark as 'ignored' and do no further processing on these
-				// group by remoteFeedId
+				// shouldn't be saving null values, but run this just in case
+				FeedItem::where('value', null)->whereNotIn('syncStatus', ["ignored"])->update(['syncStatus' => "ignored"]);
+
+				$allFeedItemsToSync = FeedItem::whereIn('syncStatus', ["pending", "failed"])->where('syncAttempts', "<=", static::$maxSyncAttempts)->get();
+
+				$groupedFeedItems = new Collection;
+
+				$allFeedItemsToSync->each(function(FeedItem $feedItem, int $id) use ($groupedFeedItems)
+				{
+					if (!$groupedFeedItems->has($feedItem->remoteFeedId))
+					{
+						$groupedFeedItems->put($feedItem->remoteFeedId, new Collection);
+					}
+
+					$groupedFeedItems->get($feedItem->remoteFeedId)->put($feedItem->timestamp, $feedItem);
+				});
+
+				Log::info($groupedFeedItems);
+
+				// CHECK WHAT IS POSTED WHEN IMPORTING FEED DATA
+
 				// for each remoteFeedId, create a payload in the correct format to POST to remoteFeedId
 				// POST the batch
 				// if successful, mark each feed item syncStatus in the batch as 'success'
