@@ -13,6 +13,15 @@
 	{
 		public static function SyncEmonFeeds() : void
 		{
+			// 1st task: get the feeds from local and from remote and compare them to find any that are missing/incorrect
+			static::GetEmonFeeds();
+
+			// 2nd task: find any feed items which have not been sync'd from local to remote and attempt to sync
+			static::PostEmonFeeds();
+		}
+
+		public static function GetEmonFeeds() : void
+		{
 			try
 			{
 				$localToRemoteFeedMap = EmonFeedMap::all()->keyBy("localFeedId");
@@ -23,8 +32,8 @@
 				$now = CarbonImmutable::now();
 				$endTime = $now->subMinutes(5);
 				$startTime = $endTime->subHours(config("emon.emonSyncPeriodHours"));
-				$startTimeMilliseconds = $startTime->format("U").$startTime->format("v");
-				$endTimeMilliseconds = $endTime->format("U").$endTime->format("v");
+				$startTimeMilliseconds = $startTime->format("Uv");
+				$endTimeMilliseconds = $endTime->format("Uv");
 
 				$existingFeedItems = FeedItem::whereBetween("timestamp", [$startTimeMilliseconds, $endTimeMilliseconds])->get();
 
@@ -124,14 +133,9 @@
 									case "heatmeter_ReturnT":
 									case "total_Power":
 									case "total_Energy":
-									case "UFH_temperature":
-									case "UFH_humidity":
-									case "UFH_battery":
-									case "Rad_temperature":
-									case "Rad_humidity":
-									case "Rad_battery":
+									case "heatmeter_DeltaT":
 									{
-										if ($localFeedItem->value != "null")
+										if (strpos($localFeedItem->value, "null") === false)
 										{
 											$localFeedItem->save();
 											$newFeedItemsToSync++;
@@ -139,24 +143,44 @@
 									}
 									break;
 
-									case "heatmeter_DeltaT":
-									{
-										// need to ignore nulls unless there is an actual flowT for this timestamp in which case make the null a 0
-										$localFeedItem->save();
-										$newFeedItemsToSync++;
-									}
-									break;
-
 									case "heatmeter_Power":
 									case "heatmeter_FlowRate":
 									{
-										if ($localFeedItem->value == "null")
+										if (strpos($localFeedItem->value, "null") !== false)
 										{
 											$localFeedItem->value = 0;
 										}
 
 										$localFeedItem->save();
 										$newFeedItemsToSync++;
+									}
+									break;
+
+									case "UFH_temperature":
+									case "UFH_humidity":
+									case "UFH_battery":
+									case "Rad_temperature":
+									case "Rad_humidity":
+									case "Rad_battery":
+									{
+										if (strpos($localFeedItem->value, "null") === false)
+										{
+											// we could sync' data from every 10s but these values do not change that frequently
+											// so only save values for sync'ing if timestamp is exactly in a 10th minute
+											$tenthMinute = floor($localFeedItem->timestamp / 100000);
+
+											if ($tenthMinute % 6 === 0)
+											{
+												$min = $tenthMinute * 100000;
+												$max = $min + 9999;
+
+												if ($min <= $localFeedItem->timestamp && $localFeedItem->timestamp <= $max)
+												{
+													$localFeedItem->save();
+													$newFeedItemsToSync++;
+												}
+											}
+										}
 									}
 									break;
 
@@ -196,6 +220,32 @@
 						'message'    => "localFeed #".$localFeed['id'].": fetched ".$localFeedItemsCount."; remote matched ".$remoteFeedItemsMatched."; existing ".$existingFeedItemsCount."; new to sync ".$newFeedItemsToSync,
 					]);
 				}
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
+		}
+
+		public static function PostEmonFeeds() : void
+		{
+			try
+			{
+				// get from feed_items where syncStatus is 'pending' or 'failed' and syncAttempts <= maxSyncAttempts
+				// find any where value is null, mark as 'ignored' and do no further processing on these
+				// group by remoteFeedId
+				// for each remoteFeedId, create a payload in the correct format to POST to remoteFeedId
+				// POST the batch
+				// if successful, mark each feed item syncStatus in the batch as 'success'
+				// else mark each as 'failed'
+				// increment syncAttempts
+				// maybe add an index to feed_items since it's a bit slow
 			}
 			catch (Throwable $e)
 			{
