@@ -19,30 +19,62 @@
 			{
 				$now = CarbonImmutable::now();
 
+				$api = new NibeAPI();
+				$parameterData = $api->getParameterData();
+
 				$nibeParameters = NibeParameter::all()->keyBy("parameterId");
 
-				$api = new NibeAPI();
-				$parameterData = $api->getParameterData($nibeParameters);
-
-				$nibeFeedItems = new Collection();
 				$emonPostArray = [];
 
 				foreach ($parameterData as $datum)
 				{
-					$nibeFeedItem = NibeFeedItem::create(
-					[
-						'parameterId'  => $datum['parameterId'],
-						'timestamp'    => $now->format("U"),
-						'rawValue'     => $datum['rawValue'],
-						'syncAttempts' => 0,
-						'syncStatus'   => "pending",
-					]);
+					if ($nibeParameters->has($datum['parameterId']))
+					{
+						try
+						{
+							$nibeFeedItem = NibeFeedItem::firstOrCreate(
+							[
+								'parameterId'  => $datum['parameterId'],
+								'timestamp'    => CarbonImmutable::parse($datum['timestamp'])->setTimezone("UTC")->format("U")
+							],
+							[
+								'rawValue'     => $datum['value'],
+								'syncAttempts' => 0,
+								'syncStatus'   => "pending",
+							]);
 
-					$nibeFeedItems->push($nibeFeedItem);
-					$emonPostArray[$nibeParameters->get($nibeFeedItem->parameterId)->title] = $nibeFeedItem->rawValue;
+							if ($nibeFeedItem->wasRecentlyCreated || $nibeFeedItem->syncStatus != "success")
+							{
+								$emonPostArray[$nibeParameters->get($nibeFeedItem->parameterId)->title] = $nibeFeedItem;
+							}
+						}
+						catch (Throwable $e)
+						{
+							ActivityLog::create(
+							[
+								'controller' => __CLASS__,
+								'method'     => __FUNCTION__,
+								'level'      => "error",
+								'message'    => $e->getMessage(),
+							]);
+						}
+					}
 				}
 
-				static::syncNibeData($now, $emonPostArray, $nibeFeedItems);
+				if (empty($emonPostArray))
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => "No new NIBE data found",
+					]);
+
+					return;
+				}
+
+				static::syncNibeData($emonPostArray);
 			}
 			catch (Throwable $e)
 			{
@@ -56,30 +88,32 @@
 			}
 		}
 
-		public static function syncNibeData(CarbonImmutable $timestamp, array $emonPostArray, Collection $nibeFeedItems) : void
+		public static function syncNibeData(array $emonPostArray) : void
 		{
 			$syncSuccess = false;
 
-			try
+			foreach ($emonPostArray as $title => $nibeFeedItem)
 			{
-				$syncSuccess = EmonAPI::postInputData("local", $timestamp->format("U"), "nibe", json_encode($emonPostArray));
-			}
-			catch (Throwable $e)
-			{
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "error",
-					'message'    => $e->getMessage(),
-				]);
-			}
+				try
+				{
+					$syncSuccess = EmonAPI::postInputData("local", $nibeFeedItem->timestamp, "nibe", json_encode([$title => $nibeFeedItem->rawValue]));
+				}
+				catch (Throwable $e)
+				{
+					$syncSuccess = false;
 
-			$nibeFeedItems->each(function(NibeFeedItem $nibeFeedItem, int $i) use ($syncSuccess)
-			{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "error",
+						'message'    => $e->getMessage(),
+					]);
+				}
+
 				$nibeFeedItem->syncAttempts++;
 				$nibeFeedItem->syncStatus = $syncSuccess ? "success" : "failed";
 				$nibeFeedItem->save();
-			});
+			}
 		}
 	}

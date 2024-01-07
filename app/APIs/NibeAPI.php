@@ -14,6 +14,7 @@
 		private ?string  $nibeClientId;
 		private ?string  $nibeClientSecret;
 		private ?string  $nibeSystemId;
+		private ?string  $nibeDeviceId;
 		private ?Setting $nibeTokenCurrent;
 		private ?Setting $nibeTokenExpiry;
 		private ?Setting $nibeTokenRefresh;
@@ -27,6 +28,7 @@
 			$this->nibeClientId     = config("nibe.clientId");
 			$this->nibeClientSecret = config("nibe.clientSecret");
 			$this->nibeSystemId     = config("nibe.systemId");
+			$this->nibeDeviceId     = config("nibe.deviceId");
 			$this->nibeTokenCurrent = $settings->where("key", "nibe_token_current")->first();
 			$this->nibeTokenExpiry  = $settings->where("key", "nibe_token_expiry")->first();
 			$this->nibeTokenRefresh = $settings->where("key", "nibe_token_refresh")->first();
@@ -80,11 +82,11 @@
 			}
 		}
 
-		public function getParameterData(Collection $nibeParameters) : array
+		public function getParameterData() : array
 		{
 			try
 			{
-				$url = $this->nibeFunctionUrl."/systems/".$this->nibeSystemId."/parameters?parameterIds=".implode("&parameterIds=", $nibeParameters->keys()->all());
+				$url = $this->nibeFunctionUrl."/devices/".$this->nibeDeviceId."/points";
 				$response = API::get($url)->headers(['Authorization' => "Bearer ".$this->nibeTokenCurrent->value])->send();
 
 				return json_decode((string)$response->getBody(), true);
