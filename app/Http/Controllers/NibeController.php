@@ -43,7 +43,7 @@
 								'syncStatus'   => "pending",
 							]);
 
-							if ($nibeFeedItem->wasRecentlyCreated)
+							if ($nibeFeedItem->wasRecentlyCreated || $nibeFeedItem->syncStatus != "success")
 							{
 								$emonPostArray[$nibeParameters->get($nibeFeedItem->parameterId)->title] = $nibeFeedItem;
 							}
@@ -61,9 +61,20 @@
 					}
 				}
 
-				Log::info($emonPostArray);exit;
+				if (empty($emonPostArray))
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => "No new NIBE data found",
+					]);
 
-				// static::syncNibeData($emonPostArray);
+					return;
+				}
+
+				static::syncNibeData($emonPostArray);
 			}
 			catch (Throwable $e)
 			{
@@ -85,11 +96,12 @@
 			{
 				try
 				{
-					/* need to confirm what needs to go into the json_encode function */
-					// $syncSuccess = EmonAPI::postInputData("local", $nibeFeedItem->timestamp, "nibe", json_encode($emonPostArray));
+					$syncSuccess = EmonAPI::postInputData("local", $nibeFeedItem->timestamp, "nibe", json_encode([$title => $nibeFeedItem->rawValue]));
 				}
 				catch (Throwable $e)
 				{
+					$syncSuccess = false;
+
 					ActivityLog::create(
 					[
 						'controller' => __CLASS__,

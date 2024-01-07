@@ -2,6 +2,7 @@
 	namespace App\APIs;
 
 	use Throwable;
+	use Illuminate\Support\Facades\Log;
 
 	class EmonAPI
 	{
