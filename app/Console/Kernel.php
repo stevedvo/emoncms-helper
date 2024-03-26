@@ -9,10 +9,11 @@
 		/**
 		 * Define the application's command schedule.
 		 */
-		protected function schedule(Schedule $schedule): void
+		protected function schedule(Schedule $schedule) : void
 		{
 			$schedule->command("nibe:getData")->everyMinute();
 			$schedule->command("emon:sync")->everyThirtyMinutes();
+			$schedule->command("admin:emails")->dailyAt("06:00");
 		}
 
 		/**
