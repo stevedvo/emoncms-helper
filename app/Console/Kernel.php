@@ -13,6 +13,7 @@
 		{
 			$schedule->command("nibe:getData")->everyMinute();
 			$schedule->command("emon:sync")->everyThirtyMinutes();
+			$schedule->command("logs:cleanUp")->daily();
 			$schedule->command("admin:emails")->dailyAt("06:00");
 		}
 
