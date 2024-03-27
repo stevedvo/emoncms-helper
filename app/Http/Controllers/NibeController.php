@@ -10,7 +10,7 @@
 	use Carbon\CarbonImmutable;
 	use Illuminate\Database\Eloquent\Collection;
 	use Illuminate\Support\Facades\Log;
-	 
+
 	class NibeController extends Controller
 	{
 		public static function GetNibeData() : void
@@ -18,15 +18,18 @@
 			try
 			{
 				$now = CarbonImmutable::now();
-
 				$api = new NibeAPI();
-				$parameterData = $api->getParameterData();
+
+				$parameterData = collect($api->getParameterData())->unique(function(array $item)
+				{
+					return $item['parameterId'].$item['timestamp'].$item['value'];
+				});
 
 				$nibeParameters = NibeParameter::all()->keyBy("parameterId");
 
-				$emonPostArray = [];
+				$emonPostCollection = new Collection();
 
-				foreach ($parameterData as $datum)
+				$parameterData->each(function(array $datum, int $key) use ($emonPostCollection, $nibeParameters)
 				{
 					if ($nibeParameters->has($datum['parameterId']))
 					{
@@ -45,7 +48,7 @@
 
 							if ($nibeFeedItem->wasRecentlyCreated || $nibeFeedItem->syncStatus != "success")
 							{
-								$emonPostArray[$nibeParameters->get($nibeFeedItem->parameterId)->title] = $nibeFeedItem;
+								$emonPostCollection->put($nibeParameters->get($nibeFeedItem->parameterId)->title, $nibeFeedItem);
 							}
 						}
 						catch (Throwable $e)
@@ -59,9 +62,9 @@
 							]);
 						}
 					}
-				}
+				});
 
-				if (empty($emonPostArray))
+				if ($emonPostCollection->isEmpty())
 				{
 					ActivityLog::create(
 					[
@@ -74,7 +77,7 @@
 					return;
 				}
 
-				static::syncNibeData($emonPostArray);
+				static::syncNibeData($emonPostCollection->all());
 			}
 			catch (Throwable $e)
 			{
