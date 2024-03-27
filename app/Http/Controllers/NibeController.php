@@ -10,7 +10,7 @@
 	use Carbon\CarbonImmutable;
 	use Illuminate\Database\Eloquent\Collection;
 	use Illuminate\Support\Facades\Log;
-	 
+
 	class NibeController extends Controller
 	{
 		public static function GetNibeData() : void
