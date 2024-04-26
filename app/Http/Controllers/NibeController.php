@@ -29,8 +29,9 @@
 				$nibeParameters = NibeParameter::all()->keyBy("parameterId");
 
 				$emonPostCollection = new Collection();
+				$dmOverrideCollection = new Collection();
 
-				$parameterData->each(function(array $datum, int $key) use ($emonPostCollection, $nibeParameters)
+				$parameterData->each(function(array $datum, int $key) use ($nibeParameters, $emonPostCollection, $dmOverrideCollection)
 				{
 					if ($nibeParameters->has($datum['parameterId']))
 					{
@@ -63,6 +64,12 @@
 							]);
 						}
 					}
+
+					// populate collection with values for outdoor temp, degreem-minutes, and heating offset
+					if (in_array($datum['parameterId'], [40004, 40940, 47011]))
+					{
+						$dmOverrideCollection->put($datum['parameterId'], $datum['value']);
+					}
 				});
 
 				if ($emonPostCollection->isEmpty())
@@ -79,6 +86,11 @@
 				}
 
 				// static::syncNibeData($emonPostCollection->all());
+
+				if (in_array($now->format("i"), ["00", "15", "30", "45"]))
+				{
+					static::dmOverride($dmOverrideCollection);
+				}
 			}
 			catch (Throwable $e)
 			{
@@ -121,7 +133,7 @@
 			}
 		}
 
-		public static function dmOverride() : void
+		public static function dmOverride(Collection $dmOverrideCollection) : void
 		{
 			try
 			{
@@ -130,27 +142,94 @@
 					return;
 				}
 
+				if (!$dmOverrideCollection->has("40004"))
+				{
+					throw new Exception("No data for 'outdoor temp.'");
+				}
+
+				if (!$dmOverrideCollection->has("40940"))
+				{
+					throw new Exception("No data for 'degree minutes'");
+				}
+
+				if (!$dmOverrideCollection->has("47011"))
+				{
+					throw new Exception("No data for 'heating offset'");
+				}
+
 				// get the most recent value for the outside temperature
-				$outdoorTemp = NibeFeedItem::where('parameterId', "40004")->orderBy('id', "desc")->first();
+				$outdoorTemp = $dmOverrideCollection->get("40004");
+				$degreeMinutes = $dmOverrideCollection->get("40940");
+				$heatingOffsetCurrent = $dmOverrideCollection->get("47011");
+				$heatingOffsetNew = $heatingOffsetCurrent;
 
-				if (!($outdoorTemp instanceof NibeFeedItem))
+				if ($outdoorTemp < config("nibe.tempFreqMin")) // we want to run 100%
 				{
-					throw new Exception("Outdoor temperature NibeFeedItem not found");
+					if ($degreeMinutes == config("nibe.dmTarget"))
+					{
+						return;
+					}
+					elseif ($degreeMinutes < config("nibe.dmTarget"))
+					{
+						if ($heatingOffsetCurrent == -10)
+						{
+							return;
+						}
+
+						$heatingOffsetNew = $heatingOffsetCurrent - 1;
+					}
+					elseif ($degreeMinutes > config("nibe.dmTarget"))
+					{
+						if ($heatingOffsetCurrent == 10)
+						{
+							return;
+						}
+
+						$heatingOffsetNew = $heatingOffsetCurrent + 1;
+					}
+				}
+				else // get heating offset back to 0 and allow ASHP to cycle normally
+				{
+					if ($heatingOffsetCurrent == 0)
+					{
+						return;
+					}
+					elseif ($heatingOffsetCurrent < 0)
+					{
+						if ($degreeMinutes < config("nibe.dmTarget"))
+						{
+							return;
+						}
+
+						// gradually make offset less negative without decreasing DM too quickly
+						$heatingOffsetNew = $heatingOffsetCurrent + 1;
+					}
+					elseif ($heatingOffsetCurrent > 0)
+					{
+						if ($degreeMinutes < -30)
+						{
+							return;
+						}
+
+						// allow cycle to pretty much complete then reset
+						$heatingOffsetNew = 0;
+					}
 				}
 
-				if ($outdoorTemp->rawValue > config("nibe.tempFreqMin"))
-				{
-					return;
-				}
-
-				$parameterData =
-				[
-					'unit'  => "DM",
-					'value' => "-240",
-				];
+				$parameterData = ['47011' => $heatingOffsetNew];
 
 				$api = new NibeAPI();
-				$api->setParameterData(40940, $parameterData);
+				$response = $api->setParameterData($parameterData);
+
+				if (!isset($response['status']))
+				{
+					throw new Exception("Error with request - no status returned");
+				}
+
+				if ($response['status'] != 200)
+				{
+					throw new Exception("Error with request - status: ".$response['status']);
+				}
 			}
 			catch (Throwable $e)
 			{
