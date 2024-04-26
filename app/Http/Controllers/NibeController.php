@@ -85,7 +85,7 @@
 					return;
 				}
 
-				// static::syncNibeData($emonPostCollection->all());
+				static::syncNibeData($emonPostCollection->all());
 
 				if (in_array($now->format("i"), ["00", "15", "30", "45"]))
 				{
