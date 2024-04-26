@@ -1,6 +1,7 @@
 <?php
 	namespace App\Http\Controllers;
 
+	use Exception;
 	use Throwable;
 	use App\APIs\EmonAPI;
 	use App\APIs\NibeAPI;
@@ -77,7 +78,7 @@
 					return;
 				}
 
-				static::syncNibeData($emonPostCollection->all());
+				// static::syncNibeData($emonPostCollection->all());
 			}
 			catch (Throwable $e)
 			{
@@ -117,6 +118,49 @@
 				$nibeFeedItem->syncAttempts++;
 				$nibeFeedItem->syncStatus = $syncSuccess ? "success" : "failed";
 				$nibeFeedItem->save();
+			}
+		}
+
+		public static function dmOverride() : void
+		{
+			try
+			{
+				if (config("nibe.dmOverride") === false)
+				{
+					return;
+				}
+
+				// get the most recent value for the outside temperature
+				$outdoorTemp = NibeFeedItem::where('parameterId', "40004")->orderBy('id', "desc")->first();
+
+				if (!($outdoorTemp instanceof NibeFeedItem))
+				{
+					throw new Exception("Outdoor temperature NibeFeedItem not found");
+				}
+
+				if ($outdoorTemp->rawValue > config("nibe.tempFreqMin"))
+				{
+					return;
+				}
+
+				$parameterData =
+				[
+					'unit'  => "DM",
+					'value' => "-240",
+				];
+
+				$api = new NibeAPI();
+				$api->setParameterData(40940, $parameterData);
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
 			}
 		}
 	}

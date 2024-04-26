@@ -96,4 +96,18 @@
 				throw $e;
 			}
 		}
+
+		public function setParameterData(int $parameterId, array $parameterData) : void
+		{
+			try
+			{
+				// $url = $this->nibeFunctionUrl."/devices/".$this->nibeDeviceId."/points";
+				$url = "https://internalapi.myuplink.com/v2/devices/".$this->nibeDeviceId."/menu/87/rawpoints/".$parameterId;
+				$response = API::put($url)->headers(['Authorization' => "Bearer ".config("nibe.internalApiAuth")])->json($parameterData)->send();
+			}
+			catch (Throwable $e)
+			{
+				throw $e;
+			}
+		}
 	}
