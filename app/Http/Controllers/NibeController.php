@@ -65,8 +65,8 @@
 						}
 					}
 
-					// populate collection with values for outdoor temp, degreem-minutes, and heating offset
-					if (in_array($datum['parameterId'], [40004, 40940, 47011]))
+					// populate collection with values for outdoor temp, external flow temp, degreem-minutes, calculated flow temp, and heating offset
+					if (in_array($datum['parameterId'], [40004, 40071, 40940, 43009, 47011]))
 					{
 						$dmOverrideCollection->put($datum['parameterId'], $datum['value']);
 					}
@@ -147,9 +147,19 @@
 					throw new Exception("No data for 'outdoor temp.'");
 				}
 
+				if (!$dmOverrideCollection->has("40071"))
+				{
+					throw new Exception("No data for 'external flow temp.'");
+				}
+
 				if (!$dmOverrideCollection->has("40940"))
 				{
 					throw new Exception("No data for 'degree minutes'");
+				}
+
+				if (!$dmOverrideCollection->has("43009"))
+				{
+					throw new Exception("No data for 'calculated flow temp.'");
 				}
 
 				if (!$dmOverrideCollection->has("47011"))
@@ -159,60 +169,65 @@
 
 				// get the most recent value for the outside temperature
 				$outdoorTemp = $dmOverrideCollection->get("40004");
+				$externalFlowTemp = $dmOverrideCollection->get("40071");
 				$degreeMinutes = $dmOverrideCollection->get("40940");
+				$calculatedFlowTemp = $dmOverrideCollection->get("43009");
 				$heatingOffsetCurrent = $dmOverrideCollection->get("47011");
 				$heatingOffsetNew = $heatingOffsetCurrent;
 
-				if ($outdoorTemp < config("nibe.tempFreqMin")) // we want to run 100%
+				if ($degreeMinutes == config("nibe.dmTarget"))
 				{
-					if ($degreeMinutes == config("nibe.dmTarget"))
-					{
-						return;
-					}
-					elseif ($degreeMinutes < config("nibe.dmTarget"))
-					{
-						if ($heatingOffsetCurrent == -10)
-						{
-							return;
-						}
-
-						$heatingOffsetNew = $heatingOffsetCurrent - 1;
-					}
-					elseif ($degreeMinutes > config("nibe.dmTarget"))
-					{
-						if ($heatingOffsetCurrent == 10)
-						{
-							return;
-						}
-
-						$heatingOffsetNew = $heatingOffsetCurrent + 1;
-					}
+					return;
 				}
-				else // get heating offset back to 0 and allow ASHP to cycle normally
+				elseif ($degreeMinutes < config("nibe.dmTarget"))
 				{
-					if ($heatingOffsetCurrent == 0)
+					// degree minutes too negative, decrease the calculated flow temp
+
+					if ($heatingOffsetCurrent == -10)
 					{
 						return;
 					}
-					elseif ($heatingOffsetCurrent < 0)
-					{
-						if ($degreeMinutes < config("nibe.dmTarget"))
-						{
-							return;
-						}
 
-						// gradually make offset less negative without decreasing DM too quickly
-						$heatingOffsetNew = $heatingOffsetCurrent + 1;
+					$heatingOffsetNew = $heatingOffsetCurrent - 1;
+				}
+				elseif ($degreeMinutes > config("nibe.dmTarget"))
+				{
+					// degree minutes not negative enough
+
+					if ($externalFlowTemp < $calculatedFlowTemp)
+					{
+						// degree minutes is already becoming more negative
+						return;
 					}
-					elseif ($heatingOffsetCurrent > 0)
+
+					if ($heatingOffsetCurrent == 10)
 					{
-						if ($degreeMinutes < -30)
+						return;
+					}
+
+					if ($outdoorTemp > config("nibe.tempFreqMin"))
+					{
+						if ($heatingOffsetCurrent == 0)
 						{
+							// we do not need to increase
 							return;
 						}
-
-						// allow cycle to pretty much complete then reset
-						$heatingOffsetNew = 0;
+						elseif ($heatingOffsetCurrent > 0)
+						{
+							if ($degreeMinutes > -15)
+							{
+								// allow cycle to pretty much complete then reset
+								$heatingOffsetNew = 0;
+							}
+						}
+						elseif ($heatingOffsetCurrent < 0)
+						{
+							$heatingOffsetNew = $heatingOffsetCurrent + 1;
+						}
+					}
+					else
+					{
+						$heatingOffsetNew = $heatingOffsetCurrent + 1;
 					}
 				}
 
