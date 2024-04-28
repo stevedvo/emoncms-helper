@@ -175,6 +175,10 @@
 				$heatingOffsetCurrent = $dmOverrideCollection->get("47011");
 				$heatingOffsetNew = $heatingOffsetCurrent;
 
+				// find the absolute value of the difference between calc & actual flow temperature
+				// each change of heating offset changes the calculated flow temperature by around 2K, so divide by 2 and round up
+				$offsetChange = ceil(abs($calculatedFlowTemp - $externalFlowTemp) / 2);
+
 				if ($degreeMinutes == config("nibe.dmTarget"))
 				{
 					return;
@@ -188,7 +192,7 @@
 						return;
 					}
 
-					$heatingOffsetNew = $heatingOffsetCurrent - 1;
+					$heatingOffsetNew = $heatingOffsetCurrent - $offsetChange;
 				}
 				elseif ($degreeMinutes > config("nibe.dmTarget"))
 				{
@@ -222,12 +226,18 @@
 						}
 						elseif ($heatingOffsetCurrent < 0)
 						{
-							$heatingOffsetNew = $heatingOffsetCurrent + 1;
+							$heatingOffsetNew = $heatingOffsetCurrent + $offsetChange;
 						}
 					}
 					else
 					{
-						$heatingOffsetNew = $heatingOffsetCurrent + 1;
+						$heatingOffsetNew = $heatingOffsetCurrent + $offsetChange;
+					}
+
+					if ($degreeMinutes > -60 && $heatingOffsetNew < 0)
+					{
+						// getting close to ending cycle, let's not have offset any less than 0
+						$heatingOffsetNew = 0;
 					}
 				}
 
