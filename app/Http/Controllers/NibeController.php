@@ -81,11 +81,11 @@
 						'level'      => "info",
 						'message'    => "No new NIBE data found",
 					]);
-
-					return;
 				}
-
-				static::syncNibeData($emonPostCollection->all());
+				else
+				{
+					static::syncNibeData($emonPostCollection->all());
+				}
 
 				if (in_array($now->format("i"), ["00", "15", "30", "45"]))
 				{
