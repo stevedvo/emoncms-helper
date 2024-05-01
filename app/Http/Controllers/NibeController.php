@@ -101,8 +101,8 @@
 					static::syncNibeData($emonPostCollection->all());
 				}
 
-				// do this 12 times per hour when the minute number is a multiple of 5
-				if (($now->format("i") / 12) % 5 == 0)
+				// do this when the minute number is a multiple of 5
+				if ($now->format("i") % 5 == 0)
 				{
 					static::dmOverride($dmOverrideCollection);
 				}
