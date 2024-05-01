@@ -65,7 +65,7 @@
 						}
 					}
 
-					// populate collection with values for outdoor temp, external flow temp, degreem-minutes, calculated flow temp, and heating offset
+					// populate collection with values for outdoor temp, external flow temp, degree-minutes, calculated flow temp, and heating offset
 					if (in_array($datum['parameterId'], [40004, 40071, 40940, 43009, 47011]))
 					{
 						$dmOverrideCollection->put($datum['parameterId'], $datum['value']);
@@ -84,10 +84,25 @@
 				}
 				else
 				{
+					// if we are not already sending a 'priority' update, grab the most recent one and resend that
+					if (!$emonPostCollection->has('priority'))
+					{
+						// get the most recent value for the priority
+						$latestPriorityNibeFeedItem = NibeFeedItem::where('parameterId', "49994")->orderBy('id', "desc")->first();
+
+						if ($latestPriorityNibeFeedItem instanceof NibeFeedItem)
+						{
+							// update timestamp for the emon feed
+							$latestPriorityNibeFeedItem->timestamp = $now->setTimezone("UTC")->format("U");
+							$emonPostCollection->put('priority', $latestPriorityNibeFeedItem);
+						}
+					}
+
 					static::syncNibeData($emonPostCollection->all());
 				}
 
-				if (in_array($now->format("i"), ["00", "15", "30", "45"]))
+				// do this 12 times per hour when the minute number is a multiple of 5
+				if (($now->format("i") / 12) % 5 == 0)
 				{
 					static::dmOverride($dmOverrideCollection);
 				}
@@ -173,72 +188,21 @@
 				$degreeMinutes = $dmOverrideCollection->get("40940");
 				$calculatedFlowTemp = $dmOverrideCollection->get("43009");
 				$heatingOffsetCurrent = $dmOverrideCollection->get("47011");
-				$heatingOffsetNew = $heatingOffsetCurrent;
 
-				// find the absolute value of the difference between calc & actual flow temperature
-				// each change of heating offset changes the calculated flow temperature by around 2K, so divide by 2 and round up
-				$offsetChange = ceil(abs($calculatedFlowTemp - $externalFlowTemp) / 2);
+				// calculate what the difference should be between ext & calc flow so that we get DM to -240 in 15 mins
+				// each change of offset adjusts the calc flow by approx 2K so we divide by 2 at the end and round it to integer
+				$offsetChange = round(($externalFlowTemp - ((config("nibe.dmTarget") - $degreeMinutes) / 15) - $calculatedFlowTemp) / 2);
 
-				if ($degreeMinutes == config("nibe.dmTarget"))
+				// constrain the offset within a smaller range to hopefully avoid massive swings
+				// try to avoid compressor inadvertently either kicking in to a higher output [DM too negative] or switching off [DM >= 0]
+				$minOffset = -5;
+				$maxOffset = $outdoorTemp > config("nibe.tempFreqMin") ? 0 : 5;
+
+				$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
+
+				if ($heatingOffsetNew == $heatingOffsetCurrent)
 				{
 					return;
-				}
-				elseif ($degreeMinutes < config("nibe.dmTarget"))
-				{
-					// degree minutes too negative, decrease the calculated flow temp
-
-					if ($heatingOffsetCurrent == -10)
-					{
-						return;
-					}
-
-					$heatingOffsetNew = $heatingOffsetCurrent - $offsetChange;
-				}
-				elseif ($degreeMinutes > config("nibe.dmTarget"))
-				{
-					// degree minutes not negative enough
-
-					if ($externalFlowTemp < $calculatedFlowTemp)
-					{
-						// degree minutes is already becoming more negative
-						return;
-					}
-
-					if ($heatingOffsetCurrent == 10)
-					{
-						return;
-					}
-
-					if ($outdoorTemp > config("nibe.tempFreqMin"))
-					{
-						if ($heatingOffsetCurrent == 0)
-						{
-							// we do not need to increase
-							return;
-						}
-						elseif ($heatingOffsetCurrent > 0)
-						{
-							if ($degreeMinutes > -15)
-							{
-								// allow cycle to pretty much complete then reset
-								$heatingOffsetNew = 0;
-							}
-						}
-						elseif ($heatingOffsetCurrent < 0)
-						{
-							$heatingOffsetNew = $heatingOffsetCurrent + $offsetChange;
-						}
-					}
-					else
-					{
-						$heatingOffsetNew = $heatingOffsetCurrent + $offsetChange;
-					}
-
-					if ($degreeMinutes > -60 && $heatingOffsetNew < 0)
-					{
-						// getting close to ending cycle, let's not have offset any less than 0
-						$heatingOffsetNew = 0;
-					}
 				}
 
 				$parameterData = ['47011' => $heatingOffsetNew];
