@@ -230,7 +230,6 @@
 					// it's only the heating & dhw values that we want to keep refreshing
 					if ($latestPriorityNibeFeedItem->rawValue == 10 && $latestPriorityNibeFeedItem->syncStatus == "success")
 					{
-						Log::info("not updating emon this time");
 						return;
 					}
 
