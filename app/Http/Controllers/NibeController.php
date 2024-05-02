@@ -50,7 +50,11 @@
 
 							if ($nibeFeedItem->wasRecentlyCreated || $nibeFeedItem->syncStatus != "success")
 							{
-								$emonPostCollection->put($nibeParameters->get($nibeFeedItem->parameterId)->title, $nibeFeedItem);
+								// exclude "priority" since we are sending this in static::priorityHeartbeat()
+								if ($nibeParameters->get($nibeFeedItem->parameterId)->title != "priority")
+								{
+									$emonPostCollection->put($nibeParameters->get($nibeFeedItem->parameterId)->title, $nibeFeedItem);
+								}
 							}
 						}
 						catch (Throwable $e)
@@ -84,20 +88,6 @@
 				}
 				else
 				{
-					// if we are not already sending a 'priority' update, grab the most recent one and resend that
-					if (!$emonPostCollection->has('priority'))
-					{
-						// get the most recent value for the priority
-						$latestPriorityNibeFeedItem = NibeFeedItem::where('parameterId', "49994")->orderBy('id', "desc")->first();
-
-						if ($latestPriorityNibeFeedItem instanceof NibeFeedItem)
-						{
-							// update timestamp for the emon feed
-							$latestPriorityNibeFeedItem->timestamp = $now->setTimezone("UTC")->format("U");
-							$emonPostCollection->put('priority', $latestPriorityNibeFeedItem);
-						}
-					}
-
 					static::syncNibeData($emonPostCollection->all());
 				}
 
@@ -177,11 +167,10 @@
 					throw new Exception("No data for 'heating offset'");
 				}
 
-				// get the most recent value for the outside temperature
-				$outdoorTemp = $dmOverrideCollection->get("40004");
-				$externalFlowTemp = $dmOverrideCollection->get("40071");
-				$degreeMinutes = $dmOverrideCollection->get("40940");
-				$calculatedFlowTemp = $dmOverrideCollection->get("43009");
+				$outdoorTemp          = $dmOverrideCollection->get("40004");
+				$externalFlowTemp     = $dmOverrideCollection->get("40071");
+				$degreeMinutes        = $dmOverrideCollection->get("40940");
+				$calculatedFlowTemp   = $dmOverrideCollection->get("43009");
 				$heatingOffsetCurrent = $dmOverrideCollection->get("47011");
 
 				// calculate what the difference should be between ext & calc flow so that we get DM to -240 in 15 mins
@@ -213,6 +202,35 @@
 				if ($response['status'] != 200)
 				{
 					throw new Exception("Error with request - status: ".$response['status']);
+				}
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
+		}
+
+		public static function priorityHeartbeat() : void
+		{
+			try
+			{
+				$now = CarbonImmutable::now();
+				$emonPostCollection = new Collection();
+				$latestPriorityNibeFeedItem = NibeFeedItem::where('parameterId', "49994")->orderBy('id', "desc")->first();
+
+				if ($latestPriorityNibeFeedItem instanceof NibeFeedItem)
+				{
+					// update timestamp for the emon feed
+					$latestPriorityNibeFeedItem->timestamp = $now->setTimezone("UTC")->format("U");
+					$emonPostCollection->put('priority', $latestPriorityNibeFeedItem);
+
+					static::syncNibeData($emonPostCollection->all());
 				}
 			}
 			catch (Throwable $e)

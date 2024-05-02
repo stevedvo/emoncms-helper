@@ -11,6 +11,7 @@
 		 */
 		protected function schedule(Schedule $schedule) : void
 		{
+			$schedule->command("nibe:priorityHeartbeat")->everyMinute();
 			$schedule->command("nibe:getData")->everyMinute();
 			$schedule->command("emon:sync")->everyThirtyMinutes();
 			$schedule->command("logs:cleanUp")->daily();
