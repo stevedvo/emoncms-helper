@@ -226,6 +226,14 @@
 
 				if ($latestPriorityNibeFeedItem instanceof NibeFeedItem)
 				{
+					// if emon already updated with the 'off' status we don't need to keep updating it
+					// it's only the heating & dhw values that we want to keep refreshing
+					if ($latestPriorityNibeFeedItem->rawValue == 10 && $latestPriorityNibeFeedItem->syncStatus == "success")
+					{
+						Log::info("not updating emon this time");
+						return;
+					}
+
 					// update timestamp for the emon feed
 					$latestPriorityNibeFeedItem->timestamp = $now->setTimezone("UTC")->format("U");
 					$emonPostCollection->put('priority', $latestPriorityNibeFeedItem);
