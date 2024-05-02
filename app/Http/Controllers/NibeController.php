@@ -40,7 +40,7 @@
 							$nibeFeedItem = NibeFeedItem::firstOrCreate(
 							[
 								'parameterId'  => $datum['parameterId'],
-								'timestamp'    => CarbonImmutable::parse($datum['timestamp'])->setTimezone("UTC")->format("U")
+								'timestamp'    => CarbonImmutable::parse($datum['timestamp'])->setTimezone("UTC")->format("U"),
 							],
 							[
 								'rawValue'     => $datum['value'],
@@ -130,6 +130,13 @@
 						'level'      => "error",
 						'message'    => $e->getMessage(),
 					]);
+				}
+
+				if ($nibeFeedItem->isDirty())
+				{
+					// the only time the NibeFeedItem will be dirty is if it is a 'priority' update and we have adjusted the timestamp
+					// but we ned to retain the original timestamp because we use it to help determine whether or not the data from MyUplink is new
+					$nibeFeedItem->discardChanges();
 				}
 
 				$nibeFeedItem->syncAttempts++;
