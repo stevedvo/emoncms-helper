@@ -102,7 +102,7 @@
 				}
 
 				// do this when the minute number is a multiple of 5
-				if ($now->format("i") % 5 == 0)
+				if (config("nibe.dmOverride") !== false && $now->format("i") % 5 == 0)
 				{
 					static::dmOverride($dmOverrideCollection);
 				}
@@ -152,11 +152,6 @@
 		{
 			try
 			{
-				if (config("nibe.dmOverride") === false)
-				{
-					return;
-				}
-
 				if (!$dmOverrideCollection->has("40004"))
 				{
 					throw new Exception("No data for 'outdoor temp.'");
@@ -190,13 +185,13 @@
 				$heatingOffsetCurrent = $dmOverrideCollection->get("47011");
 
 				// calculate what the difference should be between ext & calc flow so that we get DM to -240 in 15 mins
-				// each change of offset adjusts the calc flow by approx 2K so we divide by 2 at the end and round it to integer
-				$offsetChange = round(($externalFlowTemp - ((config("nibe.dmTarget") - $degreeMinutes) / 15) - $calculatedFlowTemp) / 2);
+				// each change of offset adjusts the calc flow by approx 2K so we divide by 2 at the end and round down to integer
+				$offsetChange = intval(($externalFlowTemp - ((config("nibe.dmTarget") - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
 
 				// constrain the offset within a smaller range to hopefully avoid massive swings
 				// try to avoid compressor inadvertently either kicking in to a higher output [DM too negative] or switching off [DM >= 0]
-				$minOffset = -5;
-				$maxOffset = $outdoorTemp > config("nibe.tempFreqMin") ? 0 : 5;
+				$minOffset = config("nibe.offsetMinimum");
+				$maxOffset = $outdoorTemp > config("nibe.tempFreqMin") ? 0 : config("nibe.offsetMaximum");
 
 				$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
 
