@@ -182,14 +182,17 @@
 
 				// calculate what the difference should be between ext & calc flow so that we get DM to -240 in 15 mins
 				// each change of offset adjusts the calc flow by approx 2K so we divide by 2 at the end and round down to integer
-				$offsetChange = intval(($externalFlowTemp - ((config("nibe.dmTarget") - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
+				$offsetChange = round(($externalFlowTemp - ((config("nibe.dmTarget") - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
+				// Log::info('$offsetChange = round(('.$externalFlowTemp.' - (('.config("nibe.dmTarget").' - '.$degreeMinutes.') / '.config("nibe.minutesToDm").') - '.$calculatedFlowTemp.') / '.config("nibe.offsetFactor").') = round('.($externalFlowTemp - ((config("nibe.dmTarget") - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor").') = '.$offsetChange);
 
 				// constrain the offset within a smaller range to hopefully avoid massive swings
 				// try to avoid compressor inadvertently either kicking in to a higher output [DM too negative] or switching off [DM >= 0]
 				$minOffset = config("nibe.offsetMinimum");
-				$maxOffset = $outdoorTemp > config("nibe.tempFreqMin") ? 0 : config("nibe.offsetMaximum");
+				// $maxOffset = $outdoorTemp > config("nibe.tempFreqMin") ? 0 : config("nibe.offsetMaximum");
+				$maxOffset = config("nibe.offsetMaximum");
 
 				$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
+				// Log::info('$heatingOffsetNew = '.$heatingOffsetNew);
 
 				if ($heatingOffsetNew == $heatingOffsetCurrent)
 				{
