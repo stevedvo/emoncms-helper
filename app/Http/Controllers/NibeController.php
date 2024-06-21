@@ -69,8 +69,8 @@
 						}
 					}
 
-					// populate collection with values for outdoor temp, external flow temp, degree-minutes, calculated flow temp, and heating offset
-					if (in_array($datum['parameterId'], [40004, 40071, 40940, 43009, 47011]))
+					// populate collection with values for outdoor temp, avg outdoor temp, external flow temp, degree-minutes, calculated flow temp, heating offset, and priority
+					if (in_array($datum['parameterId'], [40004, 40067, 40071, 40940, 43009, 47011, 49994]))
 					{
 						$dmOverrideCollection->put($datum['parameterId'], $datum['value']);
 					}
@@ -135,7 +135,7 @@
 				if ($nibeFeedItem->isDirty())
 				{
 					// the only time the NibeFeedItem will be dirty is if it is a 'priority' update and we have adjusted the timestamp
-					// but we ned to retain the original timestamp because we use it to help determine whether or not the data from MyUplink is new
+					// but we need to retain the original timestamp because we use it to help determine whether or not the data from MyUplink is new
 					$nibeFeedItem->discardChanges();
 				}
 
@@ -152,6 +152,11 @@
 				if (!$dmOverrideCollection->has("40004"))
 				{
 					throw new Exception("No data for 'outdoor temp.'");
+				}
+
+				if (!$dmOverrideCollection->has("40067"))
+				{
+					throw new Exception("No data for 'avg. outdoor temp.'");
 				}
 
 				if (!$dmOverrideCollection->has("40071"))
@@ -174,22 +179,35 @@
 					throw new Exception("No data for 'heating offset'");
 				}
 
+				if (!$dmOverrideCollection->has("49994"))
+				{
+					throw new Exception("No data for 'priority'");
+				}
+
 				$outdoorTemp          = $dmOverrideCollection->get("40004");
+				$avgOutdoorTemp       = $dmOverrideCollection->get("40067");
 				$externalFlowTemp     = $dmOverrideCollection->get("40071");
 				$degreeMinutes        = $dmOverrideCollection->get("40940");
 				$calculatedFlowTemp   = $dmOverrideCollection->get("43009");
 				$heatingOffsetCurrent = $dmOverrideCollection->get("47011");
+				$priority             = $dmOverrideCollection->get("49994");
+
+				$dmTarget = $avgOutdoorTemp < 12 ? config("nibe.dmTarget") : config("nibe.dmTargetOff");
+
+				if ($priority == 20)
+				{
+					$dmTarget = $dmTarget - 90;
+				}
 
 				// calculate what the difference should be between ext & calc flow so that we get DM to -240 in 15 mins
 				// each change of offset adjusts the calc flow by approx 2K so we divide by 2 at the end and round down to integer
-				$offsetChange = round(($externalFlowTemp - ((config("nibe.dmTarget") - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
-				// Log::info('$offsetChange = round(('.$externalFlowTemp.' - (('.config("nibe.dmTarget").' - '.$degreeMinutes.') / '.config("nibe.minutesToDm").') - '.$calculatedFlowTemp.') / '.config("nibe.offsetFactor").') = round('.($externalFlowTemp - ((config("nibe.dmTarget") - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor").') = '.$offsetChange);
+				$offsetChange = round(($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
+				// Log::info('$offsetChange = round(('.$externalFlowTemp.' - (('.$dmTarget.' - '.$degreeMinutes.') / '.config("nibe.minutesToDm").') - '.$calculatedFlowTemp.') / '.config("nibe.offsetFactor").') = round('.($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor").') = '.$offsetChange);
 
 				// constrain the offset within a smaller range to hopefully avoid massive swings
 				// try to avoid compressor inadvertently either kicking in to a higher output [DM too negative] or switching off [DM >= 0]
 				$minOffset = config("nibe.offsetMinimum");
-				// $maxOffset = $outdoorTemp > config("nibe.tempFreqMin") ? 0 : config("nibe.offsetMaximum");
-				$maxOffset = config("nibe.offsetMaximum");
+				$maxOffset = ($avgOutdoorTemp < 12 && $outdoorTemp > config("nibe.tempFreqMin")) ? 0 : config("nibe.offsetMaximum");
 
 				$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
 				// Log::info('$heatingOffsetNew = '.$heatingOffsetNew);
