@@ -14,7 +14,7 @@
 
 	class NibeController extends Controller
 	{
-		public static function GetNibeData() : void
+		public static function getNibeData() : void
 		{
 			try
 			{

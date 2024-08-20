@@ -11,16 +11,16 @@
 	 
 	class EmonController extends Controller
 	{
-		public static function SyncEmonFeeds() : void
+		public static function syncEmonFeeds() : void
 		{
 			// 1st task: get the feeds from local and from remote and compare them to find any that are missing/incorrect
-			static::GetEmonFeeds();
+			static::getEmonFeeds();
 
 			// 2nd task: find any feed items which have not been sync'd from local to remote and attempt to sync
-			static::PostEmonFeeds();
+			static::postEmonFeeds();
 		}
 
-		public static function GetEmonFeeds() : void
+		public static function getEmonFeeds() : void
 		{
 			try
 			{
@@ -233,7 +233,7 @@
 			}
 		}
 
-		public static function PostEmonFeeds() : void
+		public static function postEmonFeeds() : void
 		{
 			try
 			{

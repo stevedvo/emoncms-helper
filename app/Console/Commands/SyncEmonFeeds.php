@@ -38,7 +38,7 @@
 					'message'    => "Command Start.",
 				]);
 
-				EmonController::SyncEmonFeeds();
+				EmonController::syncEmonFeeds();
 
 				ActivityLog::create(
 				[

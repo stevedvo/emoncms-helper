@@ -38,7 +38,7 @@
 					'message'    => "Command Start.",
 				]);
 
-				NibeController::GetNibeData();
+				NibeController::getNibeData();
 
 				ActivityLog::create(
 				[
