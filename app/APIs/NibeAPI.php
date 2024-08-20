@@ -96,4 +96,19 @@
 				throw $e;
 			}
 		}
+
+		public function setParameterData(array $parameterData) : array
+		{
+			try
+			{
+				$url = $this->nibeFunctionUrl."/devices/".$this->nibeDeviceId."/points";
+				$response = API::patch($url)->headers(['Authorization' => "Bearer ".$this->nibeTokenCurrent->value])->json($parameterData)->send();
+
+				return json_decode((string)$response->getBody(), true);
+			}
+			catch (Throwable $e)
+			{
+				throw $e;
+			}
+		}
 	}
