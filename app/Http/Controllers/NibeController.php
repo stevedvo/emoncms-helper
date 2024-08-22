@@ -4,6 +4,7 @@
 	use Exception;
 	use Throwable;
 	use App\APIs\EmonAPI;
+	use App\APIs\HomeAssistantAPI;
 	use App\APIs\NibeAPI;
 	use App\Models\ActivityLog;
 	use App\Models\NibeFeedItem;
@@ -19,9 +20,9 @@
 			try
 			{
 				$now = CarbonImmutable::now();
-				$api = new NibeAPI();
+				$nibe = new NibeAPI();
 
-				$parameterData = collect($api->getParameterData())->unique(function(array $item)
+				$parameterData = collect($nibe->getParameterData())->unique(function(array $item)
 				{
 					return $item['parameterId'].$item['timestamp'].$item['value'];
 				});
@@ -337,8 +338,8 @@
 				// 	$parameterData = ['47011' => $heatingOffsetNew];
 				// }
 
-				$api = new NibeAPI();
-				$response = $api->setParameterData($parameterData);
+				$nibe = new NibeAPI();
+				$response = $nibe->setParameterData($parameterData);
 
 				if (!isset($response['status']))
 				{
@@ -372,6 +373,9 @@
 
 				if ($latestPriorityNibeFeedItem instanceof NibeFeedItem)
 				{
+					$homeAssistant = new HomeAssistantAPI();
+					$homeAssistant->adjustHiveThermostat($latestPriorityNibeFeedItem->rawValue == 30 ? config("hive.targetOnTemp") : config("hive.targetOffTemp"));
+
 					// if emon already updated with the 'off' status we don't need to keep updating it
 					// it's only the heating & dhw values that we want to keep refreshing
 					if ($latestPriorityNibeFeedItem->rawValue == 10 && $latestPriorityNibeFeedItem->syncStatus == "success")
