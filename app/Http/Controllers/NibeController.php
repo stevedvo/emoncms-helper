@@ -91,7 +91,24 @@
 				}
 				else
 				{
-					static::syncNibeData($emonPostCollection->all());
+					static::syncNibeData("local", $emonPostCollection->all());
+
+					// Log::info('$emonPostCollection: '.$emonPostCollection);
+
+					// $emonRemotePostCollection = $emonPostCollection->only(['calculated flow temp.']);
+					$emonRemotePostCollection = new Collection();
+
+					if ($emonPostCollection->has('calculated flow temp.'))
+					{
+						$emonRemotePostCollection->put('calculated flow temp.', $emonPostCollection->get('calculated flow temp.'));
+					}
+
+					// Log::info('$emonRemotePostCollection: '.$emonRemotePostCollection);
+
+					if (!$emonRemotePostCollection->isEmpty())
+					{
+						static::syncNibeData("remote", $emonRemotePostCollection->all());
+					}
 				}
 
 				// do this when the minute number is a multiple of 5
@@ -112,7 +129,7 @@
 			}
 		}
 
-		public static function syncNibeData(array $emonPostArray) : void
+		public static function syncNibeData(string $environment, array $emonPostArray) : void
 		{
 			$syncSuccess = false;
 
@@ -120,7 +137,7 @@
 			{
 				try
 				{
-					$syncSuccess = EmonAPI::postInputData("local", $nibeFeedItem->timestamp, "nibe", json_encode([$title => $nibeFeedItem->rawValue]));
+					$syncSuccess = EmonAPI::postInputData($environment, $nibeFeedItem->timestamp, "nibe", json_encode([$title => $nibeFeedItem->rawValue]));
 				}
 				catch (Throwable $e)
 				{
@@ -135,16 +152,19 @@
 					]);
 				}
 
-				if ($nibeFeedItem->isDirty())
+				if ($environment == "local")
 				{
-					// the only time the NibeFeedItem will be dirty is if it is a 'priority' update and we have adjusted the timestamp
-					// but we need to retain the original timestamp because we use it to help determine whether or not the data from MyUplink is new
-					$nibeFeedItem->discardChanges();
-				}
+					if ($nibeFeedItem->isDirty())
+					{
+						// the only time the NibeFeedItem will be dirty is if it is a 'priority' update and we have adjusted the timestamp
+						// but we need to retain the original timestamp because we use it to help determine whether or not the data from MyUplink is new
+						$nibeFeedItem->discardChanges();
+					}
 
-				$nibeFeedItem->syncAttempts++;
-				$nibeFeedItem->syncStatus = $syncSuccess ? "success" : "failed";
-				$nibeFeedItem->save();
+					$nibeFeedItem->syncAttempts++;
+					$nibeFeedItem->syncStatus = $syncSuccess ? "success" : "failed";
+					$nibeFeedItem->save();
+				}
 			}
 		}
 
@@ -365,39 +385,77 @@
 
 		public static function priorityHeartbeat() : void
 		{
-			try
-			{
-				$now = CarbonImmutable::now();
-				$emonPostCollection = new Collection();
-				$latestPriorityNibeFeedItem = NibeFeedItem::where('parameterId', "49994")->orderBy('id', "desc")->first();
+			$now = CarbonImmutable::now();
+			$emonPostCollection = new Collection();
+			$latestPriorityNibeFeedItem = NibeFeedItem::where('parameterId', "49994")->orderBy('id', "desc")->first();
 
-				if ($latestPriorityNibeFeedItem instanceof NibeFeedItem)
+			if ($latestPriorityNibeFeedItem instanceof NibeFeedItem)
+			{
+				try
 				{
 					$homeAssistant = new HomeAssistantAPI();
 					$homeAssistant->adjustHiveThermostat($latestPriorityNibeFeedItem->rawValue == 30 ? config("hive.targetOnTemp") : config("hive.targetOffTemp"));
+				}
+				catch (Throwable $e)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "error",
+						'message'    => $e->getMessage(),
+					]);
+				}
 
-					// if emon already updated with the 'off' status we don't need to keep updating it
-					// it's only the heating & dhw values that we want to keep refreshing
-					if ($latestPriorityNibeFeedItem->rawValue == 10 && $latestPriorityNibeFeedItem->syncStatus == "success")
-					{
-						return;
-					}
+				// if emon already updated with the 'off' status we don't need to keep updating it
+				// it's only the heating & dhw values that we want to keep refreshing
+				if ($latestPriorityNibeFeedItem->rawValue == 10 && $latestPriorityNibeFeedItem->syncStatus == "success")
+				{
+					return;
+				}
 
-					// update timestamp for the emon feed
-					$latestPriorityNibeFeedItem->timestamp = $now->setTimezone("UTC")->format("U");
-					$emonPostCollection->put('priority', $latestPriorityNibeFeedItem);
+				// update timestamp for the emon feed
+				$latestPriorityNibeFeedItem->timestamp = $now->setTimezone("UTC")->format("U");
+				$emonPostCollection->put('priority', $latestPriorityNibeFeedItem);
 
-					static::syncNibeData($emonPostCollection->all());
+				try
+				{
+					static::syncNibeData("local", $emonPostCollection->all());
+				}
+				catch (Throwable $e)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "error",
+						'message'    => $e->getMessage(),
+					]);
+				}
+
+				try
+				{
+					static::syncNibeData("remote", $emonPostCollection->all());
+				}
+				catch (Throwable $e)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "error",
+						'message'    => $e->getMessage(),
+					]);
 				}
 			}
-			catch (Throwable $e)
+			else
 			{
 				ActivityLog::create(
 				[
 					'controller' => __CLASS__,
 					'method'     => __FUNCTION__,
 					'level'      => "error",
-					'message'    => $e->getMessage(),
+					'message'    => "NibeFeedItem not found",
 				]);
 			}
 		}

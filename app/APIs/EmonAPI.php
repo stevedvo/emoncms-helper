@@ -1,6 +1,7 @@
 <?php
 	namespace App\APIs;
 
+	use Exception;
 	use Throwable;
 	use Illuminate\Support\Facades\Log;
 
@@ -14,7 +15,7 @@
 
 			switch ($environment)
 			{
-				case 'local':
+				case "local":
 				{
 					$url      = config("emon.emonHpLocalEndpoint");
 					$readkey  = config("emon.emonHpLocalReadKey");
@@ -22,7 +23,7 @@
 				}
 				break;
 
-				case 'remote':
+				case "remote":
 				{
 					$url      = config("emon.emonCmsEndpoint");
 					$readkey  = config("emon.emonCmsReadKey");
