@@ -4,7 +4,6 @@
 	use Exception;
 	use Throwable;
 	use App\APIs\EmonAPI;
-	use App\APIs\HomeAssistantAPI;
 	use App\APIs\NibeAPI;
 	use App\Models\ActivityLog;
 	use App\Models\NibeFeedItem;
@@ -391,22 +390,6 @@
 
 			if ($latestPriorityNibeFeedItem instanceof NibeFeedItem)
 			{
-				try
-				{
-					$homeAssistant = new HomeAssistantAPI();
-					$homeAssistant->adjustHiveThermostat($latestPriorityNibeFeedItem->rawValue == 30 ? config("hive.targetOnTemp") : config("hive.targetOffTemp"));
-				}
-				catch (Throwable $e)
-				{
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "error",
-						'message'    => $e->getMessage(),
-					]);
-				}
-
 				// if emon already updated with the 'off' status we don't need to keep updating it
 				// it's only the heating & dhw values that we want to keep refreshing
 				if ($latestPriorityNibeFeedItem->rawValue == 10 && $latestPriorityNibeFeedItem->syncStatus == "success")
