@@ -136,7 +136,48 @@
 			{
 				try
 				{
-					$syncSuccess = EmonAPI::postInputData($environment, $nibeFeedItem->timestamp, "nibe", json_encode([$title => $nibeFeedItem->rawValue]));
+					if ($title != "priority")
+					{
+						$syncSuccess = EmonAPI::postInputData($environment, $nibeFeedItem->timestamp, "nibe", json_encode([$title => $nibeFeedItem->rawValue]));
+					}
+					else
+					{
+						$priorities =
+						[
+							'hot water' => 0,
+							'heating'   => 0,
+							'cooling'   => 0,
+						];
+
+						switch ($nibeFeedItem->rawValue)
+						{
+							case 20:
+							{
+								$priorities['hot water'] = 1;
+							}
+							break;
+
+							case 30:
+							{
+								$priorities['heating'] = 1;
+							}
+							break;
+
+							case 60:
+							{
+								$priorities['cooling'] = 1;
+							}
+							break;
+
+							default:
+							break;
+						}
+
+						foreach ($priorities as $priority => $value)
+						{
+							$syncSuccess = EmonAPI::postInputData($environment, $nibeFeedItem->timestamp, "nibe", json_encode([$priority => $value]));
+						}
+					}
 				}
 				catch (Throwable $e)
 				{
