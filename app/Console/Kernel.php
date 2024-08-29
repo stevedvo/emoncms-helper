@@ -13,6 +13,7 @@
 		{
 			$schedule->command("nibe:priorityHeartbeat")->everyTenSeconds();
 			$schedule->command("nibe:getData")->everyMinute();
+			$schedule->command("ha:adjustHiveThermostat")->everyMinute();
 			$schedule->command("emon:sync")->everyThirtyMinutes();
 			$schedule->command("logs:cleanUp")->daily();
 			$schedule->command("admin:emails")->dailyAt("06:00");

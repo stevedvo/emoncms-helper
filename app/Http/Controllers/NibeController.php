@@ -4,7 +4,6 @@
 	use Exception;
 	use Throwable;
 	use App\APIs\EmonAPI;
-	use App\APIs\HomeAssistantAPI;
 	use App\APIs\NibeAPI;
 	use App\Models\ActivityLog;
 	use App\Models\NibeFeedItem;
@@ -234,8 +233,8 @@
 					$dmTarget = $dmTarget - 90;
 				}
 
-				// calculate what the difference should be between ext & calc flow so that we get DM to -240 in 15 mins
-				// each change of offset adjusts the calc flow by approx 2K so we divide by 2 at the end and round down to integer
+				// calculate what the difference should be between ext & calc flow so that we get DM to {$dmTarget} in {minutesToDm} mins
+				// each change of offset adjusts the calc flow by approx {offsetFactor}K so we divide by {offsetFactor} at the end and round down to integer
 				$offsetChange = round(($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
 				// Log::info('$offsetChange = round(('.$externalFlowTemp.' - (('.$dmTarget.' - '.$degreeMinutes.') / '.config("nibe.minutesToDm").') - '.$calculatedFlowTemp.') / '.config("nibe.offsetFactor").') = round('.($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor").') = '.$offsetChange);
 
@@ -262,8 +261,6 @@
 				// {
 				// 	$heatingCurveNew = $heatingCurveCurrent - 1;
 				// }
-
-				// new logic start
 
 				$parameterData = [];
 
@@ -337,27 +334,6 @@
 					return;
 				}
 
-				// new logic end
-
-				// Log::info('$heatingCurveCurrent = '.$heatingCurveCurrent);
-				// Log::info('$heatingCurveNew = '.$heatingCurveNew);
-				// if ($heatingCurveNew != $heatingCurveCurrent)
-				// {
-				// 	$parameterData = ['47007' => $heatingCurveNew];
-				// }
-				// else
-				// {
-				// 	$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
-				// 	// Log::info('$heatingOffsetNew = '.$heatingOffsetNew);
-
-				// 	if ($heatingOffsetNew == $heatingOffsetCurrent)
-				// 	{
-				// 		return;
-				// 	}
-
-				// 	$parameterData = ['47011' => $heatingOffsetNew];
-				// }
-
 				$nibe = new NibeAPI();
 				$response = $nibe->setParameterData($parameterData);
 
@@ -391,22 +367,6 @@
 
 			if ($latestPriorityNibeFeedItem instanceof NibeFeedItem)
 			{
-				try
-				{
-					$homeAssistant = new HomeAssistantAPI();
-					$homeAssistant->adjustHiveThermostat($latestPriorityNibeFeedItem->rawValue == 30 ? config("hive.targetOnTemp") : config("hive.targetOffTemp"));
-				}
-				catch (Throwable $e)
-				{
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "error",
-						'message'    => $e->getMessage(),
-					]);
-				}
-
 				// if emon already updated with the 'off' status we don't need to keep updating it
 				// it's only the heating & dhw values that we want to keep refreshing
 				if ($latestPriorityNibeFeedItem->rawValue == 10 && $latestPriorityNibeFeedItem->syncStatus == "success")

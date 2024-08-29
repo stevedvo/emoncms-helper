@@ -2,25 +2,25 @@
 	namespace App\Console\Commands;
 
 	use Throwable;
-	use App\Http\Controllers\NibeController;
+	use App\Http\Controllers\HomeAssistantController;
 	use App\Models\ActivityLog;
 	use Illuminate\Console\Command;
 
-	class GetNibeData extends Command
+	class AdjustHiveThermostat extends Command
 	{
 		/**
 		 * The name and signature of the console command.
 		 *
 		 * @var string
 		 */
-		protected $signature = "nibe:getData";
+		protected $signature = "ha:adjustHiveThermostat";
 
 		/**
 		 * The console command description.
 		 *
 		 * @var string
 		 */
-		protected $description = "Get latest parameter values from NIBE Uplink API";
+		protected $description = "Check the latest compressor priority and adjust Hive thermostat";
 
 		/**
 		 * Execute the console command.
@@ -39,7 +39,7 @@
 					'message'    => "Command Start.",
 				]);
 
-				NibeController::getNibeData();
+				HomeAssistantController::adjustHiveThermostat();
 
 				ActivityLog::create(
 				[
