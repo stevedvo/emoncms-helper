@@ -1,6 +1,7 @@
 <?php
 	namespace App\Console\Commands;
 
+	use Throwable;
 	use App\Http\Controllers\HomeAssistantController;
 	use App\Models\ActivityLog;
 	use Illuminate\Console\Command;
