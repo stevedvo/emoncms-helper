@@ -390,16 +390,6 @@
 					{
 						$errors[] = "Parameter #".$parameterId." not modified";
 					}
-					elseif ($response[$parameterId] == "modified")
-					{
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => "Parameter #".$parameterId." successfully modified",
-						]);
-					}
 				}
 
 				if (count($errors) > 0)
