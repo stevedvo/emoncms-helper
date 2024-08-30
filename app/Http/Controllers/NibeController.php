@@ -192,15 +192,15 @@
 					]);
 				}
 
+				if ($nibeFeedItem->isDirty())
+				{
+					// the only time the NibeFeedItem will be dirty is if it is a 'priority' update and we have adjusted the timestamp
+					// but we need to retain the original timestamp because we use it to help determine whether or not the data from MyUplink is new
+					$nibeFeedItem->discardChanges();
+				}
+
 				if ($environment == "local")
 				{
-					if ($nibeFeedItem->isDirty())
-					{
-						// the only time the NibeFeedItem will be dirty is if it is a 'priority' update and we have adjusted the timestamp
-						// but we need to retain the original timestamp because we use it to help determine whether or not the data from MyUplink is new
-						$nibeFeedItem->discardChanges();
-					}
-
 					$nibeFeedItem->syncAttempts++;
 					$nibeFeedItem->syncStatus = $syncSuccess ? "success" : "failed";
 					$nibeFeedItem->save();
@@ -412,7 +412,7 @@
 				// it's only the heating & dhw values that we want to keep refreshing
 				if ($latestPriorityNibeFeedItem->rawValue == 10 && $latestPriorityNibeFeedItem->syncStatus == "success")
 				{
-					return;
+					// return;
 				}
 
 				// update timestamp for the emon feed
@@ -433,6 +433,9 @@
 						'message'    => $e->getMessage(),
 					]);
 				}
+
+				// update timestamp for the emon feed again since syncNibeData will reset it
+				$latestPriorityNibeFeedItem->timestamp = $now->setTimezone("UTC")->format("U");
 
 				try
 				{
