@@ -378,14 +378,33 @@
 				$nibe = new NibeAPI();
 				$response = $nibe->setParameterData($parameterData);
 
-				if (!isset($response['status']))
+				$errors = [];
+
+				foreach ($parameterData as $parameterId => $value)
 				{
-					throw new Exception("Error with request - no status returned");
+					if (!isset($response[$parameterId]))
+					{
+						$errors[] = "No response for parameter #".$parameterId;
+					}
+					elseif ($response[$parameterId] != "modified")
+					{
+						$errors[] = "Parameter #".$parameterId." not modified";
+					}
+					elseif ($response[$parameterId] == "modified")
+					{
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => "Parameter #".$parameterId." successfully modified",
+						]);
+					}
 				}
 
-				if ($response['status'] != 200)
+				if (count($errors) > 0)
 				{
-					throw new Exception("Error with request - status: ".$response['status']);
+					throw new Exception("Error(s) with request: ".implode("; ", $errors));
 				}
 			}
 			catch (Throwable $e)
