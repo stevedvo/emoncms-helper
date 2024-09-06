@@ -378,14 +378,23 @@
 				$nibe = new NibeAPI();
 				$response = $nibe->setParameterData($parameterData);
 
-				if (!isset($response['status']))
+				$errors = [];
+
+				foreach ($parameterData as $parameterId => $value)
 				{
-					throw new Exception("Error with request - no status returned");
+					if (!isset($response[$parameterId]))
+					{
+						$errors[] = "No response for parameter #".$parameterId;
+					}
+					elseif ($response[$parameterId] != "modified")
+					{
+						$errors[] = "Parameter #".$parameterId." not modified";
+					}
 				}
 
-				if ($response['status'] != 200)
+				if (count($errors) > 0)
 				{
-					throw new Exception("Error with request - status: ".$response['status']);
+					throw new Exception("Error(s) with request: ".implode("; ", $errors));
 				}
 			}
 			catch (Throwable $e)
