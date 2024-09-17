@@ -20,7 +20,7 @@
 				{
 					throw new Exception("NibeFeedItem not found");
 				}
-					
+
 				$homeAssistant = new HomeAssistantAPI();
 				$homeAssistant->adjustHiveThermostat($latestPriorityNibeFeedItem->rawValue == 30 ? config("hive.targetOnTemp") : config("hive.targetOffTemp"));
 			}
