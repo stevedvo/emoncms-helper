@@ -6,6 +6,7 @@
 	use App\APIs\OctopusAPI;
 	use App\Mail\AgileRates;
 	use App\Models\ActivityLog;
+	use App\Models\Setting;
 	use Carbon\Carbon;
 	use Carbon\CarbonImmutable;
 	use Illuminate\Support\Facades\Log;
@@ -58,6 +59,8 @@
 
 				$agileRates = new AgileRates($cheapestPeriods);
 				Mail::to(config("app.admin_email"))->send($agileRates);
+
+				self::saveCheapestPeriods($cheapestPeriods);
 			}
 			catch (Throwable $e)
 			{
@@ -71,7 +74,7 @@
 			}
 		}
 
-		private static function findCheapestPeriods($results, $periodsToCheck) : array
+		private static function findCheapestPeriods(array $results, array $periodsToCheck) : array
 		{
 			$cheapestPeriods = [];
 
@@ -111,7 +114,7 @@
 			return $cheapestPeriods;
 		}
 
-		private static function findCheapestWindow($results, $windowSize) : array
+		private static function findCheapestWindow(array $results, int $windowSize) : array
 		{
 			$minAvgCost = PHP_INT_MAX;
 			$cheapestWindow = [];
@@ -133,5 +136,27 @@
 				'average_cost' => $minAvgCost,
 				'window'       => $cheapestWindow,
 			];
+		}
+
+		private static function saveCheapestPeriods(array $cheapestPeriods) : void
+		{
+			$schedule =
+			[
+				"0" =>
+				[
+					'average_cost' => round($cheapestPeriods['overnight']['cheapest_3_hours']['average_cost'], 4),
+					'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
+					'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-15)->getTimestamp(),
+				],
+
+				"1" =>
+				[
+					'average_cost' => round($cheapestPeriods['daytime']['cheapest_3_hours']['average_cost'], 4),
+					'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
+					'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-15)->getTimestamp(),
+				],
+			];
+
+			$setting = Setting::updateOrCreate(["key" => "agile_schedule"], ["value" => json_encode($schedule)]);
 		}
 	}
