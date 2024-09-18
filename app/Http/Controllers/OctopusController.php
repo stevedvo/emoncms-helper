@@ -51,7 +51,7 @@
 					],
 				];
 
-				$cheapestPeriods = self::findCheapestPeriods($results, $periodsToCheck);
+				$cheapestPeriods = static::findCheapestPeriods($results, $periodsToCheck);
 
 				// Output the results
 				// Log::info('$cheapestPeriods');
@@ -60,7 +60,7 @@
 				$agileRates = new AgileRates($cheapestPeriods);
 				Mail::to(config("app.admin_email"))->send($agileRates);
 
-				self::saveCheapestPeriods($cheapestPeriods);
+				static::saveCheapestPeriods($cheapestPeriods);
 			}
 			catch (Throwable $e)
 			{
@@ -105,9 +105,9 @@
 				// Find cheapest 1-hour, 2-hour, and 3-hour windows
 				$cheapestPeriods[$label] =
 				[
-					'cheapest_1_hour'  => self::findCheapestWindow($filteredResults, 2), // 1 hour = 2 periods (30 min each)
-					'cheapest_2_hours' => self::findCheapestWindow($filteredResults, 4), // 2 hours = 4 periods (30 min each)
-					'cheapest_3_hours' => self::findCheapestWindow($filteredResults, 6), // 3 hours = 6 periods (30 min each)
+					'cheapest_1_hour'  => static::findCheapestWindow($filteredResults, 2), // 1 hour = 2 periods (30 min each)
+					'cheapest_2_hours' => static::findCheapestWindow($filteredResults, 4), // 2 hours = 4 periods (30 min each)
+					'cheapest_3_hours' => static::findCheapestWindow($filteredResults, 6), // 3 hours = 6 periods (30 min each)
 				];
 			}
 
@@ -142,14 +142,14 @@
 		{
 			$schedule =
 			[
-				"0" =>
+				0 =>
 				[
 					'average_cost' => round($cheapestPeriods['overnight']['cheapest_3_hours']['average_cost'], 4),
 					'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
 					'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-15)->getTimestamp(),
 				],
 
-				"1" =>
+				1 =>
 				[
 					'average_cost' => round($cheapestPeriods['daytime']['cheapest_3_hours']['average_cost'], 4),
 					'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),

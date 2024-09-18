@@ -8,6 +8,7 @@
 	use App\Models\ActivityLog;
 	use App\Models\NibeFeedItem;
 	use App\Models\NibeParameter;
+	use App\Models\Setting;
 	use Carbon\CarbonImmutable;
 	use Illuminate\Database\Eloquent\Collection;
 	use Illuminate\Support\Facades\Log;
@@ -111,6 +112,7 @@
 				}
 
 				// do this when the minute number is a multiple of 5
+				// if (true)
 				if (config("nibe.dmOverride") !== false && $now->format("i") % 5 == 0)
 				{
 					static::dmOverride($dmOverrideCollection);
@@ -278,7 +280,26 @@
 					$htgMode = "intermittent";
 				}
 
+				$boostActive = false;
+
+				if (config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp") + 3))
+				{
+					$boostActive = static::isBoostActive();
+				}
+
+				Log::info("Boost is ".($boostActive ? "active" : "inactive"));
+
+				if ($boostActive)
+				{
+					$htgMode = "boost";
+				}
+
 				$dmTarget = $htgMode == "off" ? config("nibe.dmTargetOff") : config("nibe.dmTarget");
+
+				if ($htgMode == "boost")
+				{
+					$dmTarget = $dmTarget - 90;
+				}
 
 				// target a lower DM during DHW cycle so that when it completes the dump of very hot water gets the DM close to where it ought to normally be
 				// without this the DM could potentially inadvertently go over 0 and switch the compressor off
@@ -487,5 +508,40 @@
 					'message'    => "NibeFeedItem not found",
 				]);
 			}
+		}
+
+		public static function isBoostActive() : bool
+		{
+			$now = CarbonImmutable::now();
+
+			try
+			{
+				$scheduleString = Setting::firstWhere("key", "agile_schedule")->value;
+				$schedules = json_decode($scheduleString, true);
+
+				foreach ($schedules as $schedule)
+				{
+					$averageCost = $schedule['average_cost'];
+					$start = CarbonImmutable::parse($schedule['start']);
+					$end = CarbonImmutable::parse($schedule['end']);
+
+					if ($now->isAfter($start) && $now->isBefore($end) && $averageCost < config("nibe.boostMaxCost"))
+					{
+						return true;
+					}
+				}
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
+
+			return false;
 		}
 	}
