@@ -280,17 +280,9 @@
 					$htgMode = "intermittent";
 				}
 
-				$boostActive = false;
-
-				if (config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp") + 3))
+				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp") + 3)) ? static::isBoostActive($htgMode) : false)
 				{
-					$boostActive = static::isBoostActive();
-				}
-
-				Log::info("Boost is ".($boostActive ? "active" : "inactive"));
-
-				if ($boostActive)
-				{
+					Log::info("Boost is active");
 					$htgMode = "boost";
 				}
 
@@ -510,7 +502,7 @@
 			}
 		}
 
-		public static function isBoostActive() : bool
+		public static function isBoostActive(string $htgMode) : bool
 		{
 			$now = CarbonImmutable::now();
 
@@ -525,8 +517,16 @@
 					$start = CarbonImmutable::parse($schedule['start']);
 					$end = CarbonImmutable::parse($schedule['end']);
 
-					if ($now->isAfter($start) && $now->isBefore($end) && $averageCost < config("nibe.boostMaxCost"))
+					if ($now->isAfter($start) && $now->isBefore($end))
 					{
+						if ($htgMode == "off")
+						{
+							// htg would normally be off, so only return true if it is particularly cheap
+							return $averageCost < config("nibe.boostMaxCost");
+						}
+
+						// htg is already either "on" or "intermittent", so boost regardless of cost since we're already
+						// targetting the cheapest 3 hours and this may help us to run less at other times when the cost is higher
 						return true;
 					}
 				}
