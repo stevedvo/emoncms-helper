@@ -36,7 +36,7 @@
 				// Log::info($results);
 
 				// Define time ranges to check (adjust based on your needs)
-				$periodsToCheck =
+				$cheapPeriodsToCheck =
 				[
 					'overnight' =>
 					[
@@ -51,13 +51,31 @@
 					],
 				];
 
-				$cheapestPeriods = static::findCheapestPeriods($results, $periodsToCheck);
+				$expensivePeriodsToCheck =
+				[
+					'morning'   =>
+					[
+						'start' => Carbon::createFromTime(6, 0, 0)->addDay(), // 06:00 tomorrow
+						'end'   => Carbon::createFromTime(12, 0, 0)->addDay(), // 12:00 tomorrow
+					],
+
+					// 'evening'   =>
+					// [
+					// 	'start' => Carbon::createFromTime(16, 0, 0)->addDay(), // 16:00 tomorrow
+					// 	'end'   => Carbon::createFromTime(22, 0, 0)->addDay(), // 22:00 tomorrow
+					// ],
+				];
+
+				$cheapestPeriods = static::findCheapestPeriods($results, $cheapPeriodsToCheck);
+				$mostExpensivePeriods = static::findMostExpensivePeriods($results, $expensivePeriodsToCheck);
 
 				// Output the results
 				// Log::info('$cheapestPeriods');
 				// Log::info($cheapestPeriods);
+				// Log::info('$mostExpensivePeriods');
+				// Log::info($mostExpensivePeriods);
 
-				$agileRates = new AgileRates($cheapestPeriods);
+				$agileRates = new AgileRates($cheapestPeriods, $mostExpensivePeriods);
 				Mail::to(config("app.admin_email"))->send($agileRates);
 
 				static::saveCheapestPeriods($cheapestPeriods);
@@ -133,8 +151,73 @@
 			}
 
 			return [
-				'average_cost' => $minAvgCost,
+				'average_cost' => round($minAvgCost, 4),
 				'window'       => $cheapestWindow,
+			];
+		}
+
+		private static function findMostExpensivePeriods(array $results, array $periodsToCheck) : array
+		{
+			$mostExpensivePeriods = [];
+
+			// Get current time
+			$currentTime = CarbonImmutable::now();
+			$twentyFourHoursAhead = $currentTime->addDay();
+
+			foreach ($periodsToCheck as $label => $timeRange)
+			{
+				// Filter the results based on the time range and only future periods up to 24 hours ahead
+				$filteredResults = array_filter($results, function($item) use ($timeRange, $currentTime, $twentyFourHoursAhead)
+				{
+					$validFrom = Carbon::parse($item['valid_from']);
+
+					// Ensure that the valid_from is after the current time and falls within the time range
+					return $validFrom->greaterThanOrEqualTo($currentTime) &&
+						   $validFrom->lessThan($twentyFourHoursAhead) &&
+						   $validFrom->greaterThanOrEqualTo($timeRange['start']) &&
+						   $validFrom->lessThan($timeRange['end']);
+				});
+
+				// Sort the filtered results by valid_from
+				usort($filteredResults, function($a, $b)
+				{
+					return strtotime($a['valid_from']) <=> strtotime($b['valid_from']);
+				});
+
+				// Find most expensive 2-hour, 3-hour, 4-hour, and 5-hour windows
+				$mostExpensivePeriods[$label] =
+				[
+					'most_expensive_2_hours' => static::findMostExpensiveWindow($filteredResults, 4), // 2 hours = 4 periods (30 min each)
+					'most_expensive_3_hours' => static::findMostExpensiveWindow($filteredResults, 6), // 3 hours = 6 periods (30 min each)
+					'most_expensive_4_hours' => static::findMostExpensiveWindow($filteredResults, 8), // 4 hours = 8 periods (30 min each)
+					'most_expensive_5_hours' => static::findMostExpensiveWindow($filteredResults, 10), // 5 hours = 10 periods (30 min each)
+				];
+			}
+
+			return $mostExpensivePeriods;
+		}
+
+		private static function findMostExpensiveWindow(array $results, int $windowSize) : array
+		{
+			$maxAvgCost = PHP_INT_MIN;
+			$mostExpensiveWindow = [];
+
+			for ($i = 0; $i <= count($results) - $windowSize; $i++)
+			{
+				$currentWindow = array_slice($results, $i, $windowSize);
+				$totalCost = array_sum(array_column($currentWindow, 'value_inc_vat'));
+				$avgCost = $totalCost / $windowSize; // Calculate average cost
+
+				if ($avgCost > $maxAvgCost)
+				{
+					$maxAvgCost = $avgCost;
+					$mostExpensiveWindow = $currentWindow;
+				}
+			}
+
+			return [
+				'average_cost' => round($maxAvgCost, 4),
+				'window'       => $mostExpensiveWindow,
 			];
 		}
 
@@ -144,14 +227,14 @@
 			[
 				0 =>
 				[
-					'average_cost' => round($cheapestPeriods['overnight']['cheapest_3_hours']['average_cost'], 4),
+					'average_cost' => $cheapestPeriods['overnight']['cheapest_3_hours']['average_cost'], 4,
 					'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
 					'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-15)->getTimestamp(),
 				],
 
 				1 =>
 				[
-					'average_cost' => round($cheapestPeriods['daytime']['cheapest_3_hours']['average_cost'], 4),
+					'average_cost' => $cheapestPeriods['daytime']['cheapest_3_hours']['average_cost'], 4,
 					'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
 					'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-15)->getTimestamp(),
 				],
