@@ -6,6 +6,8 @@
 		'deviceId'        => env("NIBE_DEVICE_ID"),
 		'tokenUrl'        => "https://api.myuplink.com/oauth/token",
 		'functionUrl'     => "https://api.myuplink.com/v2",
+		'allowBoosts'     => env("NIBE_BOOSTS_ALLOWED", false),
+		'boostMaxCost'    => env("NIBE_BOOSTS_MAX_COST", 10),
 		'dmOverride'      => env("NIBE_DM_OVERRIDE", false),
 		'dmTarget'        => env("NIBE_DM_TARGET", -180),
 		'dmTargetOff'     => env("NIBE_DM_TARGET_OFF", 30),
