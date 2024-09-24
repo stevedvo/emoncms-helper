@@ -14,8 +14,8 @@
 			<tbody>
 				<tr>
 					<td style="padding: 5px;">{{ $periods['cheapest_1_hour']['average_cost'] }} p/kWh</td>
-					<td style="padding: 5px;">{{ $periods['cheapest_1_hour']['window'][0]['valid_from'] }}</td>
-					<td style="padding: 5px;">{{ $periods['cheapest_1_hour']['window'][1]['valid_to'] }}</td>
+					<td style="padding: 5px;">{{ $periods['cheapest_1_hour']['window'][0]['valid_from_formatted'] }}</td>
+					<td style="padding: 5px;">{{ $periods['cheapest_1_hour']['window'][1]['valid_to_formatted'] }}</td>
 				</tr>
 			</tbody>
 		</table>
@@ -32,8 +32,8 @@
 			<tbody>
 				<tr>
 					<td style="padding: 5px;">{{ $periods['cheapest_2_hours']['average_cost'] }} p/kWh</td>
-					<td style="padding: 5px;">{{ $periods['cheapest_2_hours']['window'][0]['valid_from'] }}</td>
-					<td style="padding: 5px;">{{ $periods['cheapest_2_hours']['window'][3]['valid_to'] }}</td>
+					<td style="padding: 5px;">{{ $periods['cheapest_2_hours']['window'][0]['valid_from_formatted'] }}</td>
+					<td style="padding: 5px;">{{ $periods['cheapest_2_hours']['window'][3]['valid_to_formatted'] }}</td>
 				</tr>
 			</tbody>
 		</table>
@@ -50,8 +50,8 @@
 			<tbody>
 				<tr>
 					<td style="padding: 5px;">{{ $periods['cheapest_3_hours']['average_cost'] }} p/kWh</td>
-					<td style="padding: 5px;">{{ $periods['cheapest_3_hours']['window'][0]['valid_from'] }}</td>
-					<td style="padding: 5px;">{{ $periods['cheapest_3_hours']['window'][5]['valid_to'] }}</td>
+					<td style="padding: 5px;">{{ $periods['cheapest_3_hours']['window'][0]['valid_from_formatted'] }}</td>
+					<td style="padding: 5px;">{{ $periods['cheapest_3_hours']['window'][5]['valid_to_formatted'] }}</td>
 				</tr>
 			</tbody>
 		</table>
@@ -73,8 +73,8 @@
 			<tbody>
 				<tr>
 					<td style="padding: 5px;">{{ $periods['most_expensive_2_hours']['average_cost'] }} p/kWh</td>
-					<td style="padding: 5px;">{{ $periods['most_expensive_2_hours']['window'][0]['valid_from'] }}</td>
-					<td style="padding: 5px;">{{ $periods['most_expensive_2_hours']['window'][3]['valid_to'] }}</td>
+					<td style="padding: 5px;">{{ $periods['most_expensive_2_hours']['window'][0]['valid_from_formatted'] }}</td>
+					<td style="padding: 5px;">{{ $periods['most_expensive_2_hours']['window'][3]['valid_to_formatted'] }}</td>
 				</tr>
 			</tbody>
 		</table>
@@ -91,8 +91,8 @@
 			<tbody>
 				<tr>
 					<td style="padding: 5px;">{{ $periods['most_expensive_3_hours']['average_cost'] }} p/kWh</td>
-					<td style="padding: 5px;">{{ $periods['most_expensive_3_hours']['window'][0]['valid_from'] }}</td>
-					<td style="padding: 5px;">{{ $periods['most_expensive_3_hours']['window'][5]['valid_to'] }}</td>
+					<td style="padding: 5px;">{{ $periods['most_expensive_3_hours']['window'][0]['valid_from_formatted'] }}</td>
+					<td style="padding: 5px;">{{ $periods['most_expensive_3_hours']['window'][5]['valid_to_formatted'] }}</td>
 				</tr>
 			</tbody>
 		</table>
@@ -109,8 +109,8 @@
 			<tbody>
 				<tr>
 					<td style="padding: 5px;">{{ $periods['most_expensive_4_hours']['average_cost'] }} p/kWh</td>
-					<td style="padding: 5px;">{{ $periods['most_expensive_4_hours']['window'][0]['valid_from'] }}</td>
-					<td style="padding: 5px;">{{ $periods['most_expensive_4_hours']['window'][7]['valid_to'] }}</td>
+					<td style="padding: 5px;">{{ $periods['most_expensive_4_hours']['window'][0]['valid_from_formatted'] }}</td>
+					<td style="padding: 5px;">{{ $periods['most_expensive_4_hours']['window'][7]['valid_to_formatted'] }}</td>
 				</tr>
 			</tbody>
 		</table>
@@ -127,8 +127,8 @@
 			<tbody>
 				<tr>
 					<td style="padding: 5px;">{{ $periods['most_expensive_5_hours']['average_cost'] }} p/kWh</td>
-					<td style="padding: 5px;">{{ $periods['most_expensive_5_hours']['window'][0]['valid_from'] }}</td>
-					<td style="padding: 5px;">{{ $periods['most_expensive_5_hours']['window'][9]['valid_to'] }}</td>
+					<td style="padding: 5px;">{{ $periods['most_expensive_5_hours']['window'][0]['valid_from_formatted'] }}</td>
+					<td style="padding: 5px;">{{ $periods['most_expensive_5_hours']['window'][9]['valid_to_formatted'] }}</td>
 				</tr>
 			</tbody>
 		</table>

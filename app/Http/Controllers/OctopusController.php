@@ -33,7 +33,13 @@
 
 				$results = $rates['results'];
 
-				// Log::info($results);
+				foreach ($results as &$period)
+				{
+					$period['valid_from_formatted'] = Carbon::parse($period['valid_from'])->setTimezone("Europe/London")->format("Y-m-d H:i");
+					$period['valid_to_formatted']   = Carbon::parse($period['valid_to'])->setTimezone("Europe/London")->format("Y-m-d H:i");
+				}
+
+				// Log::info($results);exit;
 
 				// Define time ranges to check (adjust based on your needs)
 				$cheapPeriodsToCheck =
