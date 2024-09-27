@@ -309,10 +309,26 @@
 				// constrain the offset within a smaller range to hopefully avoid massive swings
 				// try to avoid compressor inadvertently either kicking in to a higher output [DM too negative] or switching off [DM >= 0]
 				$minOffset = config("nibe.offsetMinimum");
-				$maxOffset = $htgMode == "intermittent" ? config("nibe.offsetMaxInt") : config("nibe.offsetMaximum");
+				$maxOffset = config("nibe.offsetMaximum");
+
+				// if DM more than 60 then leave maxOffset as is to help ensure that we don't top out at 100
+				if ($degreeMinutes < 60)
+				{
+					if ($htgMode == "intermittent")
+					{
+						$maxOffset = config("nibe.offsetMaxInt");
+					}
+
+					if (config("nibe.cheapMode") !== false)
+					{
+						$maxOffset = config("nibe.cheapModeOffsetMax");
+					}
+				}
 
 				$minFlowLineTempMin = 10;
-				$minFlowLineTempMax = 60;
+
+				// if we're on 'intermittent' or 'cheap' mode then set to 10 so that this does not get changed, otherwise 60
+				$minFlowLineTempMax = ($htgMode == "intermittent" || config("nibe.cheapMode") !== false) ? 10 : 60;
 				$minFlowLineTempNew = $minFlowLineTempCurrent;
 
 				$parameterData = [];
@@ -328,7 +344,7 @@
 					{
 						// if we're already at/above the $maxOffset we don't want to keep the compressor running
 						// we also don't want to adjust the min flow line temp
-						// on intermittent we're happy for the offset to go down but it not for it to go back up if it's already high enough
+						// on intermittent we're happy for the offset to go down but not for it to go back up if it's already high enough
 						if ($heatingOffsetCurrent >= $maxOffset)
 						{
 							return;
