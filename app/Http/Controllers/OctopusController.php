@@ -233,14 +233,14 @@
 			[
 				0 =>
 				[
-					'average_cost' => $cheapestPeriods['overnight']['cheapest_3_hours']['average_cost'], 4,
+					'average_cost' => $cheapestPeriods['overnight']['cheapest_3_hours']['average_cost'],
 					'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
 					'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-15)->getTimestamp(),
 				],
 
 				1 =>
 				[
-					'average_cost' => $cheapestPeriods['daytime']['cheapest_3_hours']['average_cost'], 4,
+					'average_cost' => $cheapestPeriods['daytime']['cheapest_3_hours']['average_cost'],
 					'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
 					'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-15)->getTimestamp(),
 				],
