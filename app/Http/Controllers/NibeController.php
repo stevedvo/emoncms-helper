@@ -282,7 +282,7 @@
 
 				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp") + 3)) ? static::isBoostActive($htgMode) : false)
 				{
-					Log::info("Boost is active");
+					// Log::info("Boost is active");
 					$htgMode = "boost";
 				}
 

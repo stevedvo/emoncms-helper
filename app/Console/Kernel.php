@@ -17,7 +17,7 @@
 			$schedule->command("emon:sync")->everyThirtyMinutes();
 			$schedule->command("logs:cleanUp")->daily();
 			$schedule->command("admin:emails")->dailyAt("06:00");
-			$schedule->command("octopus:getAgileRates")->dailyAt("16:15");
+			$schedule->command("octopus:getAgileRates")->dailyAt("16:05")->timezone("Europe/London");
 		}
 
 		/**

@@ -11,15 +11,18 @@
 		use Queueable, SerializesModels;
 
 		public $cheapestPeriods;
+		public $expensivePeriods;
 
 		/**
 		 * Create a new message instance.
 		 *
 		 * @param $cheapestPeriods
+		 * @param $expensivePeriods
 		 */
-		public function __construct(array $cheapestPeriods)
+		public function __construct(array $cheapestPeriods, array $expensivePeriods)
 		{
-			$this->cheapestPeriods = $cheapestPeriods;
+			$this->cheapestPeriods  = $cheapestPeriods;
+			$this->expensivePeriods = $expensivePeriods;
 		}
 
 		/**
