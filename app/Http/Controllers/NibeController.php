@@ -354,7 +354,12 @@
 
 				if ($offsetChange == 0)
 				{
-					return;
+					$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
+
+					if ($heatingOffsetNew != $heatingOffsetCurrent)
+					{
+						$parameterData['47011'] = $heatingOffsetNew;
+					}
 				}
 
 				if ($offsetChange > 0)
