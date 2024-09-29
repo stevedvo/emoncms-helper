@@ -306,22 +306,41 @@
 				$offsetChange = round(($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
 				// Log::info('$offsetChange = round(('.$externalFlowTemp.' - (('.$dmTarget.' - '.$degreeMinutes.') / '.config("nibe.minutesToDm").') - '.$calculatedFlowTemp.') / '.config("nibe.offsetFactor").') = round('.($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor").') = '.$offsetChange);
 
-				// constrain the offset within a smaller range to hopefully avoid massive swings
-				// try to avoid compressor inadvertently either kicking in to a higher output [DM too negative] or switching off [DM >= 0]
 				$minOffset = config("nibe.offsetMinimum");
 				$maxOffset = config("nibe.offsetMaximum");
 
-				// if DM more than 60 then leave maxOffset as is to help ensure that we don't top out at 100
-				if ($degreeMinutes < 60)
+				if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
 				{
-					if ($htgMode == "intermittent")
+					$maxOffsetChange = 1;
+
+					if ($degreeMinutes < config("nibe.dmTargetOff"))
 					{
-						$maxOffset = config("nibe.offsetMaxInt");
+						$maxOffset = $htgMode == "intermittent" ? config("nibe.offsetMaxInt") : config("nibe.cheapModeOffsetMax");
 					}
 
-					if (config("nibe.cheapMode") !== false)
+					Log::info('$maxOffset: '.$maxOffset);
+
+					if ($maxOffset < $heatingOffsetCurrent)
 					{
-						$maxOffset = config("nibe.cheapModeOffsetMax");
+						Log::info('$maxOffset is less than $heatingOffsetCurrent');
+						// if DM is still decreasing we need to adjust
+						// otherwise if we keep adjusting we will accelerate the DM change and overshoot past config("nibe.dmTargetOff")
+						if ($calculatedFlowTemp > $externalFlowTemp)
+						{
+							$maxOffset = $heatingOffsetCurrent - $maxOffsetChange;
+							Log::info('updated $maxOffset: '.$maxOffset);
+						}
+					}
+					elseif ($maxOffset > $heatingOffsetCurrent)
+					{
+						Log::info('$maxOffset is more than $heatingOffsetCurrent');
+						// if DM is still increasing we need to adjust
+						// otherwise if we keep adjusting we will accelerate the DM change and overshoot past config("nibe.dmTargetOff")
+						if ($calculatedFlowTemp < $externalFlowTemp)
+						{
+							$maxOffset = $heatingOffsetCurrent + $maxOffsetChange;
+							Log::info('updated $maxOffset: '.$maxOffset);
+						}
 					}
 				}
 
@@ -340,18 +359,23 @@
 
 				if ($offsetChange > 0)
 				{
-					if ($htgMode == "intermittent")
+					if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
 					{
 						// if we're already at/above the $maxOffset we don't want to keep the compressor running
 						// we also don't want to adjust the min flow line temp
 						// on intermittent we're happy for the offset to go down but not for it to go back up if it's already high enough
 						if ($heatingOffsetCurrent >= $maxOffset)
 						{
-							return;
+							Log::info("not returning here");
+							// return;
 						}
 
 						$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
-						$parameterData['47011'] = $heatingOffsetNew;
+
+						if ($heatingOffsetNew != $heatingOffsetCurrent)
+						{
+							$parameterData['47011'] = $heatingOffsetNew;
+						}
 					}
 					else
 					{
@@ -411,7 +435,11 @@
 					else
 					{
 						$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
-						$parameterData['47011'] = $heatingOffsetNew;
+
+						if ($heatingOffsetNew != $heatingOffsetCurrent)
+						{
+							$parameterData['47011'] = $heatingOffsetNew;
+						}
 					}
 				}
 
