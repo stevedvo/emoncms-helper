@@ -280,7 +280,7 @@
 					$htgMode = "intermittent";
 				}
 
-				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp") + 3)) ? static::isBoostActive($htgMode) : false)
+				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp") + 2)) ? static::isBoostActive($htgMode) : false)
 				{
 					// Log::info("Boost is active");
 					$htgMode = "boost";
@@ -306,36 +306,74 @@
 				$offsetChange = round(($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
 				// Log::info('$offsetChange = round(('.$externalFlowTemp.' - (('.$dmTarget.' - '.$degreeMinutes.') / '.config("nibe.minutesToDm").') - '.$calculatedFlowTemp.') / '.config("nibe.offsetFactor").') = round('.($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor").') = '.$offsetChange);
 
-				// constrain the offset within a smaller range to hopefully avoid massive swings
-				// try to avoid compressor inadvertently either kicking in to a higher output [DM too negative] or switching off [DM >= 0]
 				$minOffset = config("nibe.offsetMinimum");
-				$maxOffset = $htgMode == "intermittent" ? config("nibe.offsetMaxInt") : config("nibe.offsetMaximum");
+				$maxOffset = config("nibe.offsetMaximum");
+
+				if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
+				{
+					// what offset do we need to get the DM to the 'off' value?
+					$offsetChangeToOff = round(($externalFlowTemp - ((config("nibe.dmTargetOff") - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
+					// Log::info('$offsetChangeToOff: '.$offsetChangeToOff);
+					$heatingOffsetNewToOff = min(max($heatingOffsetCurrent + $offsetChangeToOff, $minOffset), $maxOffset);
+					// Log::info('$heatingOffsetNewToOff: '.$heatingOffsetNewToOff);
+
+					// what is the maxOffset for current mode?
+					$maxOffsetToOff = $htgMode == "intermittent" ? config("nibe.offsetMaxInt") : config("nibe.cheapModeOffsetMax");
+					// Log::info('$maxOffsetToOff: '.$maxOffsetToOff);
+
+					if ($heatingOffsetNewToOff > $maxOffsetToOff)
+					{
+						// to get to 'off' we need a higher maxOffset than the mode value e.g. DM is too high
+						// so let's allow a higher maxOffset to reign the DM back in
+						$maxOffset = $heatingOffsetNewToOff;
+					}
+					else
+					{
+						// otherwise the mode maxOffset is high enough that we could reach the 'off' DM
+						// i.e. the upper bound of the offset range is high enough that the compressor will stop but can still come on if need be
+						$maxOffset = $maxOffsetToOff;
+					}
+
+					// Log::info('$maxOffset: '.$maxOffset);
+				}
 
 				$minFlowLineTempMin = 10;
-				$minFlowLineTempMax = 60;
+
+				// if we're on 'intermittent' or 'cheap' mode then set to 10 so that this does not get changed, otherwise 60
+				$minFlowLineTempMax = ($htgMode == "intermittent" || config("nibe.cheapMode") !== false) ? 10 : 60;
 				$minFlowLineTempNew = $minFlowLineTempCurrent;
 
 				$parameterData = [];
 
 				if ($offsetChange == 0)
 				{
-					return;
+					$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
+
+					if ($heatingOffsetNew != $heatingOffsetCurrent)
+					{
+						$parameterData['47011'] = $heatingOffsetNew;
+					}
 				}
 
 				if ($offsetChange > 0)
 				{
-					if ($htgMode == "intermittent")
+					if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
 					{
 						// if we're already at/above the $maxOffset we don't want to keep the compressor running
 						// we also don't want to adjust the min flow line temp
-						// on intermittent we're happy for the offset to go down but it not for it to go back up if it's already high enough
+						// on intermittent we're happy for the offset to go down but not for it to go back up if it's already high enough
 						if ($heatingOffsetCurrent >= $maxOffset)
 						{
-							return;
+							// Log::info("not returning here");
+							// return;
 						}
 
 						$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
-						$parameterData['47011'] = $heatingOffsetNew;
+
+						if ($heatingOffsetNew != $heatingOffsetCurrent)
+						{
+							$parameterData['47011'] = $heatingOffsetNew;
+						}
 					}
 					else
 					{
@@ -395,7 +433,11 @@
 					else
 					{
 						$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
-						$parameterData['47011'] = $heatingOffsetNew;
+
+						if ($heatingOffsetNew != $heatingOffsetCurrent)
+						{
+							$parameterData['47011'] = $heatingOffsetNew;
+						}
 					}
 				}
 
