@@ -555,7 +555,7 @@
 				$scheduleString = Setting::firstWhere("key", "agile_schedule")->value;
 				$schedules = json_decode($scheduleString, true);
 
-				if ($avgOutdoorTemp >= 12)
+				if ($avgOutdoorTemp >= config("nibe.runLevel1Temp"))
 				{
 					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
 					{
@@ -576,14 +576,14 @@
 					return false;
 				}
 
-				if ($avgOutdoorTemp >= 9)
+				if ($avgOutdoorTemp >= config("nibe.runLevel2Temp"))
 				{
 					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
 					{
 						return false;
 					}
 
-					if ($outdoorTemp >= 12)
+					if ($outdoorTemp >= config("nibe.runLevel1Temp"))
 					{
 						foreach ($schedules['cheapest_3_hours'] as $schedule)
 						{
@@ -613,14 +613,14 @@
 					return false;
 				}
 
-				if ($avgOutdoorTemp >= 6)
+				if ($avgOutdoorTemp >= config("nibe.tempFreqMin"))
 				{
 					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
 					{
 						return false;
 					}
 
-					if ($outdoorTemp >= 12)
+					if ($outdoorTemp >= config("nibe.runLevel1Temp"))
 					{
 						foreach ($schedules['cheapest_3_hours'] as $schedule)
 						{
@@ -636,7 +636,7 @@
 						return false;
 					}
 
-					if ($outdoorTemp >= 9)
+					if ($outdoorTemp >= config("nibe.runLevel2Temp"))
 					{
 						foreach ($schedules['cheapest_6_hours'] as $schedule)
 						{
