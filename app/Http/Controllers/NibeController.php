@@ -286,6 +286,8 @@
 					$htgMode = "boost";
 				}
 
+				// Log::info('$htgMode: '.$htgMode);
+
 				$dmTarget = $htgMode == "off" ? config("nibe.dmTargetOff") : config("nibe.dmTarget");
 
 				if ($htgMode == "boost")
@@ -576,6 +578,11 @@
 
 				if ($avgOutdoorTemp >= 9)
 				{
+					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+					{
+						return false;
+					}
+
 					if ($outdoorTemp >= 12)
 					{
 						foreach ($schedules['cheapest_3_hours'] as $schedule)
@@ -591,9 +598,31 @@
 
 						return false;
 					}
-					else
+
+					foreach ($schedules['cheapest_6_hours'] as $schedule)
 					{
-						foreach ($schedules['cheapest_6_hours'] as $schedule)
+						$start = CarbonImmutable::parse($schedule['start']);
+						$end = CarbonImmutable::parse($schedule['end']);
+
+						if ($now->isAfter($start) && $now->isBefore($end))
+						{
+							return true;
+						}
+					}
+
+					return false;
+				}
+
+				if ($avgOutdoorTemp >= 6)
+				{
+					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+					{
+						return false;
+					}
+
+					if ($outdoorTemp >= 12)
+					{
+						foreach ($schedules['cheapest_3_hours'] as $schedule)
 						{
 							$start = CarbonImmutable::parse($schedule['start']);
 							$end = CarbonImmutable::parse($schedule['end']);
@@ -606,10 +635,7 @@
 
 						return false;
 					}
-				}
 
-				if ($avgOutdoorTemp >= 6)
-				{
 					if ($outdoorTemp >= 9)
 					{
 						foreach ($schedules['cheapest_6_hours'] as $schedule)
@@ -625,11 +651,11 @@
 
 						return false;
 					}
-					else
-					{
-						return true;
-					}
+
+					return true;
 				}
+
+				return true;
 			}
 			catch (Throwable $e)
 			{
