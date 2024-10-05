@@ -19,5 +19,7 @@
 		'offsetMinimum'      => env("NIBE_OFFSET_MINIMUM", -10),
 		'offsetMaximum'      => env("NIBE_OFFSET_MAXIMUM", 10),
 		'offsetMaxInt'       => env("NIBE_OFFSET_MAXIMUM_INTERMITTENT", 0),
+		'runLevel1Temp'      => env("NIBE_RUN_LEVEL_1_TEMP", 12),
+		'runLevel2Temp'      => env("NIBE_RUN_LEVEL_2_TEMP", 9),
 		'tempFreqMin'        => env("NIBE_TEMP_FREQ_MIN", 6),
 	];

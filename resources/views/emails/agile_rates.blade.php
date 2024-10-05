@@ -5,6 +5,7 @@
 		<p>Cheapest 1-Hour Period [{{ $periods['cheapest_1_hour']['average_cost'] }} p/kWh] Starts at {{ $periods['cheapest_1_hour']['window'][0]['valid_from_formatted'] }}</p>
 		<p>Cheapest 2-Hour Period [{{ $periods['cheapest_2_hours']['average_cost'] }} p/kWh] Starts at {{ $periods['cheapest_2_hours']['window'][0]['valid_from_formatted'] }}</p>
 		<p>Cheapest 3-Hour Period [{{ $periods['cheapest_3_hours']['average_cost'] }} p/kWh] Starts at {{ $periods['cheapest_3_hours']['window'][0]['valid_from_formatted'] }}</p>
+		<p>Cheapest 6-Hour Period [{{ $periods['cheapest_6_hours']['average_cost'] }} p/kWh] Starts at {{ $periods['cheapest_6_hours']['window'][0]['valid_from_formatted'] }}</p>
 		<br />
 	@endforeach
 

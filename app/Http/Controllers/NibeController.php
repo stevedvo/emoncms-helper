@@ -280,11 +280,13 @@
 					$htgMode = "intermittent";
 				}
 
-				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp") + 2)) ? static::isBoostActive($htgMode) : false)
+				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp"))) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
 				{
 					// Log::info("Boost is active");
 					$htgMode = "boost";
 				}
+
+				// Log::info('$htgMode: '.$htgMode);
 
 				$dmTarget = $htgMode == "off" ? config("nibe.dmTargetOff") : config("nibe.dmTarget");
 
@@ -544,7 +546,7 @@
 			}
 		}
 
-		public static function isBoostActive(string $htgMode) : bool
+		public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp) : bool
 		{
 			$now = CarbonImmutable::now();
 
@@ -553,25 +555,107 @@
 				$scheduleString = Setting::firstWhere("key", "agile_schedule")->value;
 				$schedules = json_decode($scheduleString, true);
 
-				foreach ($schedules as $schedule)
+				if ($avgOutdoorTemp >= config("nibe.runLevel1Temp"))
 				{
-					$averageCost = $schedule['average_cost'];
-					$start = CarbonImmutable::parse($schedule['start']);
-					$end = CarbonImmutable::parse($schedule['end']);
-
-					if ($now->isAfter($start) && $now->isBefore($end))
+					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
 					{
-						if ($htgMode == "off")
+						return false;
+					}
+
+					foreach ($schedules['cheapest_3_hours'] as $schedule)
+					{
+						$start = CarbonImmutable::parse($schedule['start']);
+						$end = CarbonImmutable::parse($schedule['end']);
+
+						if ($now->isAfter($start) && $now->isBefore($end))
 						{
-							// htg would normally be off, so only return true if it is particularly cheap
-							return $averageCost < config("nibe.boostMaxCost");
+							return true;
+						}
+					}
+
+					return false;
+				}
+
+				if ($avgOutdoorTemp >= config("nibe.runLevel2Temp"))
+				{
+					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+					{
+						return false;
+					}
+
+					if ($outdoorTemp >= config("nibe.runLevel1Temp"))
+					{
+						foreach ($schedules['cheapest_3_hours'] as $schedule)
+						{
+							$start = CarbonImmutable::parse($schedule['start']);
+							$end = CarbonImmutable::parse($schedule['end']);
+
+							if ($now->isAfter($start) && $now->isBefore($end))
+							{
+								return true;
+							}
 						}
 
-						// htg is already either "on" or "intermittent", so boost regardless of cost since we're already
-						// targetting the cheapest 3 hours and this may help us to run less at other times when the cost is higher
-						return true;
+						return false;
 					}
+
+					foreach ($schedules['cheapest_6_hours'] as $schedule)
+					{
+						$start = CarbonImmutable::parse($schedule['start']);
+						$end = CarbonImmutable::parse($schedule['end']);
+
+						if ($now->isAfter($start) && $now->isBefore($end))
+						{
+							return true;
+						}
+					}
+
+					return false;
 				}
+
+				if ($avgOutdoorTemp >= config("nibe.tempFreqMin"))
+				{
+					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+					{
+						return false;
+					}
+
+					if ($outdoorTemp >= config("nibe.runLevel1Temp"))
+					{
+						foreach ($schedules['cheapest_3_hours'] as $schedule)
+						{
+							$start = CarbonImmutable::parse($schedule['start']);
+							$end = CarbonImmutable::parse($schedule['end']);
+
+							if ($now->isAfter($start) && $now->isBefore($end))
+							{
+								return true;
+							}
+						}
+
+						return false;
+					}
+
+					if ($outdoorTemp >= config("nibe.runLevel2Temp"))
+					{
+						foreach ($schedules['cheapest_6_hours'] as $schedule)
+						{
+							$start = CarbonImmutable::parse($schedule['start']);
+							$end = CarbonImmutable::parse($schedule['end']);
+
+							if ($now->isAfter($start) && $now->isBefore($end))
+							{
+								return true;
+							}
+						}
+
+						return false;
+					}
+
+					return true;
+				}
+
+				return true;
 			}
 			catch (Throwable $e)
 			{
