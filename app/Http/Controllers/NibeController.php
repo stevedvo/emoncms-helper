@@ -5,6 +5,7 @@
 	use Throwable;
 	use App\APIs\EmonAPI;
 	use App\APIs\NibeAPI;
+	use App\Http\Controllers\WeatherController;
 	use App\Models\ActivityLog;
 	use App\Models\NibeFeedItem;
 	use App\Models\NibeParameter;
@@ -280,13 +281,13 @@
 					$htgMode = "intermittent";
 				}
 
-				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp"))) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp"))) ? static::isBoostActive(config("weather.useForecast") !== false, $outdoorTemp, $avgOutdoorTemp) : false)
 				{
 					// Log::info("Boost is active");
 					$htgMode = "boost";
 				}
 
-				// Log::info('$htgMode: '.$htgMode);
+				Log::info('$htgMode: '.$htgMode);
 
 				$dmTarget = $htgMode == "off" ? config("nibe.dmTargetOff") : config("nibe.dmTarget");
 
@@ -546,7 +547,7 @@
 			}
 		}
 
-		public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp) : bool
+		public static function isBoostActive(bool $useForecast, float $outdoorTemp, float $avgOutdoorTemp) : bool
 		{
 			$now = CarbonImmutable::now();
 
@@ -555,14 +556,45 @@
 				$scheduleString = Setting::firstWhere("key", "agile_schedule")->value;
 				$schedules = json_decode($scheduleString, true);
 
-				if ($avgOutdoorTemp >= config("nibe.runLevel1Temp"))
+				if ($useForecast)
 				{
-					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+					$weatherData = WeatherController::getLatestWeatherData();
+
+					if ($weatherData->isEmpty())
+					{
+						throw new Exception("WeatherData is empty");
+					}
+
+					$targetTime = $now->addHours(config("weather.lookAheadHours"))->setMinute(0)->setSecond(0)->format("c");
+
+					if (!$weatherData->has($targetTime))
+					{
+						throw new Exception($targetTime." not found in WeatherData");
+					}
+
+					$forecastTemperature = $weatherData->get($targetTime)['temperature'];
+					Log::info('$forecastTemperature at $targetTime is '.$forecastTemperature.' at '.$targetTime);
+					$scheduleWindow = "";
+
+					if ($forecastTemperature >= config("nibe.dmTargetOffTemp"))
 					{
 						return false;
 					}
 
-					foreach ($schedules['cheapest_3_hours'] as $schedule)
+					if ($forecastTemperature >= config("nibe.runLevel1Temp"))
+					{
+						$scheduleWindow = "cheapest_3_hours";
+					}
+					elseif ($forecastTemperature >= config("nibe.runLevel2Temp"))
+					{
+						$scheduleWindow = "cheapest_6_hours";
+					}
+					else
+					{
+						return true;
+					}
+
+					foreach ($schedules[$scheduleWindow] as $schedule)
 					{
 						$start = CarbonImmutable::parse($schedule['start']);
 						$end = CarbonImmutable::parse($schedule['end']);
@@ -575,16 +607,15 @@
 
 					return false;
 				}
-
-				if ($avgOutdoorTemp >= config("nibe.runLevel2Temp"))
+				else
 				{
-					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+					if ($avgOutdoorTemp >= config("nibe.runLevel1Temp"))
 					{
-						return false;
-					}
+						if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+						{
+							return false;
+						}
 
-					if ($outdoorTemp >= config("nibe.runLevel1Temp"))
-					{
 						foreach ($schedules['cheapest_3_hours'] as $schedule)
 						{
 							$start = CarbonImmutable::parse($schedule['start']);
@@ -599,45 +630,29 @@
 						return false;
 					}
 
-					foreach ($schedules['cheapest_6_hours'] as $schedule)
+					if ($avgOutdoorTemp >= config("nibe.runLevel2Temp"))
 					{
-						$start = CarbonImmutable::parse($schedule['start']);
-						$end = CarbonImmutable::parse($schedule['end']);
-
-						if ($now->isAfter($start) && $now->isBefore($end))
+						if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
 						{
-							return true;
+							return false;
 						}
-					}
 
-					return false;
-				}
-
-				if ($avgOutdoorTemp >= config("nibe.tempFreqMin"))
-				{
-					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
-					{
-						return false;
-					}
-
-					if ($outdoorTemp >= config("nibe.runLevel1Temp"))
-					{
-						foreach ($schedules['cheapest_3_hours'] as $schedule)
+						if ($outdoorTemp >= config("nibe.runLevel1Temp"))
 						{
-							$start = CarbonImmutable::parse($schedule['start']);
-							$end = CarbonImmutable::parse($schedule['end']);
-
-							if ($now->isAfter($start) && $now->isBefore($end))
+							foreach ($schedules['cheapest_3_hours'] as $schedule)
 							{
-								return true;
+								$start = CarbonImmutable::parse($schedule['start']);
+								$end = CarbonImmutable::parse($schedule['end']);
+
+								if ($now->isAfter($start) && $now->isBefore($end))
+								{
+									return true;
+								}
 							}
+
+							return false;
 						}
 
-						return false;
-					}
-
-					if ($outdoorTemp >= config("nibe.runLevel2Temp"))
-					{
 						foreach ($schedules['cheapest_6_hours'] as $schedule)
 						{
 							$start = CarbonImmutable::parse($schedule['start']);
@@ -652,10 +667,50 @@
 						return false;
 					}
 
+					if ($avgOutdoorTemp >= config("nibe.tempFreqMin"))
+					{
+						if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+						{
+							return false;
+						}
+
+						if ($outdoorTemp >= config("nibe.runLevel1Temp"))
+						{
+							foreach ($schedules['cheapest_3_hours'] as $schedule)
+							{
+								$start = CarbonImmutable::parse($schedule['start']);
+								$end = CarbonImmutable::parse($schedule['end']);
+
+								if ($now->isAfter($start) && $now->isBefore($end))
+								{
+									return true;
+								}
+							}
+
+							return false;
+						}
+
+						if ($outdoorTemp >= config("nibe.runLevel2Temp"))
+						{
+							foreach ($schedules['cheapest_6_hours'] as $schedule)
+							{
+								$start = CarbonImmutable::parse($schedule['start']);
+								$end = CarbonImmutable::parse($schedule['end']);
+
+								if ($now->isAfter($start) && $now->isBefore($end))
+								{
+									return true;
+								}
+							}
+
+							return false;
+						}
+
+						return true;
+					}
+
 					return true;
 				}
-
-				return true;
 			}
 			catch (Throwable $e)
 			{

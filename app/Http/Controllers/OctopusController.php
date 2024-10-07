@@ -237,13 +237,13 @@
 				[
 					[
 						'average_cost' => $cheapestPeriods['overnight']['cheapest_3_hours']['average_cost'],
-						'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-20)->getTimestamp(),
-						'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-20)->getTimestamp(),
+						'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
+						'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-45)->getTimestamp(),
 					],
 					[
 						'average_cost' => $cheapestPeriods['daytime']['cheapest_3_hours']['average_cost'],
-						'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-20)->getTimestamp(),
-						'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-20)->getTimestamp(),
+						'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
+						'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-45)->getTimestamp(),
 					],
 				],
 
@@ -251,13 +251,13 @@
 				[
 					[
 						'average_cost' => $cheapestPeriods['overnight']['cheapest_6_hours']['average_cost'],
-						'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_6_hours']['window'][0]['valid_from'])->addMinutes(-20)->getTimestamp(),
-						'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_6_hours']['window'][11]['valid_to'])->addMinutes(-20)->getTimestamp(),
+						'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_6_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
+						'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_6_hours']['window'][11]['valid_to'])->addMinutes(-45)->getTimestamp(),
 					],
 					[
 						'average_cost' => $cheapestPeriods['daytime']['cheapest_6_hours']['average_cost'],
-						'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][0]['valid_from'])->addMinutes(-20)->getTimestamp(),
-						'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][11]['valid_to'])->addMinutes(-20)->getTimestamp(),
+						'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
+						'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][11]['valid_to'])->addMinutes(-45)->getTimestamp(),
 					],
 				],
 			];
