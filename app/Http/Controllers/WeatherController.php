@@ -5,7 +5,7 @@
 	use Throwable;
 	use App\Models\ActivityLog;
 	use App\Models\Setting;
-	use Carbon\Carbon;
+	use Carbon\CarbonImmutable;
 	use Illuminate\Http\Request;
 	use Illuminate\Support\Collection;
 	use Illuminate\Support\Facades\Log;
@@ -93,5 +93,61 @@
 
 				return new Collection();
 			}
+		}
+
+		public static function getForecastAverageTemperature() : ?float
+		{
+			$averageTemperature = null;
+
+			try
+			{
+				$weatherData = static::getLatestWeatherData();
+
+				if ($weatherData->isEmpty())
+				{
+					throw new Exception("WeatherData is empty");
+				}
+
+				$now = CarbonImmutable::now();
+				$targetTime = $now->setTime($now->hour+config('weather.lookAheadHours'), 0, 0, 0);
+
+				$sumTemperatures = 0;
+				$count = 0;
+
+				foreach ($weatherData as $datetime => $datum)
+				{
+					$period = CarbonImmutable::parse($datetime);
+
+					if (!$period->greaterThanOrEqualTo($targetTime))
+					{
+						continue;
+					}
+
+					$sumTemperatures+= $datum['temperature'];
+					$count++;
+				}
+
+				if ($count == 0)
+				{
+					throw new Exception("No WeatherData after ".$targetTime->format("c"));
+				}
+
+				$averageTemperature = round($sumTemperatures/$count, 2);
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
+
+			Log::info('$averageTemperature is '.$averageTemperature);
+			// Log::info('$count is '.$count);
+
+			return $averageTemperature;
 		}
 	}

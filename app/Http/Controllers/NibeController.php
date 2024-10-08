@@ -558,22 +558,13 @@
 
 				if ($useForecast)
 				{
-					$weatherData = WeatherController::getLatestWeatherData();
+					$forecastTemperature = WeatherController::getForecastAverageTemperature();
 
-					if ($weatherData->isEmpty())
+					if (is_null($forecastTemperature))
 					{
-						throw new Exception("WeatherData is empty");
+						throw new Exception('$forecastTemperature is null');
 					}
 
-					$targetTime = $now->addHours(config("weather.lookAheadHours"))->setMinute(0)->setSecond(0)->format("c");
-
-					if (!$weatherData->has($targetTime))
-					{
-						throw new Exception($targetTime." not found in WeatherData");
-					}
-
-					$forecastTemperature = $weatherData->get($targetTime)['temperature'];
-					Log::info('$forecastTemperature at $targetTime is '.$forecastTemperature.' at '.$targetTime);
 					$scheduleWindow = "";
 
 					if ($forecastTemperature >= config("nibe.dmTargetOffTemp"))
