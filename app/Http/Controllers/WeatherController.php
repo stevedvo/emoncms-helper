@@ -3,6 +3,7 @@
 
 	use Exception;
 	use Throwable;
+	use App\APIs\EmonAPI;
 	use App\Models\ActivityLog;
 	use App\Models\Setting;
 	use Carbon\CarbonImmutable;
@@ -133,6 +134,19 @@
 				}
 
 				$averageTemperature = round($sumTemperatures/$count, 2);
+
+				// Log::info('$averageTemperature is '.$averageTemperature);
+				// Log::info('$count is '.$count);
+
+				if (!is_null($averageTemperature))
+				{
+					$syncSuccess = EmonAPI::postInputData("local", $now->timestamp, "weather", json_encode(['forecast avg. temp.' => $averageTemperature]));
+
+					if (!$syncSuccess)
+					{
+						throw new Exception("Error syncing with Emon");
+					}
+				}
 			}
 			catch (Throwable $e)
 			{
@@ -144,9 +158,6 @@
 					'message'    => $e->getMessage(),
 				]);
 			}
-
-			Log::info('$averageTemperature is '.$averageTemperature);
-			// Log::info('$count is '.$count);
 
 			return $averageTemperature;
 		}

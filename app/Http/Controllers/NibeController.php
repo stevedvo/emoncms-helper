@@ -287,7 +287,13 @@
 					$htgMode = "boost";
 				}
 
-				Log::info('$htgMode: '.$htgMode);
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => '$htgMode: '.$htgMode,
+				]);
 
 				$dmTarget = $htgMode == "off" ? config("nibe.dmTargetOff") : config("nibe.dmTarget");
 
