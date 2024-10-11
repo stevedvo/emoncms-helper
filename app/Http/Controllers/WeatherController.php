@@ -99,6 +99,7 @@
 		public static function getForecastAverageTemperature() : ?float
 		{
 			$averageTemperature = null;
+			$weightedAverage = null;
 
 			try
 			{
@@ -114,6 +115,9 @@
 
 				$sumTemperatures = 0;
 				$count = 0;
+				$weighting = 18;
+				$weightingSum = 0;
+				$weightingArray = [];
 
 				foreach ($weatherData as $datetime => $datum)
 				{
@@ -126,6 +130,15 @@
 
 					$sumTemperatures+= $datum['temperature'];
 					$count++;
+
+					$weightingArray[$datetime] =
+					[
+						'log' => '$temperature * $weighting is '.$datum['temperature'].' * '.$weighting.' = '.$datum['temperature'] * $weighting,
+						'weighting' => $weighting,
+						'weightedValue' => $datum['temperature']*$weighting,
+					];
+
+					$weighting--;
 				}
 
 				if ($count == 0)
@@ -135,12 +148,16 @@
 
 				$averageTemperature = round($sumTemperatures/$count, 2);
 
+				// Calculate weighted average
+				$weightedAverage = round(array_sum(array_column($weightingArray, 'weightedValue')) / array_sum(array_column($weightingArray, 'weighting')), 2);
+
 				// Log::info('$averageTemperature is '.$averageTemperature);
 				// Log::info('$count is '.$count);
+				// Log::info('$weightedAverage is '.$weightedAverage);
 
-				if (!is_null($averageTemperature))
+				if (!is_null($weightedAverage))
 				{
-					$syncSuccess = EmonAPI::postInputData("local", $now->timestamp, "weather", json_encode(['forecast avg. temp.' => $averageTemperature]));
+					$syncSuccess = EmonAPI::postInputData("local", $now->timestamp, "weather", json_encode(['forecast avg. temp.' => $weightedAverage]));
 
 					if (!$syncSuccess)
 					{
@@ -159,6 +176,6 @@
 				]);
 			}
 
-			return $averageTemperature;
+			return $weightedAverage;
 		}
 	}

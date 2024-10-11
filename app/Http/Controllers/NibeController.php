@@ -281,7 +281,7 @@
 					$htgMode = "intermittent";
 				}
 
-				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp"))) ? static::isBoostActive(config("weather.useForecast") !== false, $outdoorTemp, $avgOutdoorTemp) : false)
+				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp")) && $htgMode != "on") ? static::isBoostActive(config("weather.useForecast") !== false, $outdoorTemp, $avgOutdoorTemp) : false)
 				{
 					// Log::info("Boost is active");
 					$htgMode = "boost";
@@ -299,13 +299,13 @@
 
 				if ($htgMode == "boost")
 				{
-					$dmTarget = $dmTarget - 90;
+					// $dmTarget = $dmTarget - 90;
 				}
 
 				// target a lower DM during DHW cycle so that when it completes the dump of very hot water gets the DM close to where it ought to normally be
 				// without this the DM could potentially inadvertently go over 0 and switch the compressor off
 				// not reducing so much that it becomes too negative and causes the compressor to kick in to a higher output
-				if ($priority == 20)
+				if ($priority == 20 || $htgMode == "boost")
 				{
 					$dmTarget = $dmTarget - 90;
 				}
