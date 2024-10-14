@@ -118,6 +118,11 @@
 				{
 					static::dmOverride($dmOverrideCollection);
 				}
+
+				if (config("weather.useForecast") !== false && $now->format("i") % 5 == 0)
+				{
+					WeatherController::syncForecastWithEmon();
+				}
 			}
 			catch (Throwable $e)
 			{
@@ -281,7 +286,7 @@
 					$htgMode = "intermittent";
 				}
 
-				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp")) && $htgMode != "on") ? static::isBoostActive(config("weather.useForecast") !== false, $outdoorTemp, $avgOutdoorTemp) : false)
+				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp")) && $htgMode != "on") ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
 				{
 					// Log::info("Boost is active");
 					$htgMode = "boost";
@@ -553,7 +558,7 @@
 			}
 		}
 
-		public static function isBoostActive(bool $useForecast, float $outdoorTemp, float $avgOutdoorTemp) : bool
+		public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp) : bool
 		{
 			$now = CarbonImmutable::now();
 
@@ -562,7 +567,7 @@
 				$scheduleString = Setting::firstWhere("key", "agile_schedule")->value;
 				$schedules = json_decode($scheduleString, true);
 
-				if ($useForecast)
+				if (config("weather.useForecast") !== false)
 				{
 					$forecastTemperature = WeatherController::getForecastAverageTemperature();
 
@@ -572,6 +577,11 @@
 					}
 
 					$scheduleWindow = "";
+
+					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+					{
+						return false;
+					}
 
 					if ($forecastTemperature >= config("nibe.dmTargetOffTemp"))
 					{

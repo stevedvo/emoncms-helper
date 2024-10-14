@@ -154,16 +154,6 @@
 				// Log::info('$averageTemperature is '.$averageTemperature);
 				// Log::info('$count is '.$count);
 				// Log::info('$weightedAverage is '.$weightedAverage);
-
-				if (!is_null($weightedAverage))
-				{
-					$syncSuccess = EmonAPI::postInputData("local", $now->timestamp, "weather", json_encode(['forecast avg. temp.' => $weightedAverage]));
-
-					if (!$syncSuccess)
-					{
-						throw new Exception("Error syncing with Emon");
-					}
-				}
 			}
 			catch (Throwable $e)
 			{
@@ -177,5 +167,37 @@
 			}
 
 			return $weightedAverage;
+		}
+
+		public static function syncForecastWithEmon() : void
+		{
+			try
+			{
+				$forecastTemperature = WeatherController::getForecastAverageTemperature();
+
+				if (is_null($forecastTemperature))
+				{
+					throw new Exception('$forecastTemperature is null');
+				}
+
+				$now = CarbonImmutable::now();
+
+				$syncSuccess = EmonAPI::postInputData("local", $now->timestamp, "weather", json_encode(['forecast avg. temp.' => $forecastTemperature]));
+
+				if (!$syncSuccess)
+				{
+					throw new Exception("Error syncing with Emon");
+				}
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
 		}
 	}
