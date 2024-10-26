@@ -285,8 +285,12 @@
 				{
 					$htgMode = "intermittent";
 				}
+				else
+				{
+					$htgMode = "intermittent";
+				}
 
-				if ((config("nibe.allowBoosts") !== false && $avgOutdoorTemp < (config("nibe.dmTargetOffTemp")) && $htgMode != "on") ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+				if ((config("nibe.allowBoosts") !== false && $htgMode != "on") ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
 				{
 					// Log::info("Boost is active");
 					$htgMode = "boost";
@@ -578,27 +582,22 @@
 
 					$scheduleWindow = "";
 
-					if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+					if ($outdoorTemp < config("nibe.tempFreqMin") || $forecastTemperature < config("nibe.tempFreqMin"))
 					{
-						return false;
+						return true;
 					}
 
-					if ($forecastTemperature >= config("nibe.dmTargetOffTemp"))
-					{
-						return false;
-					}
-
-					if ($forecastTemperature >= config("nibe.runLevel1Temp"))
-					{
-						$scheduleWindow = "cheapest_3_hours";
-					}
-					elseif ($forecastTemperature >= config("nibe.runLevel2Temp"))
+					if ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
 					{
 						$scheduleWindow = "cheapest_6_hours";
 					}
+					elseif ($outdoorTemp < config("nibe.runLevel1Temp") || $forecastTemperature < config("nibe.runLevel1Temp"))
+					{
+						$scheduleWindow = "cheapest_3_hours";
+					}
 					else
 					{
-						return true;
+						return false;
 					}
 
 					foreach ($schedules[$scheduleWindow] as $schedule)
