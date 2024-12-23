@@ -322,7 +322,17 @@
 				// calculate what the difference should be between ext & calc flow so that we get DM to {$dmTarget} in {minutesToDm} mins
 				// each change of offset adjusts the calc flow by approx {offsetFactor}K so we divide by {offsetFactor} at the end and round down to integer
 				$offsetChange = round(($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
-				// Log::info('$offsetChange = round(('.$externalFlowTemp.' - (('.$dmTarget.' - '.$degreeMinutes.') / '.config("nibe.minutesToDm").') - '.$calculatedFlowTemp.') / '.config("nibe.offsetFactor").') = round('.($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor").') = '.$offsetChange);
+
+				if ($offsetChange != 0)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$offsetChange = round(('.$externalFlowTemp.' - (('.$dmTarget.' - '.$degreeMinutes.') / '.config("nibe.minutesToDm").') - '.$calculatedFlowTemp.') / '.config("nibe.offsetFactor").') = round('.($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor").') = '.$offsetChange,
+					]);
+				}
 
 				$minOffset = config("nibe.offsetMinimum");
 				$maxOffset = config("nibe.offsetMaximum");
@@ -336,7 +346,7 @@
 					// Log::info('$heatingOffsetNewToOff: '.$heatingOffsetNewToOff);
 
 					// what is the maxOffset for current mode?
-					$maxOffsetToOff = $htgMode == "intermittent" ? config("nibe.offsetMaxInt") : config("nibe.cheapModeOffsetMax");
+					$maxOffsetToOff = config("nibe.cheapMode") !== false ? config("nibe.cheapModeOffsetMax") : config("nibe.offsetMaxInt");
 					// Log::info('$maxOffsetToOff: '.$maxOffsetToOff);
 
 					if ($heatingOffsetNewToOff > $maxOffsetToOff)
@@ -564,6 +574,7 @@
 
 		public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp) : bool
 		{
+			// return true;
 			$now = CarbonImmutable::now();
 
 			try
