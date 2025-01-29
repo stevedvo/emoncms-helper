@@ -304,20 +304,7 @@
 					'message'    => '$htgMode: '.$htgMode,
 				]);
 
-				$dmTarget = $htgMode == "off" ? config("nibe.dmTargetOff") : config("nibe.dmTarget");
-
-				if ($htgMode == "boost")
-				{
-					// $dmTarget = $dmTarget - 90;
-				}
-
-				// target a lower DM during DHW cycle so that when it completes the dump of very hot water gets the DM close to where it ought to normally be
-				// without this the DM could potentially inadvertently go over 0 and switch the compressor off
-				// not reducing so much that it becomes too negative and causes the compressor to kick in to a higher output
-				if ($priority == 20 || $htgMode == "boost")
-				{
-					$dmTarget = $dmTarget - 90;
-				}
+				$dmTarget = static::calculateTargetDm($priority, $htgMode, $outdoorTemp);
 
 				// calculate what the difference should be between ext & calc flow so that we get DM to {$dmTarget} in {minutesToDm} mins
 				// each change of offset adjusts the calc flow by approx {offsetFactor}K so we divide by {offsetFactor} at the end and round down to integer
@@ -741,5 +728,40 @@
 			}
 
 			return false;
+		}
+
+		public static function calculateTargetDm(int $priority, string $htgMode, float $outdoorTemp) : int
+		{
+			$forecastTemperature = null;
+
+			if (config("weather.useForecast") !== false)
+			{
+				$forecastTemperature = WeatherController::getForecastAverageTemperature();
+			}
+
+			if ($htgMode == "off")
+			{
+				$dmTarget = config("nibe.dmTargetOff");
+			}
+			else
+			{
+				if ($outdoorTemp < config("nibe.dmTargetBoostTemp") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp")))
+				{
+					$dmTarget = config("nibe.dmTargetBoost");
+				}
+				else
+				{
+					$dmTarget = config("nibe.dmTarget");
+				}
+			}
+
+			// target a lower DM during DHW cycle so that when it completes the dump of very hot water gets the DM close to where it ought to normally be
+			// without this the DM could potentially inadvertently go over 0 and switch the compressor off
+			if ($priority == 20 || $htgMode == "boost")
+			{
+				$dmTarget = $dmTarget - 90;
+			}
+
+			return $dmTarget;
 		}
 	}
