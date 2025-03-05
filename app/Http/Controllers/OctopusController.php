@@ -52,7 +52,7 @@
 
 					'daytime'   =>
 					[
-						'start' => Carbon::createFromTime(7, 0, 0)->addDay(), // 07:00 tomorrow
+						'start' => Carbon::createFromTime(10, 0, 0)->addDay(), // 10:00 tomorrow
 						'end'   => Carbon::createFromTime(16, 0, 0)->addDay(), // 16:00 tomorrow
 					],
 				];

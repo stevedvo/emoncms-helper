@@ -14,6 +14,8 @@
 		'dmTarget'           => env("NIBE_DM_TARGET", -180),
 		'dmTargetOff'        => env("NIBE_DM_TARGET_OFF", 30),
 		'dmTargetOffTemp'    => env("NIBE_DM_TARGET_OFF_TEMP", 12),
+		'dmTargetBoost'      => env("NIBE_DM_TARGET_BOOST", -360),
+		'dmTargetBoostTemp'  => env("NIBE_DM_TARGET_BOOST_TEMP", 3),
 		'minutesToDm'        => env("NIBE_MINUTES_TO_DM", 30),
 		'offsetFactor'       => env("NIBE_OFFSET_FACTOR", 2),
 		'offsetMinimum'      => env("NIBE_OFFSET_MINIMUM", -10),
