@@ -262,6 +262,53 @@
 				],
 			];
 
+			$now = CarbonImmutable::now();
+			$morningStart = $now->setTime(4, 0);
+
+			if ($morningStart->isBefore($now))
+			{
+				$morningStart = $morningStart->addDay();
+			}
+
+			$morningEnd = $morningStart->addMinutes(180);
+
+			$afternoonStart = $now->setTime(13, 0);
+
+			if ($afternoonStart->isBefore($now))
+			{
+				$afternoonStart = $afternoonStart->addDay();
+			}
+
+			$afternoonEnd = $afternoonStart->addMinutes(180);
+
+			$eveningStart = $now->setTime(22, 0);
+
+			if ($eveningStart->isBefore($now))
+			{
+				$eveningStart = $eveningStart->addDay();
+			}
+
+			$eveningEnd = $eveningStart->addMinutes(120);
+
+			$schedule['cosy'] =
+			[
+				[
+					'average_cost' => 12.48,
+					'start'        => $morningStart->addMinutes(-15)->getTimestamp(),
+					'end'          => $morningEnd->addMinutes(-60)->getTimestamp(),
+				],
+				[
+					'average_cost' => 12.48,
+					'start'        => $afternoonStart->addMinutes(-15)->getTimestamp(),
+					'end'          => $afternoonEnd->addMinutes(-60)->getTimestamp(),
+				],
+				[
+					'average_cost' => 12.48,
+					'start'        => $eveningStart->addMinutes(-15)->getTimestamp(),
+					'end'          => $eveningEnd->addMinutes(-60)->getTimestamp(),
+				],
+			];
+
 			$setting = Setting::updateOrCreate(["key" => "agile_schedule"], ["value" => json_encode($schedule)]);
 		}
 	}

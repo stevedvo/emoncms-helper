@@ -169,6 +169,51 @@
 			return $weightedAverage;
 		}
 
+		public static function getNextDayHighTemperatures() : ?float
+		{
+			$averageTemperature = null;
+
+			try
+			{
+				$weatherData = static::getLatestWeatherData();
+
+				if ($weatherData->isEmpty())
+				{
+					throw new Exception("WeatherData is empty");
+				}
+
+				$now = CarbonImmutable::now();
+
+				$temperatures = [];
+
+				foreach ($weatherData as $datetime => $datum)
+				{
+					$period = CarbonImmutable::parse($datetime);
+
+					if ($period->greaterThanOrEqualTo($now))
+					{
+						$temperatures[] = $datum['temperature'];
+					}
+				}
+
+				rsort($temperatures);
+				$highestTemperatures = array_slice($temperatures, 0, 3);
+				$averageTemperature = array_sum($highestTemperatures) / count($highestTemperatures);
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
+
+			return $averageTemperature;
+		}
+
 		public static function syncForecastWithEmon() : void
 		{
 			try

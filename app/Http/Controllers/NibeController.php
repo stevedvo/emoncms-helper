@@ -279,7 +279,8 @@
 
 				if ($outdoorTemp < config("nibe.tempFreqMin"))
 				{
-					$htgMode = "on";
+					// $htgMode = "on";
+					$htgMode = "intermittent";
 				}
 				elseif ($avgOutdoorTemp < config("nibe.dmTargetOffTemp"))
 				{
@@ -290,7 +291,7 @@
 					$htgMode = "intermittent";
 				}
 
-				if ((config("nibe.allowBoosts") !== false && $htgMode != "on") ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
 				{
 					// Log::info("Boost is active");
 					$htgMode = "boost";
@@ -582,7 +583,20 @@
 
 					if ($outdoorTemp < config("nibe.tempFreqMin") || $forecastTemperature < config("nibe.tempFreqMin"))
 					{
-						return true;
+						$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
+						Log::info('$nextDayHighTemperatureAverage: '.$nextDayHighTemperatureAverage);
+
+						if (is_null($nextDayHighTemperatureAverage))
+						{
+							return true;
+						}
+
+						if ($nextDayHighTemperatureAverage < config("nibe.runLevel2Temp"))
+						{
+							return true;
+						}
+
+						$scheduleWindow = "cosy";
 					}
 
 					if ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
