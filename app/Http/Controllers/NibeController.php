@@ -598,8 +598,7 @@
 
 						$scheduleWindow = "cosy";
 					}
-
-					if ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
+					elseif ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
 					{
 						$scheduleWindow = "cheapest_6_hours";
 					}
