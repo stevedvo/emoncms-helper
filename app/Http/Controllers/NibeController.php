@@ -583,32 +583,48 @@
 
 					if ($outdoorTemp < config("nibe.tempFreqMin") || $forecastTemperature < config("nibe.tempFreqMin"))
 					{
-						$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
-						Log::info('$nextDayHighTemperatureAverage: '.$nextDayHighTemperatureAverage);
-
-						if (is_null($nextDayHighTemperatureAverage))
-						{
-							return true;
-						}
-
-						if ($nextDayHighTemperatureAverage < config("nibe.runLevel2Temp"))
-						{
-							return true;
-						}
-
-						$scheduleWindow = "cosy";
+						$scheduleWindow = "constant";
 					}
 					elseif ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
 					{
-						$scheduleWindow = "cheapest_6_hours";
+						$scheduleWindow = "cosy";
 					}
 					elseif ($outdoorTemp < config("nibe.runLevel1Temp") || $forecastTemperature < config("nibe.runLevel1Temp"))
 					{
-						$scheduleWindow = "cheapest_3_hours";
+						$scheduleWindow = "cosy";
 					}
 					else
 					{
+						// if not cold at all then we're not boosting
 						return false;
+					}
+
+					Log::info('$scheduleWindow: '.$scheduleWindow);
+
+					// it might be cold/cool now or in the short-term forecast, but check the upcoming temperature peaks
+					$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
+					Log::info('$nextDayHighTemperatureAverage: '.$nextDayHighTemperatureAverage);
+
+					// if it's going to be warm enough at some point then override the schedule window to just boost at the cheapest times or not at all
+					if (!is_null($nextDayHighTemperatureAverage))
+					{
+						if ($nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+						{
+							return false;
+						}
+
+						if ($nextDayHighTemperatureAverage > config("nibe.runLevel2Temp"))
+						{
+							$scheduleWindow = "cosy";
+						}
+					}
+
+					Log::info('$scheduleWindow: '.$scheduleWindow);
+
+					if ($scheduleWindow == "constant")
+					{
+						// this key does not exist in $schedules so return here before we try accessing it in the foreach loop below
+						return true;
 					}
 
 					foreach ($schedules[$scheduleWindow] as $schedule)
