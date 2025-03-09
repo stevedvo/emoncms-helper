@@ -275,27 +275,7 @@
 				$minFlowLineTempCurrent = $dmOverrideCollection->get("47015");
 				$priority               = $dmOverrideCollection->get("49994");
 
-				$htgMode = "off";
-
-				if ($outdoorTemp < config("nibe.tempFreqMin"))
-				{
-					// $htgMode = "on";
-					$htgMode = "intermittent";
-				}
-				elseif ($avgOutdoorTemp < config("nibe.dmTargetOffTemp"))
-				{
-					$htgMode = "intermittent";
-				}
-				else
-				{
-					$htgMode = "intermittent";
-				}
-
-				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
-				{
-					// Log::info("Boost is active");
-					$htgMode = "boost";
-				}
+				$htgMode = static::calculateHeatingMode($outdoorTemp, $avgOutdoorTemp);
 
 				ActivityLog::create(
 				[
@@ -560,6 +540,43 @@
 			}
 		}
 
+		public static function calculateHeatingMode(float $outdoorTemp, float $avgOutdoorTemp) : string
+		{
+			if ($outdoorTemp < config("nibe.tempFreqMin"))
+			{
+				// $htgMode = "on";
+				$htgMode = "intermittent";
+			}
+			elseif ($avgOutdoorTemp < config("nibe.dmTargetOffTemp"))
+			{
+				$htgMode = "intermittent";
+			}
+			else
+			{
+				$htgMode = "intermittent";
+			}
+
+			if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+			{
+				// Log::info("Boost is active");
+				$htgMode = "boost";
+			}
+
+			$nextDayHighTemperatureAverage = null;
+
+			if (config("weather.useForecast") !== false)
+			{
+				$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
+			}
+
+			if (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+			{
+				$htgMode = "off";
+			}
+
+			return $htgMode;
+		}
+
 		public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp) : bool
 		{
 			// return true;
@@ -599,11 +616,24 @@
 						return false;
 					}
 
-					Log::info('$scheduleWindow: '.$scheduleWindow);
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "error",
+						'message'    => '$scheduleWindow: '.$scheduleWindow,
+					]);
 
 					// it might be cold/cool now or in the short-term forecast, but check the upcoming temperature peaks
 					$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
-					Log::info('$nextDayHighTemperatureAverage: '.$nextDayHighTemperatureAverage);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "error",
+						'message'    => '$nextDayHighTemperatureAverage: '.$nextDayHighTemperatureAverage,
+					]);
 
 					// if it's going to be warm enough at some point then override the schedule window to just boost at the cheapest times or not at all
 					if (!is_null($nextDayHighTemperatureAverage))
@@ -618,8 +648,6 @@
 							$scheduleWindow = "cosy";
 						}
 					}
-
-					Log::info('$scheduleWindow: '.$scheduleWindow);
 
 					if ($scheduleWindow == "constant")
 					{
@@ -768,28 +796,25 @@
 				$forecastTemperature = WeatherController::getForecastAverageTemperature();
 			}
 
+			if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
+			{
+				$dmTarget = config("nibe.dmTargetBoost");
+			}
+			else
+			{
+				$dmTarget = config("nibe.dmTarget");
+			}
+
 			if ($htgMode == "off")
 			{
 				$dmTarget = config("nibe.dmTargetOff");
 
-					// target a lower DM during DHW cycle so that when it completes the dump of very hot water gets the DM close to where it ought to normally be
-					// without this the DM could potentially inadvertently go over 0 and switch the compressor off
-					// if ($priority == 20 || $htgMode == "boost")
-					if ($priority == 20)
-					{
-						$dmTarget = $dmTarget - 90;
-					}
-			}
-			else
-			{
-				// if ($outdoorTemp < config("nibe.dmTargetBoostTemp") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp")))
-				if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
+				// target a lower DM during DHW cycle so that when it completes the dump of very hot water gets the DM close to where it ought to normally be
+				// without this the DM could potentially inadvertently go over 0 and switch the compressor off
+				// if ($priority == 20 || $htgMode == "boost")
+				if ($priority == 20)
 				{
-					$dmTarget = config("nibe.dmTargetBoost");
-				}
-				else
-				{
-					$dmTarget = config("nibe.dmTarget");
+					$dmTarget = $dmTarget - 90;
 				}
 			}
 
