@@ -620,7 +620,7 @@
 					[
 						'controller' => __CLASS__,
 						'method'     => __FUNCTION__,
-						'level'      => "error",
+						'level'      => "info",
 						'message'    => '$scheduleWindow: '.$scheduleWindow,
 					]);
 
@@ -631,7 +631,7 @@
 					[
 						'controller' => __CLASS__,
 						'method'     => __FUNCTION__,
-						'level'      => "error",
+						'level'      => "info",
 						'message'    => '$nextDayHighTemperatureAverage: '.$nextDayHighTemperatureAverage,
 					]);
 
