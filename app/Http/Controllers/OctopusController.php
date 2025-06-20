@@ -75,17 +75,31 @@
 				$cheapestPeriods = static::findCheapestPeriods($results, $cheapPeriodsToCheck);
 				$mostExpensivePeriods = static::findMostExpensivePeriods($results, $expensivePeriodsToCheck);
 
-				// Output the results
-				// Log::info('$cheapestPeriods');
-				// Log::info($cheapestPeriods);
-				// Log::info('$mostExpensivePeriods');
-				// Log::info($mostExpensivePeriods);
-				// exit;
+				try
+				{
+					static::saveCheapestPeriods($cheapestPeriods);
 
-				$agileRates = new AgileRates($cheapestPeriods, $mostExpensivePeriods);
-				Mail::to(config("app.admin_email"))->send($agileRates);
+					$agileRates = new AgileRates($cheapestPeriods, $mostExpensivePeriods);
 
-				static::saveCheapestPeriods($cheapestPeriods);
+					Mail::to(config("app.admin_email"))->send($agileRates);
+				}
+				catch (Throwable $e)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "error",
+						'message'    => $e->getMessage(),
+					]);
+
+					// Output the results
+					Log::info('$cheapestPeriods');
+					Log::info($cheapestPeriods);
+					Log::info('$mostExpensivePeriods');
+					Log::info($mostExpensivePeriods);
+					// exit;
+				}
 			}
 			catch (Throwable $e)
 			{
@@ -262,7 +276,7 @@
 				],
 			];
 
-			$now = CarbonImmutable::now();
+			$now = CarbonImmutable::now()->tz("Europe/London");
 			$morningStart = $now->setTime(4, 0);
 
 			if ($morningStart->isBefore($now))
@@ -293,17 +307,17 @@
 			$schedule['cosy'] =
 			[
 				[
-					'average_cost' => 12.48,
+					'average_cost' => 13.64,
 					'start'        => $morningStart->addMinutes(-15)->getTimestamp(),
 					'end'          => $morningEnd->addMinutes(-60)->getTimestamp(),
 				],
 				[
-					'average_cost' => 12.48,
+					'average_cost' => 13.64,
 					'start'        => $afternoonStart->addMinutes(-15)->getTimestamp(),
 					'end'          => $afternoonEnd->addMinutes(-60)->getTimestamp(),
 				],
 				[
-					'average_cost' => 12.48,
+					'average_cost' => 13.64,
 					'start'        => $eveningStart->addMinutes(-15)->getTimestamp(),
 					'end'          => $eveningEnd->addMinutes(-60)->getTimestamp(),
 				],

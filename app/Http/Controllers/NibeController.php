@@ -276,6 +276,7 @@
 				$priority               = $dmOverrideCollection->get("49994");
 
 				$htgMode = static::calculateHeatingMode($outdoorTemp, $avgOutdoorTemp);
+				// $htgMode = "boost";
 
 				ActivityLog::create(
 				[
@@ -302,7 +303,10 @@
 					]);
 				}
 
-				$minOffset = config("nibe.offsetMinimum");
+				// if it's warm enough at the daytime peak for $htgMode to be "off" then set $minOFfset to -3
+				// night-time temperatures may be low enough to need a little heat so that indoor temps don't drop too far
+				// ...however if we're in hot water mode then allow lower $minOffest otherwise DegreeMinutes may drop too much
+				$minOffset = ($htgMode == "off" && $priority <> 20) ? (config("nibe.cheapMode") !== false ? config("nibe.offsetMinimum") : -3) : config("nibe.offsetMinimum");
 				$maxOffset = config("nibe.offsetMaximum");
 
 				if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
@@ -814,7 +818,7 @@
 				// if ($priority == 20 || $htgMode == "boost")
 				if ($priority == 20)
 				{
-					$dmTarget = $dmTarget - 90;
+					$dmTarget = $dmTarget - 60;
 				}
 			}
 

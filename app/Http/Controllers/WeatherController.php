@@ -197,7 +197,7 @@
 				}
 
 				rsort($temperatures);
-				$highestTemperatures = array_slice($temperatures, 0, 3);
+				$highestTemperatures = array_slice($temperatures, 0, 6);
 				$averageTemperature = array_sum($highestTemperatures) / count($highestTemperatures);
 			}
 			catch (Throwable $e)
@@ -218,20 +218,34 @@
 		{
 			try
 			{
-				$forecastTemperature = WeatherController::getForecastAverageTemperature();
+				$now = CarbonImmutable::now();
+
+				$forecastTemperature = static::getForecastAverageTemperature();
 
 				if (is_null($forecastTemperature))
 				{
 					throw new Exception('$forecastTemperature is null');
 				}
 
-				$now = CarbonImmutable::now();
-
 				$syncSuccess = EmonAPI::postInputData("local", $now->timestamp, "weather", json_encode(['forecast avg. temp.' => $forecastTemperature]));
 
 				if (!$syncSuccess)
 				{
-					throw new Exception("Error syncing with Emon");
+					throw new Exception('Error syncing $forecastTemperature with Emon');
+				}
+
+				$nextDayHighTemperatureAverage = static::getNextDayHighTemperatures();
+
+				if (is_null($nextDayHighTemperatureAverage))
+				{
+					throw new Exception('$nextDayHighTemperatureAverage is null');
+				}
+
+				$syncSuccess = EmonAPI::postInputData("local", $now->timestamp, "weather", json_encode(['forecast high temp.' => $nextDayHighTemperatureAverage]));
+
+				if (!$syncSuccess)
+				{
+					throw new Exception('Error syncing $nextDayHighTemperatureAverage with Emon');
 				}
 			}
 			catch (Throwable $e)
