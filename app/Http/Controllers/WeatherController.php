@@ -169,24 +169,83 @@
 			return $weightedAverage;
 		}
 
+		public static function getNextDayHighTemperatures() : ?float
+		{
+			$averageTemperature = null;
+
+			try
+			{
+				$weatherData = static::getLatestWeatherData();
+
+				if ($weatherData->isEmpty())
+				{
+					throw new Exception("WeatherData is empty");
+				}
+
+				$now = CarbonImmutable::now();
+
+				$temperatures = [];
+
+				foreach ($weatherData as $datetime => $datum)
+				{
+					$period = CarbonImmutable::parse($datetime);
+
+					if ($period->greaterThanOrEqualTo($now))
+					{
+						$temperatures[] = $datum['temperature'];
+					}
+				}
+
+				rsort($temperatures);
+				$highestTemperatures = array_slice($temperatures, 0, 6);
+				$averageTemperature = array_sum($highestTemperatures) / count($highestTemperatures);
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
+
+			return $averageTemperature;
+		}
+
 		public static function syncForecastWithEmon() : void
 		{
 			try
 			{
-				$forecastTemperature = WeatherController::getForecastAverageTemperature();
+				$now = CarbonImmutable::now();
+
+				$forecastTemperature = static::getForecastAverageTemperature();
 
 				if (is_null($forecastTemperature))
 				{
 					throw new Exception('$forecastTemperature is null');
 				}
 
-				$now = CarbonImmutable::now();
-
 				$syncSuccess = EmonAPI::postInputData("local", $now->timestamp, "weather", json_encode(['forecast avg. temp.' => $forecastTemperature]));
 
 				if (!$syncSuccess)
 				{
-					throw new Exception("Error syncing with Emon");
+					throw new Exception('Error syncing $forecastTemperature with Emon');
+				}
+
+				$nextDayHighTemperatureAverage = static::getNextDayHighTemperatures();
+
+				if (is_null($nextDayHighTemperatureAverage))
+				{
+					throw new Exception('$nextDayHighTemperatureAverage is null');
+				}
+
+				$syncSuccess = EmonAPI::postInputData("local", $now->timestamp, "weather", json_encode(['forecast high temp.' => $nextDayHighTemperatureAverage]));
+
+				if (!$syncSuccess)
+				{
+					throw new Exception('Error syncing $nextDayHighTemperatureAverage with Emon');
 				}
 			}
 			catch (Throwable $e)

@@ -275,26 +275,8 @@
 				$minFlowLineTempCurrent = $dmOverrideCollection->get("47015");
 				$priority               = $dmOverrideCollection->get("49994");
 
-				$htgMode = "off";
-
-				if ($outdoorTemp < config("nibe.tempFreqMin"))
-				{
-					$htgMode = "on";
-				}
-				elseif ($avgOutdoorTemp < config("nibe.dmTargetOffTemp"))
-				{
-					$htgMode = "intermittent";
-				}
-				else
-				{
-					$htgMode = "intermittent";
-				}
-
-				if ((config("nibe.allowBoosts") !== false && $htgMode != "on") ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
-				{
-					// Log::info("Boost is active");
-					$htgMode = "boost";
-				}
+				$htgMode = static::calculateHeatingMode($outdoorTemp, $avgOutdoorTemp);
+				// $htgMode = "boost";
 
 				ActivityLog::create(
 				[
@@ -321,7 +303,10 @@
 					]);
 				}
 
-				$minOffset = config("nibe.offsetMinimum");
+				// if it's warm enough at the daytime peak for $htgMode to be "off" then set $minOFfset to -3
+				// night-time temperatures may be low enough to need a little heat so that indoor temps don't drop too far
+				// ...however if we're in hot water mode then allow lower $minOffest otherwise DegreeMinutes may drop too much
+				$minOffset = ($htgMode == "off" && $priority <> 20) ? (config("nibe.cheapMode") !== false ? config("nibe.offsetMinimum") : -3) : config("nibe.offsetMinimum");
 				$maxOffset = config("nibe.offsetMaximum");
 
 				if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
@@ -559,6 +544,43 @@
 			}
 		}
 
+		public static function calculateHeatingMode(float $outdoorTemp, float $avgOutdoorTemp) : string
+		{
+			if ($outdoorTemp < config("nibe.tempFreqMin"))
+			{
+				// $htgMode = "on";
+				$htgMode = "intermittent";
+			}
+			elseif ($avgOutdoorTemp < config("nibe.dmTargetOffTemp"))
+			{
+				$htgMode = "intermittent";
+			}
+			else
+			{
+				$htgMode = "intermittent";
+			}
+
+			if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+			{
+				// Log::info("Boost is active");
+				$htgMode = "boost";
+			}
+
+			$nextDayHighTemperatureAverage = null;
+
+			if (config("weather.useForecast") !== false)
+			{
+				$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
+			}
+
+			if (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+			{
+				$htgMode = "off";
+			}
+
+			return $htgMode;
+		}
+
 		public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp) : bool
 		{
 			// return true;
@@ -582,20 +604,59 @@
 
 					if ($outdoorTemp < config("nibe.tempFreqMin") || $forecastTemperature < config("nibe.tempFreqMin"))
 					{
-						return true;
+						$scheduleWindow = "constant";
 					}
-
-					if ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
+					elseif ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
 					{
-						$scheduleWindow = "cheapest_6_hours";
+						$scheduleWindow = "cosy";
 					}
 					elseif ($outdoorTemp < config("nibe.runLevel1Temp") || $forecastTemperature < config("nibe.runLevel1Temp"))
 					{
-						$scheduleWindow = "cheapest_3_hours";
+						$scheduleWindow = "cosy";
 					}
 					else
 					{
+						// if not cold at all then we're not boosting
 						return false;
+					}
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$scheduleWindow: '.$scheduleWindow,
+					]);
+
+					// it might be cold/cool now or in the short-term forecast, but check the upcoming temperature peaks
+					$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$nextDayHighTemperatureAverage: '.$nextDayHighTemperatureAverage,
+					]);
+
+					// if it's going to be warm enough at some point then override the schedule window to just boost at the cheapest times or not at all
+					if (!is_null($nextDayHighTemperatureAverage))
+					{
+						if ($nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+						{
+							return false;
+						}
+
+						if ($nextDayHighTemperatureAverage > config("nibe.runLevel2Temp"))
+						{
+							$scheduleWindow = "cosy";
+						}
+					}
+
+					if ($scheduleWindow == "constant")
+					{
+						// this key does not exist in $schedules so return here before we try accessing it in the foreach loop below
+						return true;
 					}
 
 					foreach ($schedules[$scheduleWindow] as $schedule)
@@ -739,28 +800,25 @@
 				$forecastTemperature = WeatherController::getForecastAverageTemperature();
 			}
 
+			if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
+			{
+				$dmTarget = config("nibe.dmTargetBoost");
+			}
+			else
+			{
+				$dmTarget = config("nibe.dmTarget");
+			}
+
 			if ($htgMode == "off")
 			{
 				$dmTarget = config("nibe.dmTargetOff");
 
-					// target a lower DM during DHW cycle so that when it completes the dump of very hot water gets the DM close to where it ought to normally be
-					// without this the DM could potentially inadvertently go over 0 and switch the compressor off
-					// if ($priority == 20 || $htgMode == "boost")
-					if ($priority == 20)
-					{
-						$dmTarget = $dmTarget - 90;
-					}
-			}
-			else
-			{
-				// if ($outdoorTemp < config("nibe.dmTargetBoostTemp") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp")))
-				if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
+				// target a lower DM during DHW cycle so that when it completes the dump of very hot water gets the DM close to where it ought to normally be
+				// without this the DM could potentially inadvertently go over 0 and switch the compressor off
+				// if ($priority == 20 || $htgMode == "boost")
+				if ($priority == 20)
 				{
-					$dmTarget = config("nibe.dmTargetBoost");
-				}
-				else
-				{
-					$dmTarget = config("nibe.dmTarget");
+					$dmTarget = $dmTarget - 60;
 				}
 			}
 

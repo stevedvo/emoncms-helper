@@ -75,17 +75,31 @@
 				$cheapestPeriods = static::findCheapestPeriods($results, $cheapPeriodsToCheck);
 				$mostExpensivePeriods = static::findMostExpensivePeriods($results, $expensivePeriodsToCheck);
 
-				// Output the results
-				// Log::info('$cheapestPeriods');
-				// Log::info($cheapestPeriods);
-				// Log::info('$mostExpensivePeriods');
-				// Log::info($mostExpensivePeriods);
-				// exit;
+				try
+				{
+					static::saveCheapestPeriods($cheapestPeriods);
 
-				$agileRates = new AgileRates($cheapestPeriods, $mostExpensivePeriods);
-				Mail::to(config("app.admin_email"))->send($agileRates);
+					$agileRates = new AgileRates($cheapestPeriods, $mostExpensivePeriods);
 
-				static::saveCheapestPeriods($cheapestPeriods);
+					Mail::to(config("app.admin_email"))->send($agileRates);
+				}
+				catch (Throwable $e)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "error",
+						'message'    => $e->getMessage(),
+					]);
+
+					// Output the results
+					Log::info('$cheapestPeriods');
+					Log::info($cheapestPeriods);
+					Log::info('$mostExpensivePeriods');
+					Log::info($mostExpensivePeriods);
+					// exit;
+				}
 			}
 			catch (Throwable $e)
 			{
@@ -259,6 +273,53 @@
 						'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
 						'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][11]['valid_to'])->addMinutes(-60)->getTimestamp(),
 					],
+				],
+			];
+
+			$now = CarbonImmutable::now()->tz("Europe/London");
+			$morningStart = $now->setTime(4, 0);
+
+			if ($morningStart->isBefore($now))
+			{
+				$morningStart = $morningStart->addDay();
+			}
+
+			$morningEnd = $morningStart->addMinutes(180);
+
+			$afternoonStart = $now->setTime(13, 0);
+
+			if ($afternoonStart->isBefore($now))
+			{
+				$afternoonStart = $afternoonStart->addDay();
+			}
+
+			$afternoonEnd = $afternoonStart->addMinutes(180);
+
+			$eveningStart = $now->setTime(22, 0);
+
+			if ($eveningStart->isBefore($now))
+			{
+				$eveningStart = $eveningStart->addDay();
+			}
+
+			$eveningEnd = $eveningStart->addMinutes(120);
+
+			$schedule['cosy'] =
+			[
+				[
+					'average_cost' => 13.64,
+					'start'        => $morningStart->addMinutes(-15)->getTimestamp(),
+					'end'          => $morningEnd->addMinutes(-60)->getTimestamp(),
+				],
+				[
+					'average_cost' => 13.64,
+					'start'        => $afternoonStart->addMinutes(-15)->getTimestamp(),
+					'end'          => $afternoonEnd->addMinutes(-60)->getTimestamp(),
+				],
+				[
+					'average_cost' => 13.64,
+					'start'        => $eveningStart->addMinutes(-15)->getTimestamp(),
+					'end'          => $eveningEnd->addMinutes(-60)->getTimestamp(),
 				],
 			];
 
