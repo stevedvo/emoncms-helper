@@ -73,8 +73,8 @@
 						}
 					}
 
-					// populate collection with values for outdoor temp, avg outdoor temp, external flow temp, degree-minutes, calculated flow temp, heating curve, heating offset, min. flow line temp., and priority
-					if (in_array($datum['parameterId'], [40004, 40067, 40071, 40940, 43009, 47007, 47011, 47015, 49994]))
+					// populate collection with values for outdoor temp, avg outdoor temp, external flow temp, degree-minutes, calculated flow temp, heating curve, heating offset, min. flow line temp., priority, calculated flow temp cooling, cooling offset
+					if (in_array($datum['parameterId'], [40004, 40067, 40071, 40940, 43009, 47007, 47011, 47015, 49994, 44270, 48739]))
 					{
 						$dmOverrideCollection->put($datum['parameterId'], $datum['value']);
 					}
@@ -265,6 +265,16 @@
 					throw new Exception("No data for 'priority'");
 				}
 
+				if (!$dmOverrideCollection->has("44270"))
+				{
+					throw new Exception("No data for 'calculated flow temp. cooling'");
+				}
+
+				if (!$dmOverrideCollection->has("48739"))
+				{
+					throw new Exception("No data for 'cooling offset'");
+				}
+
 				$outdoorTemp            = $dmOverrideCollection->get("40004");
 				$avgOutdoorTemp         = $dmOverrideCollection->get("40067");
 				$externalFlowTemp       = $dmOverrideCollection->get("40071");
@@ -274,6 +284,8 @@
 				$heatingOffsetCurrent   = $dmOverrideCollection->get("47011");
 				$minFlowLineTempCurrent = $dmOverrideCollection->get("47015");
 				$priority               = $dmOverrideCollection->get("49994");
+				$calculatedFlowTempCool = $dmOverrideCollection->get("44270");
+				$coolingOffsetCurrent   = $dmOverrideCollection->get("48739");
 
 				$htgMode = static::calculateHeatingMode($outdoorTemp, $avgOutdoorTemp);
 				// $htgMode = "boost";
