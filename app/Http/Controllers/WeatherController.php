@@ -96,6 +96,41 @@
 			}
 		}
 
+		public static function getCurrentDewpoint() : ?float
+		{
+			$dewpoint = null;
+
+			try
+			{
+				$weatherData = static::getLatestWeatherData();
+
+				if ($weatherData->isEmpty())
+				{
+					throw new Exception("WeatherData is empty");
+				}
+
+				$nextHourData = $weatherData->first();
+
+				$temperature = $nextHourData['temperature'];
+				$humidity    = $nextHourData['humidity'];
+
+				$dewpoint = $temperature - ((100 - $humidity) / 5);
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
+
+			Log::info('$dewpoint: '.$dewpoint);
+			return $dewpoint;
+		}
+
 		public static function getForecastAverageTemperature() : ?float
 		{
 			$averageTemperature = null;

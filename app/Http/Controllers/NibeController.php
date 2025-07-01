@@ -279,7 +279,7 @@
 				$avgOutdoorTemp         = $dmOverrideCollection->get("40067");
 				$externalFlowTemp       = $dmOverrideCollection->get("40071");
 				$degreeMinutes          = $dmOverrideCollection->get("40940");
-				$calculatedFlowTemp     = $dmOverrideCollection->get("43009");
+				$calculatedFlowTempHtg  = $dmOverrideCollection->get("43009");
 				$heatingCurveCurrent    = $dmOverrideCollection->get("47007");
 				$heatingOffsetCurrent   = $dmOverrideCollection->get("47011");
 				$minFlowLineTempCurrent = $dmOverrideCollection->get("47015");
@@ -299,6 +299,8 @@
 				]);
 
 				$dmTarget = static::calculateTargetDm($priority, $htgMode, $outdoorTemp);
+
+				$calculatedFlowTemp = $htgMode == "cooling" ? $calculatedFlowTempCool : $calculatedFlowTempHtg;
 
 				// calculate what the difference should be between ext & calc flow so that we get DM to {$dmTarget} in {minutesToDm} mins
 				// each change of offset adjusts the calc flow by approx {offsetFactor}K so we divide by {offsetFactor} at the end and round down to integer
@@ -357,29 +359,10 @@
 
 				$parameterData = [];
 
-				if ($offsetChange == 0)
+				if ($htgMode != "cooling")
 				{
-					$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
-
-					if ($heatingOffsetNew != $heatingOffsetCurrent)
+					if ($offsetChange == 0)
 					{
-						$parameterData['47011'] = $heatingOffsetNew;
-					}
-				}
-
-				if ($offsetChange > 0)
-				{
-					if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
-					{
-						// if we're already at/above the $maxOffset we don't want to keep the compressor running
-						// we also don't want to adjust the min flow line temp
-						// on intermittent we're happy for the offset to go down but not for it to go back up if it's already high enough
-						if ($heatingOffsetCurrent >= $maxOffset)
-						{
-							// Log::info("not returning here");
-							// return;
-						}
-
 						$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
 
 						if ($heatingOffsetNew != $heatingOffsetCurrent)
@@ -387,69 +370,115 @@
 							$parameterData['47011'] = $heatingOffsetNew;
 						}
 					}
-					else
-					{
-						if ($heatingOffsetCurrent != $maxOffset)
-						{
-							$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
-							$parameterData['47011'] = $heatingOffsetNew;
 
-							// if this puts the heating offset up to max then prep the min. flow line temp. to be equal to the current calculated flow temperature
-							if ($heatingOffsetNew == $maxOffset)
+					if ($offsetChange > 0)
+					{
+						if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
+						{
+							// if we're already at/above the $maxOffset we don't want to keep the compressor running
+							// we also don't want to adjust the min flow line temp
+							// on intermittent we're happy for the offset to go down but not for it to go back up if it's already high enough
+							if ($heatingOffsetCurrent >= $maxOffset)
 							{
-								$parameterData['47015'] = round($calculatedFlowTemp);
+								// Log::info("not returning here");
+								// return;
+							}
+
+							$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
+
+							if ($heatingOffsetNew != $heatingOffsetCurrent)
+							{
+								$parameterData['47011'] = $heatingOffsetNew;
 							}
 						}
 						else
 						{
-							// heating offset is maxed out so let's increase the min. flow line temp. instead if we need to
-							$minFlowLineTempNew = min($minFlowLineTempCurrent + ($offsetChange * config("nibe.offsetFactor")), $minFlowLineTempMax);
-
-							if ($minFlowLineTempNew == $minFlowLineTempCurrent)
+							if ($heatingOffsetCurrent != $maxOffset)
 							{
-								return;
-							}
+								$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
+								$parameterData['47011'] = $heatingOffsetNew;
 
-							$parameterData['47015'] = round($minFlowLineTempNew);
+								// if this puts the heating offset up to max then prep the min. flow line temp. to be equal to the current calculated flow temperature
+								if ($heatingOffsetNew == $maxOffset)
+								{
+									$parameterData['47015'] = round($calculatedFlowTemp);
+								}
+							}
+							else
+							{
+								// heating offset is maxed out so let's increase the min. flow line temp. instead if we need to
+								$minFlowLineTempNew = min($minFlowLineTempCurrent + ($offsetChange * config("nibe.offsetFactor")), $minFlowLineTempMax);
+
+								if ($minFlowLineTempNew == $minFlowLineTempCurrent)
+								{
+									return;
+								}
+
+								$parameterData['47015'] = round($minFlowLineTempNew);
+							}
+						}
+					}
+					elseif ($offsetChange < 0)
+					{
+						// we need to decrease the calculated temp, first check if we have set min. flow line temp. above the minimum level
+						if ($minFlowLineTempCurrent != $minFlowLineTempMin)
+						{
+							if ($minFlowLineTempCurrent >= $calculatedFlowTemp)
+							{
+								// calculated flow temp is being determined by min. flow line temp. so let's drop it a bit
+								$minFlowLineTempNew = max($minFlowLineTempCurrent + ($offsetChange * config("nibe.offsetFactor")), $minFlowLineTempMin);
+
+								if ($minFlowLineTempNew == $minFlowLineTempCurrent)
+								{
+									return;
+								}
+
+								$parameterData['47015'] = round($minFlowLineTempNew);
+							}
+							else
+							{
+								// dropping a bit won't make a difference since the calculated flow temperature is being determined by the heating offset
+								// so change min. flow line temp. back down to minimum level and adjust the heating offset down
+								$minFlowLineTempNew = $minFlowLineTempMin;
+								$parameterData['47015'] = round($minFlowLineTempNew);
+
+								$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
+								$parameterData['47011'] = $heatingOffsetNew;
+							}
+						}
+						else
+						{
+							$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
+
+							if ($heatingOffsetNew != $heatingOffsetCurrent)
+							{
+								$parameterData['47011'] = $heatingOffsetNew;
+							}
 						}
 					}
 				}
-				elseif ($offsetChange < 0)
+				else
 				{
-					// we need to decrease the calculated temp, first check if we have set min. flow line temp. above the minimum level
-					if ($minFlowLineTempCurrent != $minFlowLineTempMin)
+					// $htgMode == "cooling"
+					$coolingOffsetNew = min(max($coolingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
+
+					$currentDewpoint = WeatherController::getCurrentDewpoint();
+
+					if ($currentDewpoint != null)
 					{
-						if ($minFlowLineTempCurrent >= $calculatedFlowTemp)
+						if ($calculatedFlowTemp < $currentDewpoint)
 						{
-							// calculated flow temp is being determined by min. flow line temp. so let's drop it a bit
-							$minFlowLineTempNew = max($minFlowLineTempCurrent + ($offsetChange * config("nibe.offsetFactor")), $minFlowLineTempMin);
-
-							if ($minFlowLineTempNew == $minFlowLineTempCurrent)
-							{
-								return;
-							}
-
-							$parameterData['47015'] = round($minFlowLineTempNew);
+							$coolingOffsetNew = $coolingOffsetCurrent + 1;
 						}
-						else
+						elseif ($calculatedFlowTemp + 2 * $offsetChange < $currentDewpoint)
 						{
-							// dropping a bit won't make a difference since the calculated flow temperature is being determined by the heating offset
-							// so change min. flow line temp. back down to minimum level and adjust the heating offset down
-							$minFlowLineTempNew = $minFlowLineTempMin;
-							$parameterData['47015'] = round($minFlowLineTempNew);
-
-							$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
-							$parameterData['47011'] = $heatingOffsetNew;
+							$coolingOffsetNew = $coolingOffsetCurrent;
 						}
 					}
-					else
-					{
-						$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
 
-						if ($heatingOffsetNew != $heatingOffsetCurrent)
-						{
-							$parameterData['47011'] = $heatingOffsetNew;
-						}
+					if ($coolingOffsetNew != $coolingOffsetCurrent)
+					{
+						$parameterData['48739'] = $coolingOffsetNew;
 					}
 				}
 
@@ -588,6 +617,11 @@
 			if (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
 			{
 				$htgMode = "off";
+			}
+
+			if ($avgOutdoorTemp > config("nibe.coolingStartTemp"))
+			{
+				$htgMode = "cooling";
 			}
 
 			return $htgMode;
@@ -819,6 +853,11 @@
 			else
 			{
 				$dmTarget = config("nibe.dmTarget");
+			}
+
+			if ($htgMode == "cooling")
+			{
+				$dmTarget = config("nibe.dmTargetCooling");
 			}
 
 			if ($htgMode == "off")

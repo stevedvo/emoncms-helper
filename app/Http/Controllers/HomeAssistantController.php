@@ -22,7 +22,9 @@
 				}
 
 				$homeAssistant = new HomeAssistantAPI();
-				$homeAssistant->adjustHiveThermostat($latestPriorityNibeFeedItem->rawValue == 30 ? config("hive.targetOnTemp") : config("hive.targetOffTemp"));
+
+				// if priority is heating [30] or cooling [60]
+				$homeAssistant->adjustHiveThermostat(($latestPriorityNibeFeedItem->rawValue == 30 || $latestPriorityNibeFeedItem->rawValue == 60) ? config("hive.targetOnTemp") : config("hive.targetOffTemp"));
 			}
 			catch (Throwable $e)
 			{
