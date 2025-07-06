@@ -456,6 +456,23 @@
 							}
 						}
 					}
+
+					// we're in heating mode so let's get the cooling offset back to 0
+					$coolingOffsetNew = $coolingOffsetCurrent;
+
+					if ($coolingOffsetCurrent > 0)
+					{
+						$coolingOffsetNew = $coolingOffsetCurrent - 1;
+					}
+					elseif ($coolingOffsetCurrent < 0)
+					{
+						$coolingOffsetNew = $coolingOffsetCurrent + 1;
+					}
+
+					if ($coolingOffsetNew != $coolingOffsetCurrent)
+					{
+						$parameterData['48739'] = $coolingOffsetNew;
+					}
 				}
 				else
 				{
@@ -479,6 +496,23 @@
 					if ($coolingOffsetNew != $coolingOffsetCurrent)
 					{
 						$parameterData['48739'] = $coolingOffsetNew;
+					}
+
+					// we're in cooling mode so let's get the heating offset back to 0
+					$heatingOffsetNew = $heatingOffsetCurrent;
+
+					if ($heatingOffsetCurrent > 0)
+					{
+						$heatingOffsetNew = $heatingOffsetCurrent - 1;
+					}
+					elseif ($heatingOffsetCurrent < 0)
+					{
+						$heatingOffsetNew = $heatingOffsetCurrent + 1;
+					}
+
+					if ($heatingOffsetNew != $heatingOffsetCurrent)
+					{
+						$parameterData['47011'] = $heatingOffsetNew;
 					}
 				}
 
