@@ -460,13 +460,19 @@
 					// we're in heating mode so let's get the cooling offset back to 0
 					$coolingOffsetNew = $coolingOffsetCurrent;
 
-					if ($coolingOffsetCurrent > 0)
+					// nibe cooling mode continues until avg outdoor temp is 1degC below the temperature setpoint
+					// so whilst $htgMode is not cooling let's not adjust the cooling offset the avg temp has dropped
+					// in case the ashp is still actually running in cooling mode
+					if ($avgOutdoorTemp < config("nibe.coolingStartTemp") - 1)
 					{
-						$coolingOffsetNew = $coolingOffsetCurrent - 1;
-					}
-					elseif ($coolingOffsetCurrent < 0)
-					{
-						$coolingOffsetNew = $coolingOffsetCurrent + 1;
+						if ($coolingOffsetCurrent > 0)
+						{
+							$coolingOffsetNew = $coolingOffsetCurrent - 1;
+						}
+						elseif ($coolingOffsetCurrent < 0)
+						{
+							$coolingOffsetNew = $coolingOffsetCurrent + 1;
+						}
 					}
 
 					if ($coolingOffsetNew != $coolingOffsetCurrent)
@@ -501,13 +507,18 @@
 					// we're in cooling mode so let's get the heating offset back to 0
 					$heatingOffsetNew = $heatingOffsetCurrent;
 
-					if ($heatingOffsetCurrent > 0)
+					// similar to !cooling above, hold off winding the heating offset down until we're 1degC away from the temperature setpoint
+					// probably don't need this but nice for the symmetry
+					if ($avgOutdoorTemp > config("nibe.coolingStartTemp") + 1)
 					{
-						$heatingOffsetNew = $heatingOffsetCurrent - 1;
-					}
-					elseif ($heatingOffsetCurrent < 0)
-					{
-						$heatingOffsetNew = $heatingOffsetCurrent + 1;
+						if ($heatingOffsetCurrent > 0)
+						{
+							$heatingOffsetNew = $heatingOffsetCurrent - 1;
+						}
+						elseif ($heatingOffsetCurrent < 0)
+						{
+							$heatingOffsetNew = $heatingOffsetCurrent + 1;
+						}
 					}
 
 					if ($heatingOffsetNew != $heatingOffsetCurrent)

@@ -127,7 +127,14 @@
 				]);
 			}
 
-			Log::info('$dewpoint: '.$dewpoint);
+			ActivityLog::create(
+			[
+				'controller' => __CLASS__,
+				'method'     => __FUNCTION__,
+				'level'      => "info",
+				'message'    => '$dewpoint: '.$dewpoint,
+			]);
+
 			return $dewpoint;
 		}
 
