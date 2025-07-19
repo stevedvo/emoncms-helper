@@ -664,6 +664,9 @@
 				$htgMode = "off";
 			}
 
+			// recent past average temperature is above threshold, or forecast high temperature is a few degrees above threshold [pre-emptive cooling]
+			// actually this won't work since the ASHP won't switch to cooling until the first condition is met anyway
+			// if ($avgOutdoorTemp > config("nibe.coolingStartTemp") || (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > (config("nibe.coolingStartTemp") + 3)))
 			if ($avgOutdoorTemp > config("nibe.coolingStartTemp"))
 			{
 				$htgMode = "cooling";
