@@ -18,6 +18,8 @@
 		'dmTargetBoost'      => env("NIBE_DM_TARGET_BOOST", -360),
 		'dmTargetBoostTemp'  => env("NIBE_DM_TARGET_BOOST_TEMP", 3),
 		'dmTargetCooling'    => env("NIBE_DM_TARGET_COOLING", 75),
+		'loadCompensationOn' => env("NIBE_LOAD_COMPENSATION_ON", true),
+		'loadCompTempOff'    => env("NIBE_LOAD_COMP_TEMP_OFF", 22),
 		'minutesToDm'        => env("NIBE_MINUTES_TO_DM", 30),
 		'offsetFactor'       => env("NIBE_OFFSET_FACTOR", 2),
 		'offsetMinimum'      => env("NIBE_OFFSET_MINIMUM", -10),

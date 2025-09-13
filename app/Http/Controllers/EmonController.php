@@ -8,7 +8,8 @@
 	use App\Models\FeedItem;
 	use Carbon\CarbonImmutable;
 	use Illuminate\Support\Collection;
-	 
+	use Illuminate\Support\Facades\Log;
+
 	class EmonController extends Controller
 	{
 		public static function syncEmonFeeds() : void
@@ -220,6 +221,42 @@
 						'message'    => "localFeed #".$localFeed['id'].": fetched ".$localFeedItemsCount."; remote matched ".$remoteFeedItemsMatched."; existing ".$existingFeedItemsCount."; new to sync ".$newFeedItemsToSync,
 					]);
 				}
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
+		}
+
+		public static function getLatestRoomTemperatureData() : ?float
+		{
+			try
+			{
+				$latestTemp = null;
+				$roomFeed = EmonFeedMap::where('localName', "UFH_temperature")->first();
+
+				// Log::info($roomFeed);
+
+				if ($roomFeed instanceof EmonFeedMap)
+				{
+					$endTime = CarbonImmutable::now()->startOfMinute();
+					$startTime = $endTime->subMinutes(5);
+					$startTimeMilliseconds = $startTime->format("Uv");
+					$endTimeMilliseconds = $endTime->format("Uv");
+
+					$localFeedData = EmonAPI::getFeedData("local", $roomFeed['localFeedId'], $startTimeMilliseconds, $endTimeMilliseconds);
+					$latestTemp = ($pair = collect($localFeedData)->last(fn($pair) => !is_null($pair[1]))) ? round($pair[1], 1) : null;
+
+					// Log::info($latestTemp);
+				}
+
+				return $latestTemp;
 			}
 			catch (Throwable $e)
 			{

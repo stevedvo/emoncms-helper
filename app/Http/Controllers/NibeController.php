@@ -5,6 +5,7 @@
 	use Throwable;
 	use App\APIs\EmonAPI;
 	use App\APIs\NibeAPI;
+	use App\Http\Controllers\EmonController;
 	use App\Http\Controllers\WeatherController;
 	use App\Models\ActivityLog;
 	use App\Models\NibeFeedItem;
@@ -16,10 +17,31 @@
 
 	class NibeController extends Controller
 	{
+		protected static $roomTemperature;
+		protected static $loadCompensationOn;
+		protected static $loadCompTempOff;
+
+		protected static function initConfig() : void
+		{
+			static::$loadCompensationOn ??= config("nibe.loadCompensationOn");
+			static::$loadCompTempOff    ??= config("nibe.loadCompTempOff");
+		}
+
+		protected static function getRoomTemperature() : ?float
+		{
+			if (is_null(static::$roomTemperature))
+			{
+				static::$roomTemperature = EmonController::getLatestRoomTemperatureData();
+			}
+
+			return static::$roomTemperature;
+		}
+
 		public static function getNibeData() : void
 		{
 			try
 			{
+				static::initConfig();
 				$now = CarbonImmutable::now();
 				$nibe = new NibeAPI();
 
@@ -319,7 +341,7 @@
 
 				// if it's warm enough at the daytime peak for $htgMode to be "off" then set $minOFfset to -3
 				// night-time temperatures may be low enough to need a little heat so that indoor temps don't drop too far
-				// ...however if we're in hot water mode then allow lower $minOffest otherwise DegreeMinutes may drop too much
+				// ...however if we're in hot water mode then allow lower $minOffset otherwise DegreeMinutes may drop too much
 				$minOffset = ($htgMode == "off" && $priority <> 20) ? (config("nibe.cheapMode") !== false ? config("nibe.offsetMinimum") : -3) : config("nibe.offsetMinimum");
 				$maxOffset = config("nibe.offsetMaximum");
 
@@ -650,6 +672,17 @@
 			{
 				// Log::info("Boost is active");
 				$htgMode = "boost";
+			}
+
+			if (static::$loadCompensationOn !== false)
+			{
+				if (!is_null(static::getRoomTemperature()))
+				{
+					if (static::getRoomTemperature() > static::$loadCompTempOff)
+					{
+						$htgMode = "off";
+					}
+				}
 			}
 
 			$nextDayHighTemperatureAverage = null;
