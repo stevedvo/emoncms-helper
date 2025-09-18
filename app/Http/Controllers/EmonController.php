@@ -26,7 +26,7 @@
 			try
 			{
 				$localToRemoteFeedMap = EmonFeedMap::all()->keyBy("localFeedId");
-				$ignoreLocalFeedIds   = [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 62, 64, 65, 66];
+				$ignoreLocalFeedIds   = [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 62, 64, 65, 66, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81];
 
 				$localFeeds = EmonAPI::getFeedList("local");
 
@@ -236,9 +236,10 @@
 
 		public static function getLatestRoomTemperatureData() : ?float
 		{
+			$latestTemp = null;
+
 			try
 			{
-				$latestTemp = null;
 				$roomFeed = EmonFeedMap::where('localName', "UFH_temperature")->first();
 
 				// Log::info($roomFeed);
@@ -255,8 +256,6 @@
 
 					// Log::info($latestTemp);
 				}
-
-				return $latestTemp;
 			}
 			catch (Throwable $e)
 			{
@@ -268,6 +267,8 @@
 					'message'    => $e->getMessage(),
 				]);
 			}
+
+			return $latestTemp;
 		}
 
 		public static function postEmonFeeds() : void
