@@ -2,9 +2,11 @@
 	namespace App\Console\Commands;
 
 	use Throwable;
-	use App\Models\ActivityLog;
-	use Illuminate\Console\Command;
+	use App\APIs\EmonAPI;
 	use App\Http\Controllers\EmonController;
+	use App\Models\ActivityLog;
+	use Carbon\CarbonImmutable;
+	use Illuminate\Console\Command;
 
 	class TestCommand extends Command
 	{
@@ -39,7 +41,9 @@
 					'message'    => "Command Start.",
 				]);
 
-				EmonController::getLatestRoomTemperatureData();
+				// EmonController::getForecastRoomTemperatureData();
+				$syncSuccess = EmonAPI::postInputData("local", CarbonImmutable::now()->startOfMinute()->setTimezone("UTC")->format("U"), "emonth2_23", json_encode(["temperature_forecast" => 21.6]));
+
 
 				ActivityLog::create(
 				[
