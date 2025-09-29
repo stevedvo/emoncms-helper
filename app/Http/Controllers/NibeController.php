@@ -829,7 +829,11 @@
 			if (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
 			{
 				// nudge $htgMode down a notch if warmer temps expected later
-				if ($htgMode == "boost")
+				if ($htgMode == "extraBoost")
+				{
+					$htgMode = "boost";
+				}
+				elseif ($htgMode == "boost")
 				{
 					$htgMode = "intermittent";
 				}
@@ -1248,7 +1252,7 @@
 		{
 			try
 			{
-				$syncSuccess = EmonAPI::postInputData("local", static::getRoomTemperatureForecast()['tempCurrentTimestamp'], "emonth2_23", json_encode(["temperature forecast" => static::getRoomTemperatureForecast()['tempCurrent']]));
+				$syncSuccess = EmonAPI::postInputData("local", static::getRoomTemperatureForecast()['tempCurrentTimestamp'], "emonth2_23", json_encode(["temperature forecast" => static::getRoomTemperatureForecast()['tempForecast']]));
 
 				if (!$syncSuccess)
 				{
