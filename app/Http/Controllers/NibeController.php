@@ -693,12 +693,6 @@
 				$htgMode = "intermittent";
 			}
 
-			if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
-			{
-				// Log::info("Boost is active");
-				$htgMode = "boost";
-			}
-
 			$nextDayHighTemperatureAverage = null;
 			$forecastTemperature = null;
 
@@ -708,73 +702,9 @@
 				$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
 			}
 
-			if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
-			{
-				$htgMode = "boost";
-
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "info",
-					'message'    => '$forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
-				]);
-			}
-
+			// set $htgMode initially based on forecasted room temperature...
 			if (static::$loadCompensationOn !== false)
 			{
-				if (!is_null(static::getRoomTemperature()))
-				{
-					if (static::getRoomTemperature() > static::$loadCompTempOff)
-					{
-						$htgMode = "off";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => 'Room temperature '.static::getRoomTemperature().' > '.static::$loadCompTempOff.': $htgMode = '.$htgMode,
-						]);
-					}
-					elseif (static::getRoomTemperature() > static::$loadCompTempIntermittent)
-					{
-						$htgMode = "intermittent";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => 'Room temperature '.static::getRoomTemperature().' > '.static::$loadCompTempIntermittent.': $htgMode = '.$htgMode,
-						]);
-					}
-					elseif (static::getRoomTemperature() > static::$loadCompTempLevel1)
-					{
-						$htgMode = "boost";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => 'Room temperature '.static::getRoomTemperature().' > '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
-						]);
-					}
-					else
-					{
-						$htgMode = "extraBoost";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => 'Room temperature '.static::getRoomTemperature().' is <= '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
-						]);
-					}
-				}
-
 				if (!is_null(static::getRoomTemperatureForecast()))
 				{
 					if (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempOff)
@@ -840,25 +770,10 @@
 				}
 			}
 
+			// adjustment check 1: nudge $htgMode down a notch if warmer temps expected later
 			if (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
 			{
-				// nudge $htgMode down a notch if warmer temps expected later
-				if ($htgMode == "extraBoost")
-				{
-					$htgMode = "boost";
-				}
-				elseif ($htgMode == "boost")
-				{
-					$htgMode = "on";
-				}
-				elseif ($htgMode == "on")
-				{
-					$htgMode = "intermittent";
-				}
-				elseif ($htgMode == "intermittent")
-				{
-					$htgMode = "off";
-				}
+				$htgMode = static::nudgeHeatingModeDown($htgMode);
 
 				ActivityLog::create(
 				[
@@ -869,12 +784,84 @@
 				]);
 			}
 
+			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
+			if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => 'Boost is active: $htgMode = '.$htgMode,
+				]);
+			}
+
+			// adjustment check 3: nudge $htgMode up a notch if forecast outside temperature is below a certain threshold
+			if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => '$forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+				]);
+			}
+
 			// recent past average temperature is above threshold, or forecast high temperature is a few degrees above threshold [pre-emptive cooling]
 			// actually this won't work since the ASHP won't switch to cooling until the first condition is met anyway
 			// if ($avgOutdoorTemp > config("nibe.coolingStartTemp") || (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > (config("nibe.coolingStartTemp") + 3)))
 			if ($avgOutdoorTemp > config("nibe.coolingStartTemp"))
 			{
 				$htgMode = "cooling";
+			}
+
+			return $htgMode;
+		}
+
+		public static function nudgeHeatingModeUp(string $htgMode) : string
+		{
+			if ($htgMode == "off")
+			{
+				$htgMode = "intermittent";
+			}
+			elseif ($htgMode == "intermittent")
+			{
+				$htgMode = "on";
+			}
+			elseif ($htgMode == "on")
+			{
+				$htgMode = "boost";
+			}
+			elseif ($htgMode == "boost")
+			{
+				$htgMode = "extraBoost";
+			}
+
+			return $htgMode;
+		}
+
+		public static function nudgeHeatingModeDown(string $htgMode) : string
+		{
+			if ($htgMode == "extraBoost")
+			{
+				$htgMode = "boost";
+			}
+			elseif ($htgMode == "boost")
+			{
+				$htgMode = "on";
+			}
+			elseif ($htgMode == "on")
+			{
+				$htgMode = "intermittent";
+			}
+			elseif ($htgMode == "intermittent")
+			{
+				$htgMode = "off";
 			}
 
 			return $htgMode;
