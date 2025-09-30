@@ -21,6 +21,7 @@
 		protected static $roomTemperatureForecast;
 		protected static $loadCompensationOn;
 		protected static $loadCompTempOff;
+		protected static $loadCompTempOn;
 		protected static $loadCompTempIntermittent;
 		protected static $loadCompTempLevel1;
 
@@ -29,6 +30,7 @@
 			static::$loadCompensationOn       ??= config("nibe.loadCompensationOn");
 			static::$loadCompTempOff          ??= config("nibe.loadCompTempOff");
 			static::$loadCompTempIntermittent ??= config("nibe.loadCompTempIntermittent");
+			static::$loadCompTempOn           ??= config("nibe.loadCompTempOn");
 			static::$loadCompTempLevel1       ??= config("nibe.loadCompTempLevel1");
 		}
 
@@ -799,6 +801,18 @@
 							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' > '.static::$loadCompTempIntermittent.': $htgMode = '.$htgMode,
 						]);
 					}
+					elseif (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempOn)
+					{
+						$htgMode = "on";
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' > '.static::$loadCompTempOn.': $htgMode = '.$htgMode,
+						]);
+					}
 					elseif (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempLevel1)
 					{
 						$htgMode = "boost";
@@ -834,6 +848,10 @@
 					$htgMode = "boost";
 				}
 				elseif ($htgMode == "boost")
+				{
+					$htgMode = "on";
+				}
+				elseif ($htgMode == "on")
 				{
 					$htgMode = "intermittent";
 				}
@@ -1095,6 +1113,21 @@
 			}
 
 			if ($htgMode == "intermittent")
+			{
+				$dmTarget = config("nibe.dmTarget");
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => '$htgMode is "'.$htgMode.'": $dmTarget = '.$dmTarget,
+				]);
+
+				return $dmTarget;
+			}
+
+			if ($htgMode == "on")
 			{
 				$dmTarget = config("nibe.dmTarget");
 
