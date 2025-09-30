@@ -39,7 +39,7 @@
 					'message'    => "Command Start.",
 				]);
 
-				OctopusController::getAgileRates();
+				OctopusController::tryGetAgileRates();
 
 				ActivityLog::create(
 				[

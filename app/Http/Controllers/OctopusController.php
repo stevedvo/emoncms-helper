@@ -14,6 +14,34 @@
 
 	class OctopusController extends Controller
 	{
+		public static function tryGetAgileRates(): void
+		{
+			$currentTime = CarbonImmutable::now()->timezone("Europe/London");
+			$cutoff = $currentTime->copy()->setTime(16, 0);
+
+			$setting = Setting::firstWhere(["key" => "getAgileRatesSuccess"]);
+			$settingValue = $setting?->value === "true";
+
+			// Log::info("Current time: " . $currentTime);
+			// Log::info("Setting value: " . var_export($settingValue, true));
+
+			// Case 1: Before 16:00 and setting is true → reset to false
+			if ($currentTime->lt($cutoff) && $settingValue)
+			{
+				Log::info("Before 16:00, resetting getAgileRatesSuccess to false");
+				Setting::updateOrCreate(["key" => "getAgileRatesSuccess"], ["value" => "false"]);
+
+				return;
+			}
+
+			// Case 2: After 16:00 and setting is false or missing → try to get rates
+			if ($currentTime->gte($cutoff) && !$settingValue)
+			{
+				Log::info("After 16:00 and setting is false/missing, attempting getAgileRates()");
+				static::getAgileRates();
+			}
+		}
+
 		public static function getAgileRates() : void
 		{
 			try
@@ -82,6 +110,8 @@
 					$agileRates = new AgileRates($cheapestPeriods, $mostExpensivePeriods);
 
 					Mail::to(config("app.admin_email"))->send($agileRates);
+
+					Setting::updateOrCreate(["key" => "getAgileRatesSuccess"], ["value" => "true"]);
 				}
 				catch (Throwable $e)
 				{
@@ -92,6 +122,8 @@
 						'level'      => "error",
 						'message'    => $e->getMessage(),
 					]);
+
+					Setting::updateOrCreate(["key" => "getAgileRatesSuccess"], ["value" => "false"]);
 
 					// Output the results
 					Log::info('$cheapestPeriods');
@@ -110,6 +142,8 @@
 					'level'      => "error",
 					'message'    => $e->getMessage(),
 				]);
+
+				Setting::updateOrCreate(["key" => "getAgileRatesSuccess"], ["value" => "false"]);
 			}
 		}
 

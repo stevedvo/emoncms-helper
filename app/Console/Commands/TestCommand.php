@@ -4,6 +4,7 @@
 	use Throwable;
 	use App\APIs\EmonAPI;
 	use App\Http\Controllers\EmonController;
+	use App\Http\Controllers\OctopusController;
 	use App\Models\ActivityLog;
 	use Carbon\CarbonImmutable;
 	use Illuminate\Console\Command;
@@ -42,7 +43,8 @@
 				]);
 
 				// EmonController::getForecastRoomTemperatureData();
-				$syncSuccess = EmonAPI::postInputData("local", CarbonImmutable::now()->startOfMinute()->setTimezone("UTC")->format("U"), "emonth2_23", json_encode(["temperature_forecast" => 21.6]));
+				// $syncSuccess = EmonAPI::postInputData("local", CarbonImmutable::now()->startOfMinute()->setTimezone("UTC")->format("U"), "emonth2_23", json_encode(["temperature_forecast" => 21.6]));
+				OctopusController::tryGetAgileRates();
 
 
 				ActivityLog::create(
