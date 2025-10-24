@@ -433,6 +433,14 @@
 
 							$heatingOffsetNew = min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset);
 
+							ActivityLog::create(
+							[
+								'controller' => __CLASS__,
+								'method'     => __FUNCTION__,
+								'level'      => "info",
+								'message'    => '$heatingOffsetNew = min(max('.$heatingOffsetCurrent.' + '.$offsetChange.', '.$minOffset.'), '.$maxOffset.') = min('.max($heatingOffsetCurrent + $offsetChange, $minOffset).', '.$maxOffset.') = '.min(max($heatingOffsetCurrent + $offsetChange, $minOffset), $maxOffset),
+							]);
+
 							if ($heatingOffsetNew != $heatingOffsetCurrent)
 							{
 								$parameterData['47011'] = $heatingOffsetNew;

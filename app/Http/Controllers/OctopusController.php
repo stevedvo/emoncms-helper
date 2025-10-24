@@ -17,7 +17,7 @@
 		public static function tryGetAgileRates(): void
 		{
 			$currentTime = CarbonImmutable::now()->timezone("Europe/London");
-			$cutoff = $currentTime->copy()->setTime(16, 0);
+			$cutoff = $currentTime->copy()->setTime(16, 30);
 
 			$setting = Setting::firstWhere(["key" => "getAgileRatesSuccess"]);
 			$settingValue = $setting?->value === "true";
@@ -28,7 +28,7 @@
 			// Case 1: Before 16:00 and setting is true → reset to false
 			if ($currentTime->lt($cutoff) && $settingValue)
 			{
-				Log::info("Before 16:00, resetting getAgileRatesSuccess to false");
+				Log::info("Before 16:30, resetting getAgileRatesSuccess to false");
 				Setting::updateOrCreate(["key" => "getAgileRatesSuccess"], ["value" => "false"]);
 
 				return;
@@ -37,7 +37,7 @@
 			// Case 2: After 16:00 and setting is false or missing → try to get rates
 			if ($currentTime->gte($cutoff) && !$settingValue)
 			{
-				Log::info("After 16:00 and setting is false/missing, attempting getAgileRates()");
+				Log::info("After 16:30 and setting is false/missing, attempting getAgileRates()");
 				static::getAgileRates();
 			}
 		}
