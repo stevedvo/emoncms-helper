@@ -2,25 +2,28 @@
 	namespace App\Console\Commands;
 
 	use Throwable;
+	use App\APIs\EmonAPI;
+	use App\Http\Controllers\EmonController;
 	use App\Http\Controllers\OctopusController;
 	use App\Models\ActivityLog;
+	use Carbon\CarbonImmutable;
 	use Illuminate\Console\Command;
 
-	class GetOctopusAgileRates extends Command
+	class TestCommand extends Command
 	{
 		/**
 		 * The name and signature of the console command.
 		 *
 		 * @var string
 		 */
-		protected $signature = "octopus:getAgileRates";
+		protected $signature = "command:test";
 
 		/**
 		 * The console command description.
 		 *
 		 * @var string
 		 */
-		protected $description = "Get the latest Octopus Agile Rates";
+		protected $description = "Command for testing functions";
 
 		/**
 		 * Execute the console command.
@@ -39,7 +42,10 @@
 					'message'    => "Command Start.",
 				]);
 
+				// EmonController::getForecastRoomTemperatureData();
+				// $syncSuccess = EmonAPI::postInputData("local", CarbonImmutable::now()->startOfMinute()->setTimezone("UTC")->format("U"), "emonth2_23", json_encode(["temperature_forecast" => 21.6]));
 				OctopusController::tryGetAgileRates();
+
 
 				ActivityLog::create(
 				[
