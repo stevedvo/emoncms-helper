@@ -1,0 +1,15 @@
+diff --git a/app/Http/Controllers/NibeController.php b/app/Http/Controllers/NibeController.php
+index 42061eb..4230949 100644
+--- a/app/Http/Controllers/NibeController.php
++++ b/app/Http/Controllers/NibeController.php
+@@ -938,7 +938,9 @@ public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp)
+ 					{
+ 						if ($nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+ 						{
+-							return false;
++							// return false;
++							// #53: testing what happens if we stick to Cosy even if this condition is true
++							$scheduleWindow = "cosy";
+ 						}
+ 
+ 						if ($nextDayHighTemperatureAverage > config("nibe.runLevel2Temp"))

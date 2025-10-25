@@ -938,7 +938,9 @@
 					{
 						if ($nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
 						{
-							return false;
+							// return false;
+							// #53: testing what happens if we stick to Cosy even if this condition is true
+							$scheduleWindow = "cosy";
 						}
 
 						if ($nextDayHighTemperatureAverage > config("nibe.runLevel2Temp"))
