@@ -279,19 +279,22 @@
 
 		private static function saveCheapestPeriods(array $cheapestPeriods) : void
 		{
+			$offsetToOn = -50;
+			$offsetToOff = -100;
+
 			$schedule =
 			[
 				'cheapest_3_hours' =>
 				[
 					[
 						'average_cost' => $cheapestPeriods['overnight']['cheapest_3_hours']['average_cost'],
-						'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
-						'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-60)->getTimestamp(),
+						'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes($offsetToOn)->getTimestamp(),
+						'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes($offsetToOff)->getTimestamp(),
 					],
 					[
 						'average_cost' => $cheapestPeriods['daytime']['cheapest_3_hours']['average_cost'],
-						'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
-						'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes(-60)->getTimestamp(),
+						'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes($offsetToOn)->getTimestamp(),
+						'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes($offsetToOff)->getTimestamp(),
 					],
 				],
 
@@ -299,13 +302,13 @@
 				[
 					[
 						'average_cost' => $cheapestPeriods['overnight']['cheapest_6_hours']['average_cost'],
-						'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_6_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
-						'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_6_hours']['window'][11]['valid_to'])->addMinutes(-60)->getTimestamp(),
+						'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_6_hours']['window'][0]['valid_from'])->addMinutes($offsetToOn)->getTimestamp(),
+						'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_6_hours']['window'][11]['valid_to'])->addMinutes($offsetToOff)->getTimestamp(),
 					],
 					[
 						'average_cost' => $cheapestPeriods['daytime']['cheapest_6_hours']['average_cost'],
-						'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][0]['valid_from'])->addMinutes(-15)->getTimestamp(),
-						'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][11]['valid_to'])->addMinutes(-60)->getTimestamp(),
+						'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][0]['valid_from'])->addMinutes($offsetToOn)->getTimestamp(),
+						'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][11]['valid_to'])->addMinutes($offsetToOff)->getTimestamp(),
 					],
 				],
 			];
@@ -342,18 +345,18 @@
 			[
 				[
 					'average_cost' => 13.64,
-					'start'        => $morningStart->addMinutes(-15)->getTimestamp(),
-					'end'          => $morningEnd->addMinutes(-60)->getTimestamp(),
+					'start'        => $morningStart->addMinutes($offsetToOn)->getTimestamp(),
+					'end'          => $morningEnd->addMinutes($offsetToOff)->getTimestamp(),
 				],
 				[
 					'average_cost' => 13.64,
-					'start'        => $afternoonStart->addMinutes(-15)->getTimestamp(),
-					'end'          => $afternoonEnd->addMinutes(-60)->getTimestamp(),
+					'start'        => $afternoonStart->addMinutes($offsetToOn)->getTimestamp(),
+					'end'          => $afternoonEnd->addMinutes($offsetToOff)->getTimestamp(),
 				],
 				[
 					'average_cost' => 13.64,
-					'start'        => $eveningStart->addMinutes(-15)->getTimestamp(),
-					'end'          => $eveningEnd->addMinutes(-60)->getTimestamp(),
+					'start'        => $eveningStart->addMinutes($offsetToOn)->getTimestamp(),
+					'end'          => $eveningEnd->addMinutes($offsetToOff)->getTimestamp(),
 				],
 			];
 
