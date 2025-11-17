@@ -97,14 +97,33 @@
 			}
 		}
 
-		public function setParameterData(array $parameterData) : array
+		public function setParameterData(array $parameterData) : void
 		{
 			try
 			{
 				$url = $this->nibeFunctionUrl."/devices/".$this->nibeDeviceId."/points";
 				$response = API::patch($url)->headers(['Authorization' => "Bearer ".$this->nibeTokenCurrent->value])->json($parameterData)->send();
 
-				return json_decode((string)$response->getBody(), true);
+				$responseBody = json_decode((string)$response->getBody(), true);
+
+				$errors = [];
+
+				foreach ($parameterData as $parameterId => $value)
+				{
+					if (!isset($responseBody[$parameterId]))
+					{
+						$errors[] = "No response for parameter #".$parameterId;
+					}
+					elseif ($responseBody[$parameterId] != "modified")
+					{
+						$errors[] = "Parameter #".$parameterId." not modified";
+					}
+				}
+
+				if (count($errors) > 0)
+				{
+					throw new Exception("Error(s) with request: ".implode("; ", $errors));
+				}
 			}
 			catch (Throwable $e)
 			{

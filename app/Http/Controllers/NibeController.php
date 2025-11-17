@@ -24,6 +24,8 @@
 		protected static $loadCompTempOn;
 		protected static $loadCompTempIntermittent;
 		protected static $loadCompTempLevel1;
+		protected static $hotWaterSchedules;
+		protected static $hotWaterComfortModes;
 
 		protected static function initConfig() : void
 		{
@@ -32,6 +34,38 @@
 			static::$loadCompTempIntermittent ??= config("nibe.loadCompTempIntermittent");
 			static::$loadCompTempOn           ??= config("nibe.loadCompTempOn");
 			static::$loadCompTempLevel1       ??= config("nibe.loadCompTempLevel1");
+
+			static::$hotWaterSchedules        ??=
+			[
+				'schedule1' =>
+				[
+					'mon' => [ 'comfortMode' => "47693" ],
+					'tue' => [ 'comfortMode' => "47692" ],
+					'wed' => [ 'comfortMode' => "47691" ],
+					'thu' => [ 'comfortMode' => "47690" ],
+					'fri' => [ 'comfortMode' => "47689" ],
+					'sat' => [ 'comfortMode' => "47688" ],
+					'sun' => [ 'comfortMode' => "47687" ],
+				],
+				'schedule2' =>
+				[
+					'mon' => [ 'comfortMode' => "47659" ],
+					'tue' => [ 'comfortMode' => "47658" ],
+					'wed' => [ 'comfortMode' => "47657" ],
+					'thu' => [ 'comfortMode' => "47656" ],
+					'fri' => [ 'comfortMode' => "47655" ],
+					'sat' => [ 'comfortMode' => "47654" ],
+					'sun' => [ 'comfortMode' => "47653" ],
+				],
+			];
+
+			static::$hotWaterComfortModes     ??=
+			[
+				'off'     => "-1",
+				'economy' => "0",
+				'normal'  => "1",
+				'luxury'  => "2",
+			];
 		}
 
 		protected static function getRoomTemperature() : ?float
@@ -61,6 +95,8 @@
 				static::initConfig();
 				$now = CarbonImmutable::now();
 				$nibe = new NibeAPI();
+
+				// $nibe->setParameterData([static::$hotWaterSchedules['schedule2']['sun']['comfortMode'] => static::$hotWaterComfortModes['normal']]);
 
 				$parameterData = collect($nibe->getParameterData())->unique(function(array $item)
 				{
@@ -588,26 +624,7 @@
 				}
 
 				$nibe = new NibeAPI();
-				$response = $nibe->setParameterData($parameterData);
-
-				$errors = [];
-
-				foreach ($parameterData as $parameterId => $value)
-				{
-					if (!isset($response[$parameterId]))
-					{
-						$errors[] = "No response for parameter #".$parameterId;
-					}
-					elseif ($response[$parameterId] != "modified")
-					{
-						$errors[] = "Parameter #".$parameterId." not modified";
-					}
-				}
-
-				if (count($errors) > 0)
-				{
-					throw new Exception("Error(s) with request: ".implode("; ", $errors));
-				}
+				$nibe->setParameterData($parameterData);
 			}
 			catch (Throwable $e)
 			{
@@ -847,7 +864,12 @@
 			}
 			elseif ($htgMode == "boost")
 			{
-				$htgMode = "extraBoost";
+				// $htgMode = "extraBoost";
+				// 'extraBoost' gets compressor to 85Hz but this causes a lot of defrosting even when ambient a few degrees above freezing [see 17/11/2025]
+				// 'boost' gets compressor from low up to 55HZ but moving down to 'boost' level from 'extraBoost' doesn't drop the compressor to 55Hz
+				// so it stays at 85Hz longer than required, consuming a lot of power and defrosting a lot
+				// let's try keeping 'boost' as the upper limit and see what happens
+				$htgMode = "boost";
 			}
 
 			return $htgMode;
