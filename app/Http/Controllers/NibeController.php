@@ -345,6 +345,8 @@
 					'message'    => '$htgMode: '.$htgMode,
 				]);
 
+				$setting = Setting::updateOrCreate(["key" => "htgMode"], ["value" => $htgMode]);
+
 				$dmTarget = static::calculateTargetDm($priority, $htgMode, $outdoorTemp);
 
 				$calculatedFlowTemp = $htgMode == "cooling" ? $calculatedFlowTempCool : $calculatedFlowTempHtg;
@@ -1158,7 +1160,8 @@
 
 			if ($htgMode == "extraBoost")
 			{
-				$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost"); // room temperature/forecast very low - give it all the beans!
+				// $dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost"); // room temperature/forecast very low - give it all the beans!
+				$dmTarget = config("nibe.dmTargetBoost"); // #51: ^^^ that was too many beans! Stick to dmTargetBoost but now the Hive stat will be off so Grannexe gets all the heat
 
 				ActivityLog::create(
 				[
