@@ -96,7 +96,7 @@
 				$now = CarbonImmutable::now();
 				$nibe = new NibeAPI();
 
-				// $nibe->setParameterData([static::$hotWaterSchedules['schedule2']['sun']['comfortMode'] => static::$hotWaterComfortModes['normal']]);
+				// $nibe->setParameterData([static::$hotWaterSchedules['schedule2']['tue']['comfortMode'] => static::$hotWaterComfortModes['economy']]);
 
 				$parameterData = collect($nibe->getParameterData())->unique(function(array $item)
 				{
@@ -864,12 +864,7 @@
 			}
 			elseif ($htgMode == "boost")
 			{
-				// $htgMode = "extraBoost";
-				// 'extraBoost' gets compressor to 85Hz but this causes a lot of defrosting even when ambient a few degrees above freezing [see 17/11/2025]
-				// 'boost' gets compressor from low up to 55HZ but moving down to 'boost' level from 'extraBoost' doesn't drop the compressor to 55Hz
-				// so it stays at 85Hz longer than required, consuming a lot of power and defrosting a lot
-				// let's try keeping 'boost' as the upper limit and see what happens
-				$htgMode = "boost";
+				$htgMode = "extraBoost";
 			}
 
 			return $htgMode;
