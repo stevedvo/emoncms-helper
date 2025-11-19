@@ -26,7 +26,7 @@
 			try
 			{
 				$localToRemoteFeedMap = EmonFeedMap::all()->keyBy("localFeedId");
-				$ignoreLocalFeedIds   = [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 62, 64, 65, 66, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83];
+				$includeLocalFeedIds  = [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19];
 
 				$localFeeds = EmonAPI::getFeedList("local");
 
@@ -40,7 +40,7 @@
 
 				foreach ($localFeeds as $localFeed)
 				{
-					if (in_array($localFeed['id'], $ignoreLocalFeedIds))
+					if (!in_array($localFeed['id'], $includeLocalFeedIds))
 					{
 						continue;
 					}
@@ -232,6 +232,64 @@
 					'message'    => $e->getMessage(),
 				]);
 			}
+		}
+
+		public static function getLatestEmonData(string $feedName, string $environment, int $minutes) : string
+		{
+			$latestValue = "";
+			$dbColumn    = "";
+			$envFeedId   = "";
+
+			try
+			{
+				if ($feedName == "")
+				{
+					throw new Exception("'".$feedName."' is an invalid feedName");
+				}
+
+				if ($environment == "local" || $environment == "remote")
+				{
+					$dbColumn  = $environment."Name";
+					$envFeedId = $environment."FeedId";
+				}
+
+				if ($dbColumn == "")
+				{
+					throw new Exception("'".$environment."' is an invalid Emon environment");
+				}
+
+				if ($minutes < 1)
+				{
+					throw new Exception("'".$minutes."' is an invalid number of minutes");
+				}
+
+				$feedItem = EmonFeedMap::where($dbColumn, $feedName)->first();
+
+				if (!($feedItem instanceof EmonFeedMap))
+				{
+					throw new Exception('$feedItem not found');
+				}
+
+				$endTime = CarbonImmutable::now()->startOfMinute();
+				$startTime = $endTime->subMinutes($minutes);
+				$startTimeMilliseconds = $startTime->format("Uv");
+				$endTimeMilliseconds = $endTime->format("Uv");
+
+				$feedData = EmonAPI::getFeedData($environment, $feedItem[$envFeedId], $startTimeMilliseconds, $endTimeMilliseconds);
+				$latestValue = ($pair = collect($feedData)->last(fn($pair) => !is_null($pair[1]))) ? round($pair[1], 1) : null;
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
+
+			return $latestValue;
 		}
 
 		public static function getLatestRoomTemperatureData() : ?float

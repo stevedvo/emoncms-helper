@@ -8,6 +8,7 @@
 	use App\Models\ActivityLog;
 	use Carbon\CarbonImmutable;
 	use Illuminate\Console\Command;
+	use Illuminate\Support\Facades\Log;
 
 	class TestCommand extends Command
 	{
@@ -42,9 +43,11 @@
 					'message'    => "Command Start.",
 				]);
 
-				// EmonController::getForecastRoomTemperatureData();
+				$data = EmonController::getLatestEmonData("heatmeter_FlowT", "local", 5);
 				// $syncSuccess = EmonAPI::postInputData("local", CarbonImmutable::now()->startOfMinute()->setTimezone("UTC")->format("U"), "emonth2_23", json_encode(["temperature_forecast" => 21.6]));
-				OctopusController::tryGetAgileRates();
+				// OctopusController::tryGetAgileRates();
+
+				Log::info($data);
 
 
 				ActivityLog::create(
