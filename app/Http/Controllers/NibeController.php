@@ -809,7 +809,31 @@
 				]);
 			}
 
-			// adjustment check 3: nudge $htgMode up a notch if forecast outside temperature is below a certain threshold
+			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
+			if ($outdoorTemp < config("nibe.tempFreqMin") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.tempFreqMin")))
+			{
+				if ($htgMode == "off")
+				{
+					$htgMode = static::nudgeHeatingModeUp($htgMode);
+				}
+
+				if ($htgMode == "intermittent")
+				{
+					$htgMode = static::nudgeHeatingModeUp($htgMode);
+				}
+
+				// $htgMode will now definitely be at least "on"
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.tempFreqMin").': $htgMode = '.$htgMode,
+				]);
+			}
+
+			// adjustment check 4: nudge $htgMode up a notch if forecast outside temperature is below a certain threshold
 			if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
 			{
 				$htgMode = static::nudgeHeatingModeUp($htgMode);
@@ -823,7 +847,7 @@
 				]);
 			}
 
-			// adjustment check 4: nudge $htgMode down if we're in the peak [expensive] window
+			// adjustment check 5: nudge $htgMode down if we're in the peak [expensive] window
 			if (static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
 			{
 				$htgMode = static::nudgeHeatingModeDown($htgMode);
@@ -916,6 +940,7 @@
 
 					if ($outdoorTemp < config("nibe.tempFreqMin") || $forecastTemperature < config("nibe.tempFreqMin"))
 					{
+						// following #61 this may be redundant, but leaving in for now
 						$scheduleWindow = "constant";
 
 						ActivityLog::create(
