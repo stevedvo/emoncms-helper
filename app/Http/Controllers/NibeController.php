@@ -25,6 +25,7 @@
 		protected static $loadCompTempOn;
 		protected static $loadCompTempIntermittent;
 		protected static $loadCompTempLevel1;
+		protected static $minRadZoneTemp;
 
 		protected static function initConfig() : void
 		{
@@ -33,16 +34,17 @@
 			static::$loadCompTempIntermittent ??= config("nibe.loadCompTempIntermittent");
 			static::$loadCompTempOn           ??= config("nibe.loadCompTempOn");
 			static::$loadCompTempLevel1       ??= config("nibe.loadCompTempLevel1");
+			static::$minRadZoneTemp           ??= config("nibe.minRadZoneTemp");
 		}
 
-		protected static function getRoomTemperature() : ?float
+		protected static function getRoomTemperature(string $feedName) : ?float
 		{
-			if (is_null(static::$roomTemperature))
+			if (is_null(static::$roomTemperature) || !isset(static::$roomTemperature[$feedName]))
 			{
-				static::$roomTemperature = EmonController::getLatestRoomTemperatureData();
+				static::$roomTemperature[$feedName] = EmonController::getLatestEmonData($feedName, "local", 5);
 			}
 
-			return static::$roomTemperature;
+			return static::$roomTemperature[$feedName];
 		}
 
 		protected static function getRoomTemperatureForecast() : ?array
@@ -809,7 +811,35 @@
 				]);
 			}
 
-			// adjustment check 3: nudge $htgMode up a notch if forecast outside temperature is below a certain threshold
+			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
+			if ($outdoorTemp < config("nibe.tempFreqMin") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.tempFreqMin")))
+			{
+				$htgMode = static::htgModeAtLeastOn($htgMode);
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.tempFreqMin").': $htgMode = '.$htgMode,
+				]);
+			}
+
+			// adjustment check 4: ensure htgMode is at least "on" if Rad Zone temperature is below a certain threshold
+			if (!is_null(static::getRoomTemperature("Rad_temperature")) && static::getRoomTemperature("Rad_temperature") < static::$minRadZoneTemp)
+			{
+				$htgMode = static::htgModeAtLeastOn($htgMode);
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => '$Rad_temperature '.static::$roomTemperature["Rad_temperature"].' < '.static::$minRadZoneTemp.': $htgMode = '.$htgMode,
+				]);
+			}
+
+			// adjustment check 5: nudge $htgMode up a notch if forecast outside temperature is below a certain threshold
 			if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
 			{
 				$htgMode = static::nudgeHeatingModeUp($htgMode);
@@ -823,7 +853,7 @@
 				]);
 			}
 
-			// adjustment check 4: nudge $htgMode down if we're in the peak [expensive] window
+			// adjustment check 6: nudge $htgMode down if we're in the peak [expensive] window
 			if (static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
 			{
 				$htgMode = static::nudgeHeatingModeDown($htgMode);
@@ -893,6 +923,21 @@
 			return $htgMode;
 		}
 
+		public static function htgModeAtLeastOn(string $htgMode) : string
+		{
+			if ($htgMode == "off")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			if ($htgMode == "intermittent")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			return $htgMode;
+		}
+
 		public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp) : bool
 		{
 			// return true;
@@ -916,6 +961,7 @@
 
 					if ($outdoorTemp < config("nibe.tempFreqMin") || $forecastTemperature < config("nibe.tempFreqMin"))
 					{
+						// following #61 this may be redundant, but leaving in for now
 						$scheduleWindow = "constant";
 
 						ActivityLog::create(

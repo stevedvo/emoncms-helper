@@ -43,7 +43,7 @@
 					'message'    => "Command Start.",
 				]);
 
-				$data = EmonController::getLatestEmonData("heatmeter_FlowT", "local", 5);
+				$data = config("nibe.minRadZoneTemp");
 				// $syncSuccess = EmonAPI::postInputData("local", CarbonImmutable::now()->startOfMinute()->setTimezone("UTC")->format("U"), "emonth2_23", json_encode(["temperature_forecast" => 21.6]));
 				// OctopusController::tryGetAgileRates();
 
