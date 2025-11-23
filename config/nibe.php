@@ -23,6 +23,7 @@
 		'loadCompTempIntermittent' => env("NIBE_LOAD_COMP_TEMP_INTERMITTENT", 21),
 		'loadCompTempOn'           => env("NIBE_LOAD_COMP_TEMP_ON", 20),
 		'loadCompTempLevel1'       => env("NIBE_LOAD_COMP_TEMP_LEVEL_1", 19),
+		'minRadZoneTemp'           => env("NIBE_MINIMUM_RAD_ZONE_TEMPERATURE", 19),
 		'minutesToDm'              => env("NIBE_MINUTES_TO_DM", 30),
 		'offsetFactor'             => env("NIBE_OFFSET_FACTOR", 2),
 		'offsetMinimum'            => env("NIBE_OFFSET_MINIMUM", -10),
