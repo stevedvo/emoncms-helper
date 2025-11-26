@@ -24,8 +24,13 @@
 				}
 
 				$priority = (int)$latestPriorityNibeFeedItem->rawValue;
-				$setting = Setting::firstWhere(["key" => "htgMode"]);
-				$htgMode = $setting?->value;
+
+				// $setting = Setting::firstWhere(["key" => "htgMode"]);
+				// $htgMode = $setting?->value;
+				// #59: allowing extraBoosts to drop DM again, using $forecastTemperature of UFH instead to determine Hive setpoint
+
+				$latestforecastTemperatureData = EmonController::getForecastRoomTemperatureData();
+				$forecastTemperature = $latestforecastTemperatureData['tempForecast'] ?? null;
 
 				$targetTemp = config("hive.targetOffTemp");
 
@@ -42,7 +47,7 @@
 						'message'    => "Priority is '$priority'; targetTemp is ".$targetTemp."degC",
 					]);
 
-					if ($htgMode == "extraBoost")
+					if ($forecastTemperature < config("nibe.loadCompTempLevel1"))
 					{
 						$targetTemp = config("hive.targetOffTemp");
 
@@ -51,7 +56,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => "htgMode is '$htgMode'; targetTemp is ".$targetTemp."degC",
+							'message'    => '$forecastTemperature '.$forecastTemperature.' < '.config("nibe.loadCompTempLevel1").' => targetTemp is '.$targetTemp.'degC',
 						]);
 
 						$flowTempRaw = EmonController::getLatestEmonData("heatmeter_FlowT", "local", 5);

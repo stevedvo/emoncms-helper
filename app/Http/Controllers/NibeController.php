@@ -18,17 +18,23 @@
 
 	class NibeController extends Controller
 	{
-		protected static $roomTemperature;
-		protected static $roomTemperatureForecast;
+		protected static $defrostDewpointMin;
+		protected static $defrostDewpointMax;
+		protected static $defrostEvaporatorMax;
 		protected static $loadCompensationOn;
 		protected static $loadCompTempOff;
 		protected static $loadCompTempOn;
 		protected static $loadCompTempIntermittent;
 		protected static $loadCompTempLevel1;
 		protected static $minRadZoneTemp;
+		protected static $roomTemperature;
+		protected static $roomTemperatureForecast;
 
 		protected static function initConfig() : void
 		{
+			static::$defrostDewpointMin       ??= config("nibe.defrostDewpointMin");
+			static::$defrostDewpointMax       ??= config("nibe.defrostDewpointMax");
+			static::$defrostEvaporatorMax     ??= config("nibe.defrostEvaporatorMax");
 			static::$loadCompensationOn       ??= config("nibe.loadCompensationOn");
 			static::$loadCompTempOff          ??= config("nibe.loadCompTempOff");
 			static::$loadCompTempIntermittent ??= config("nibe.loadCompTempIntermittent");
@@ -868,6 +874,20 @@
 				]);
 			}
 
+			// adjustment check 7: to hopefully reduce defrosting like crazy, set $htgMode to at most "on"
+			if (static::isReducingDefrosts())
+			{
+				$htgMode = static::htgModeAtMostOn($htgMode);
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => 'isReducingDefrosts is true: $htgMode = '.$htgMode,
+				]);
+			}
+
 			// recent past average temperature is above threshold, or forecast high temperature is a few degrees above threshold [pre-emptive cooling]
 			// actually this won't work since the ASHP won't switch to cooling until the first condition is met anyway
 			// if ($avgOutdoorTemp > config("nibe.coolingStartTemp") || (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > (config("nibe.coolingStartTemp") + 3)))
@@ -938,6 +958,21 @@
 			return $htgMode;
 		}
 
+		public static function htgModeAtMostOn(string $htgMode) : string
+		{
+			if ($htgMode == "extraBoost")
+			{
+				$htgMode = static::nudgeHeatingModeDown($htgMode);
+			}
+
+			if ($htgMode == "boost")
+			{
+				$htgMode = static::nudgeHeatingModeDown($htgMode);
+			}
+
+			return $htgMode;
+		}
+
 		public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp) : bool
 		{
 			// return true;
@@ -971,6 +1006,8 @@
 							'level'      => "info",
 							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.tempFreqMin"),
 						]);
+
+						return true;
 					}
 					elseif ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
 					{
@@ -1046,6 +1083,14 @@
 							$scheduleWindow = "cosy";
 						}
 					}
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$scheduleWindow: '.$scheduleWindow,
+					]);
 
 					if ($scheduleWindow == "constant")
 					{
@@ -1255,7 +1300,8 @@
 			if ($htgMode == "extraBoost")
 			{
 				// $dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost"); // room temperature/forecast very low - give it all the beans!
-				$dmTarget = config("nibe.dmTargetBoost"); // #51: ^^^ that was too many beans! Stick to dmTargetBoost but now the Hive stat will be off so Grannexe gets all the heat
+				// $dmTarget = config("nibe.dmTargetBoost"); // #51: ^^^ that was too many beans! Stick to dmTargetBoost but now the Hive stat will be off so Grannexe gets all the heat
+				$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost"); // #59: now that we are easing off the htgMode if the evaporator is getting too cold we have a pathway for the compressor to slow down if needed so let's try this again
 
 				ActivityLog::create(
 				[
@@ -1298,13 +1344,92 @@
 		{
 			try
 			{
-				$offsetToOn = -50;
-				$offsetToOff = -100;
+				$offsetToOn = 35;
+				$offsetToOff = 100;
 
-				$startPeak = $time->copy()->setTime(16, 0)->addMinutes($offsetToOff);
-				$endPeak   = $time->copy()->setTime(19, 0)->addMinutes($offsetToOn);
+				$startPeak = $time->copy()->setTime(16, 0)->subMinutes($offsetToOff);
+				$endPeak   = $time->copy()->setTime(19, 0)->subMinutes($offsetToOn);
 
 				return ($time->betweenIncluded($startPeak, $endPeak));
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+
+				return false;
+			}
+		}
+
+		public static function isReducingDefrosts() : bool
+		{
+			try
+			{
+				$dewpoint = WeatherController::getCurrentDewpoint();
+
+				if ($dewpoint === null)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "warning",
+						'message'    => '$dewpoint is null',
+					]);
+
+					return false;
+				}
+
+				// get last 60 minutes of data for the evaporator temperature
+				$evaporatorNibeFeedItems = static::getLatestNibeFeedItems("44363", 60);
+
+				$evaporatorMin = $evaporatorNibeFeedItems->filter(fn($i) => is_numeric($i->rawValue))->min(fn($i) => (float)$i->rawValue); // null if filtered collection is empty
+
+				if ($evaporatorMin === null)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "warning",
+						'message'    => '$evaporatorMin is null',
+					]);
+
+					return false;
+				}
+
+				if ($dewpoint > static::$defrostDewpointMin && $dewpoint < static::$defrostDewpointMax && $evaporatorMin < static::$defrostEvaporatorMax)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => static::$defrostDewpointMin.' < $dewpoint['.$dewpoint.'] < '.static::$defrostDewpointMax.'; $evaporatorMin is '.$evaporatorMin,
+					]);
+
+					return true;
+				}
+
+				/* ChatGPT suggested alternative, looking at the minimum evaporator temperature
+				*  $dewpoint = ...;               // e.g. 3°C
+				*  $avgEvap  = ...;               // e.g. 1°C
+				*  $minEvap  = ...;               // e.g. -2°C
+				*
+				*  $icingRisk = $dewpoint - $minEvap; // 5°C gap = high risk
+				*
+				*  if ($icingRisk < 1.0)
+				*  {
+				*      // coil too warm to freeze quickly → safe to reduce effort
+				*  }
+				*/
+
+				return false;
 			}
 			catch (Throwable $e)
 			{
@@ -1340,6 +1465,39 @@
 					'level'      => "error",
 					'message'    => $e->getMessage(),
 				]);
+			}
+		}
+
+		public static function getLatestNibeFeedItems(string $parameterId, int $minutes) : Collection
+		{
+			try
+			{
+				if ($parameterId === '')
+				{
+					throw new Exception('$parameterId missing');
+				}
+
+				if ($minutes < 1)
+				{
+					throw new Exception("Invalid minutes value [$minutes]");
+				}
+
+				$to   = CarbonImmutable::now();
+				$from = $to->subMinutes($minutes);
+
+				return NibeFeedItem::where('parameterId', $parameterId)->whereBetween('created_at', [$from, $to])->get();
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+
+				return collect();
 			}
 		}
 	}
