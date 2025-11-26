@@ -1333,11 +1333,11 @@
 		{
 			try
 			{
-				$offsetToOn = -50;
-				$offsetToOff = -100;
+				$offsetToOn = 35;
+				$offsetToOff = 100;
 
-				$startPeak = $time->copy()->setTime(16, 0)->addMinutes($offsetToOff);
-				$endPeak   = $time->copy()->setTime(19, 0)->addMinutes($offsetToOn);
+				$startPeak = $time->copy()->setTime(16, 0)->subMinutes($offsetToOff);
+				$endPeak   = $time->copy()->setTime(19, 0)->subMinutes($offsetToOn);
 
 				return ($time->betweenIncluded($startPeak, $endPeak));
 			}
