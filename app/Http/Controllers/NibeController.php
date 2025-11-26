@@ -1290,7 +1290,8 @@
 			if ($htgMode == "extraBoost")
 			{
 				// $dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost"); // room temperature/forecast very low - give it all the beans!
-				$dmTarget = config("nibe.dmTargetBoost"); // #51: ^^^ that was too many beans! Stick to dmTargetBoost but now the Hive stat will be off so Grannexe gets all the heat
+				// $dmTarget = config("nibe.dmTargetBoost"); // #51: ^^^ that was too many beans! Stick to dmTargetBoost but now the Hive stat will be off so Grannexe gets all the heat
+				$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost"); // #59: now that we are easing off the htgMode if the evaporator is getting too cold we have a pathway for the compressor to slow down if needed so let's try this again
 
 				ActivityLog::create(
 				[
