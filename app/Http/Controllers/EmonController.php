@@ -406,13 +406,13 @@
 				]);
 			}
 
-			ActivityLog::create(
-			[
-				'controller' => __CLASS__,
-				'method'     => __FUNCTION__,
-				'level'      => "info",
-				'message'    => '$latestData: '.serialize($latestData),
-			]);
+			// ActivityLog::create(
+			// [
+			// 	'controller' => __CLASS__,
+			// 	'method'     => __FUNCTION__,
+			// 	'level'      => "info",
+			// 	'message'    => '$latestData: '.serialize($latestData),
+			// ]);
 
 			$requiredKeys = ['tempEarliest', 'tempCurrent', 'tempCurrentTimestamp', 'tempForecast', 'tempIncreasing'];
 

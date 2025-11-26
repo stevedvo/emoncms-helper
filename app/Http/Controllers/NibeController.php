@@ -1006,6 +1006,8 @@
 							'level'      => "info",
 							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.tempFreqMin"),
 						]);
+
+						return true;
 					}
 					elseif ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
 					{
@@ -1081,6 +1083,14 @@
 							$scheduleWindow = "cosy";
 						}
 					}
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$scheduleWindow: '.$scheduleWindow,
+					]);
 
 					if ($scheduleWindow == "constant")
 					{
