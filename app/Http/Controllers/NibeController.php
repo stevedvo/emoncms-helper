@@ -378,7 +378,9 @@
 				// if it's warm enough at the daytime peak for $htgMode to be "off" then set $minOffset to -3
 				// night-time temperatures may be low enough to need a little heat so that indoor temps don't drop too far
 				// ...however if we're in hot water mode then allow lower $minOffset otherwise DegreeMinutes may drop too much
-				$minOffset = ($htgMode == "off" && $priority <> 20) ? (config("nibe.cheapMode") !== false ? config("nibe.offsetMinimum") : -3) : config("nibe.offsetMinimum");
+				// $minOffset = ($htgMode == "off" && $priority <> 20) ? (config("nibe.cheapMode") !== false ? config("nibe.offsetMinimum") : -3) : config("nibe.offsetMinimum");
+				// now that we have room-influence control we can just keep this more simple
+				$minOffset = config("nibe.offsetMinimum");
 				$maxOffset = config("nibe.offsetMaximum");
 
 				if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
@@ -790,110 +792,147 @@
 			}
 
 			// adjustment check 1: nudge $htgMode down a notch if warmer temps expected later
-			if (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+			if (true)
 			{
-				$htgMode = static::nudgeHeatingModeDown($htgMode);
+				if (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+				{
+					$htgMode = static::nudgeHeatingModeDown($htgMode);
 
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "info",
-					'message'    => '$nextDayHighTemperatureAverage '.$nextDayHighTemperatureAverage.' > '.config("nibe.runLevel1Temp").': $htgMode = '.$htgMode,
-				]);
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$nextDayHighTemperatureAverage '.$nextDayHighTemperatureAverage.' > '.config("nibe.runLevel1Temp").': $htgMode = '.$htgMode,
+					]);
+				}
 			}
 
 			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
-			if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+			if (true)
 			{
-				$htgMode = static::nudgeHeatingModeUp($htgMode);
+				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+				{
+					$htgMode = static::nudgeHeatingModeUp($htgMode);
 
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "info",
-					'message'    => 'Boost is active: $htgMode = '.$htgMode,
-				]);
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => 'Boost is active: $htgMode = '.$htgMode,
+					]);
+				}
 			}
 
 			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
-			if ($outdoorTemp < config("nibe.tempFreqMin") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.tempFreqMin")))
+			if (true)
 			{
-				$htgMode = static::htgModeAtLeastOn($htgMode);
+				if ($outdoorTemp < config("nibe.tempFreqMin") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.tempFreqMin")))
+				{
+					$htgMode = static::htgModeAtLeastOn($htgMode);
 
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "info",
-					'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.tempFreqMin").': $htgMode = '.$htgMode,
-				]);
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.tempFreqMin").': $htgMode = '.$htgMode,
+					]);
+				}
 			}
 
 			// adjustment check 4: ensure htgMode is at least "on" if Rad Zone temperature is below a certain threshold
-			if (!is_null(static::getRoomTemperature("Rad_temperature")) && static::getRoomTemperature("Rad_temperature") < static::$minRadZoneTemp)
+			if (true)
 			{
-				$htgMode = static::htgModeAtLeastOn($htgMode);
+				try
+				{
+					if (!is_null(static::getRoomTemperature("Rad_temperature")) && static::getRoomTemperature("Rad_temperature") < static::$minRadZoneTemp)
+					{
+						$htgMode = static::htgModeAtLeastOn($htgMode);
 
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "info",
-					'message'    => '$Rad_temperature '.static::$roomTemperature["Rad_temperature"].' < '.static::$minRadZoneTemp.': $htgMode = '.$htgMode,
-				]);
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => '$Rad_temperature '.static::$roomTemperature["Rad_temperature"].' < '.static::$minRadZoneTemp.': $htgMode = '.$htgMode,
+						]);
+					}
+				}
+				catch (Throwable $e)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "warning",
+						'message'    => $e->getMessage(),
+					]);
+				}
 			}
 
 			// adjustment check 5: nudge $htgMode up a notch if forecast outside temperature is below a certain threshold
-			if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
+			if (true)
 			{
-				$htgMode = static::nudgeHeatingModeUp($htgMode);
+				if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
+				{
+					$htgMode = static::nudgeHeatingModeUp($htgMode);
 
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "info",
-					'message'    => '$forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
-				]);
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+					]);
+				}
 			}
 
 			// adjustment check 6: nudge $htgMode down if we're in the peak [expensive] window
-			if (static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
+			if (true)
 			{
-				$htgMode = static::nudgeHeatingModeDown($htgMode);
-				$htgMode = static::nudgeHeatingModeDown($htgMode);
+				if (static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
+				{
+					$htgMode = static::nudgeHeatingModeDown($htgMode);
+					$htgMode = static::nudgeHeatingModeDown($htgMode);
 
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "info",
-					'message'    => 'isPeakImport: $htgMode = '.$htgMode,
-				]);
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => 'isPeakImport: $htgMode = '.$htgMode,
+					]);
+				}
 			}
 
 			// adjustment check 7: to hopefully reduce defrosting like crazy, set $htgMode to at most "on"
-			if (static::isReducingDefrosts())
+			if (true)
 			{
-				$htgMode = static::htgModeAtMostOn($htgMode);
+				if (static::isReducingDefrosts())
+				{
+					$htgMode = static::htgModeAtMostOn($htgMode);
 
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "info",
-					'message'    => 'isReducingDefrosts is true: $htgMode = '.$htgMode,
-				]);
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => 'isReducingDefrosts is true: $htgMode = '.$htgMode,
+					]);
+				}
 			}
 
-			// recent past average temperature is above threshold, or forecast high temperature is a few degrees above threshold [pre-emptive cooling]
-			// actually this won't work since the ASHP won't switch to cooling until the first condition is met anyway
-			// if ($avgOutdoorTemp > config("nibe.coolingStartTemp") || (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > (config("nibe.coolingStartTemp") + 3)))
-			if ($avgOutdoorTemp > config("nibe.coolingStartTemp"))
+			if (true)
 			{
-				$htgMode = "cooling";
+				// recent past average temperature is above threshold, or forecast high temperature is a few degrees above threshold [pre-emptive cooling]
+				// actually this won't work since the ASHP won't switch to cooling until the first condition is met anyway
+				// if ($avgOutdoorTemp > config("nibe.coolingStartTemp") || (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > (config("nibe.coolingStartTemp") + 3)))
+				if ($avgOutdoorTemp > config("nibe.coolingStartTemp"))
+				{
+					$htgMode = "cooling";
+				}
 			}
 
 			return $htgMode;
@@ -997,7 +1036,9 @@
 					if ($outdoorTemp < config("nibe.tempFreqMin") || $forecastTemperature < config("nibe.tempFreqMin"))
 					{
 						// following #61 this may be redundant, but leaving in for now
-						$scheduleWindow = "constant";
+						// $scheduleWindow = "constant";
+						// or not
+						$scheduleWindow = "cosy";
 
 						ActivityLog::create(
 						[
@@ -1007,7 +1048,7 @@
 							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.tempFreqMin"),
 						]);
 
-						return true;
+						// return true;
 					}
 					elseif ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
 					{
@@ -1345,7 +1386,7 @@
 			try
 			{
 				$offsetToOn = 35;
-				$offsetToOff = 100;
+				$offsetToOff = 80;
 
 				$startPeak = $time->copy()->setTime(16, 0)->subMinutes($offsetToOff);
 				$endPeak   = $time->copy()->setTime(19, 0)->subMinutes($offsetToOn);

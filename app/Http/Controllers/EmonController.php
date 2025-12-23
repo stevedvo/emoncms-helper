@@ -1,6 +1,7 @@
 <?php
 	namespace App\Http\Controllers;
 
+	use Exception;
 	use Throwable;
 	use App\APIs\EmonAPI;
 	use App\Models\ActivityLog;
@@ -234,7 +235,7 @@
 			}
 		}
 
-		public static function getLatestEmonData(string $feedName, string $environment, int $minutes) : string
+		public static function getLatestEmonData(string $feedName, string $environment, int $minutes) : ?string
 		{
 			$latestValue = "";
 			$dbColumn    = "";
@@ -277,6 +278,11 @@
 
 				$feedData = EmonAPI::getFeedData($environment, $feedItem[$envFeedId], $startTimeMilliseconds, $endTimeMilliseconds);
 				$latestValue = ($pair = collect($feedData)->last(fn($pair) => !is_null($pair[1]))) ? round($pair[1], 1) : null;
+
+				if ($latestValue == null)
+				{
+					throw new Exception ('Unable to get latest data. $environment = '.$environment.', $feedItem[$envFeedId] = '.$feedItem[$envFeedId].', $startTimeMilliseconds = '.$startTimeMilliseconds.', $endTimeMilliseconds = '.$endTimeMilliseconds);
+				}
 			}
 			catch (Throwable $e)
 			{
