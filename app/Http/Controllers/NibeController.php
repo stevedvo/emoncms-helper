@@ -383,6 +383,9 @@
 				$minOffset = config("nibe.offsetMinimum");
 				$maxOffset = config("nibe.offsetMaximum");
 
+				// set minOffset just for testing
+				// $minOffset = 0;
+
 				if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
 				{
 					// what offset do we need to get the DM to the 'off' value?
@@ -715,12 +718,14 @@
 			}
 
 			$nextDayHighTemperatureAverage = null;
+			$nextDayLowTemperatureAverage = null;
 			$forecastTemperature = null;
 
 			if (config("weather.useForecast") !== false)
 			{
 				$forecastTemperature = WeatherController::getForecastAverageTemperature();
 				$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
+				$nextDayLowTemperatureAverage = WeatherController::getNextDayLowTemperatures();
 			}
 
 			// set $htgMode initially based on forecasted room temperature...
@@ -843,7 +848,19 @@
 			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
 			if (true)
 			{
-				if ($outdoorTemp < config("nibe.tempFreqMin") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.tempFreqMin")))
+				if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < config("nibe.tempFreqMin"))
+				{
+					$htgMode = static::htgModeAtLeastOn($htgMode);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$nextDayLowTemperatureAverage '.$nextDayLowTemperatureAverage.' < '.config("nibe.tempFreqMin").': $htgMode = '.$htgMode,
+					]);
+				}
+				elseif ($outdoorTemp < config("nibe.tempFreqMin") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.tempFreqMin")))
 				{
 					$htgMode = static::htgModeAtLeastOn($htgMode);
 

@@ -6,6 +6,7 @@
 	use App\Http\Controllers\EmonController;
 	use App\Http\Controllers\NibeController;
 	use App\Http\Controllers\OctopusController;
+	use App\Http\Controllers\WeatherController;
 	use App\Models\ActivityLog;
 	use Carbon\CarbonImmutable;
 	use Illuminate\Console\Command;
@@ -44,7 +45,8 @@
 					'message'    => "Command Start.",
 				]);
 
-				$data = NibeController::getLatestNibeFeedItems("44363", 60);
+				// $data = NibeController::getLatestNibeFeedItems("44363", 60);
+				$data = WeatherController::getNextDayLowTemperatures();
 				// $syncSuccess = EmonAPI::postInputData("local", CarbonImmutable::now()->startOfMinute()->setTimezone("UTC")->format("U"), "emonth2_23", json_encode(["temperature_forecast" => 21.6]));
 				// OctopusController::tryGetAgileRates();
 
