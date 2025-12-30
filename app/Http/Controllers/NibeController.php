@@ -808,12 +808,27 @@
 				}
 			}
 
+			// adjustment check 1.5: just run in intermittent mode for testing the heating curve
+			if (false)
+			{
+				$htgMode = "intermittent";
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => 'testing heating curve: $htgMode = '.$htgMode,
+				]);
+			}
+
 			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
 			if (true)
 			{
 				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
 				{
 					$htgMode = static::nudgeHeatingModeUp($htgMode);
+					// $htgMode = "boost";
 
 					ActivityLog::create(
 					[
