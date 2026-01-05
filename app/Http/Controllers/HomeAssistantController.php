@@ -74,7 +74,8 @@
 							]);
 						}
 
-						if ($flowTemp > 45)
+						// if ($flowTemp > 45)
+						if (false)
 						{
 							$targetTemp = config("hive.targetOnTemp");
 

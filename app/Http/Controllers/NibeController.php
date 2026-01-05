@@ -384,7 +384,10 @@
 				$maxOffset = config("nibe.offsetMaximum");
 
 				// set minOffset just for testing
-				// $minOffset = 0;
+				if (!static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
+				{
+					// $minOffset = 0;
+				}
 
 				if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
 				{
@@ -905,7 +908,7 @@
 			}
 
 			// adjustment check 5: nudge $htgMode up a notch if forecast outside temperature is below a certain threshold
-			if (true)
+			if (false)
 			{
 				if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
 				{
@@ -1417,7 +1420,7 @@
 		{
 			try
 			{
-				$offsetToOn = 35;
+				$offsetToOn = 25;
 				$offsetToOff = 80;
 
 				$startPeak = $time->copy()->setTime(16, 0)->subMinutes($offsetToOff);
