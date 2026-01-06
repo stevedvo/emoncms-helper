@@ -47,7 +47,8 @@
 						'message'    => "Priority is '$priority'; targetTemp is ".$targetTemp."degC",
 					]);
 
-					if ($forecastTemperature < config("nibe.loadCompTempLevel1"))
+					// if ($forecastTemperature < config("nibe.loadCompTempLevel1"))
+					if (false)
 					{
 						$targetTemp = config("hive.targetOffTemp");
 

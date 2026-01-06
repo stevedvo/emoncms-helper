@@ -50,6 +50,15 @@
 				static::$roomTemperature[$feedName] = EmonController::getLatestEmonData($feedName, "local", 5);
 			}
 
+			if (!is_null(static::$roomTemperature[$feedName]))
+			{
+				Setting::updateOrCreate(["key" => "RoomTemperature[".$feedName."]"], ["value" => static::$roomTemperature[$feedName]]);
+			}
+			else
+			{
+				static::$roomTemperature[$feedName] = Setting::firstWhere("key", "RoomTemperature[".$feedName."]")->value;
+			}
+
 			return static::$roomTemperature[$feedName];
 		}
 
@@ -734,9 +743,9 @@
 			// set $htgMode initially based on forecasted room temperature...
 			if (static::$loadCompensationOn !== false)
 			{
-				if (!is_null(static::getRoomTemperatureForecast()))
+				if (!is_null(static::getRoomTemperature("Rad_temperature")))
 				{
-					if (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempOff)
+					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff)
 					{
 						$htgMode = "off";
 
@@ -745,10 +754,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' > '.static::$loadCompTempOff.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempIntermittent)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent)
 					{
 						$htgMode = "intermittent";
 
@@ -757,10 +766,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' > '.static::$loadCompTempIntermittent.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempOn)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn)
 					{
 						$htgMode = "on";
 
@@ -769,10 +778,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' > '.static::$loadCompTempOn.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempLevel1)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1)
 					{
 						$htgMode = "boost";
 
@@ -781,7 +790,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' > '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
 						]);
 					}
 					else
@@ -793,7 +802,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' is <= '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
 						]);
 					}
 				}
@@ -878,7 +887,7 @@
 			}
 
 			// adjustment check 4: ensure htgMode is at least "on" if Rad Zone temperature is below a certain threshold
-			if (true)
+			if (false)
 			{
 				try
 				{
@@ -1446,21 +1455,6 @@
 		{
 			try
 			{
-				$dewpoint = WeatherController::getCurrentDewpoint();
-
-				if ($dewpoint === null)
-				{
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "warning",
-						'message'    => '$dewpoint is null',
-					]);
-
-					return false;
-				}
-
 				// get last 60 minutes of data for the evaporator temperature
 				$evaporatorNibeFeedItems = static::getLatestNibeFeedItems("44363", 60);
 
@@ -1474,6 +1468,34 @@
 						'method'     => __FUNCTION__,
 						'level'      => "warning",
 						'message'    => '$evaporatorMin is null',
+					]);
+
+					return false;
+				}
+
+				if ($evaporatorMin < static::$defrostEvaporatorMax - 5)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$evaporatorMin is '.$evaporatorMin,
+					]);
+
+					return true;
+				}
+
+				$dewpoint = WeatherController::getCurrentDewpoint();
+
+				if ($dewpoint === null)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "warning",
+						'message'    => '$dewpoint is null',
 					]);
 
 					return false;
