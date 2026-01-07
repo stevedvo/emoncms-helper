@@ -715,19 +715,23 @@
 
 		public static function calculateHeatingMode(float $outdoorTemp, float $avgOutdoorTemp) : string
 		{
-			if ($outdoorTemp < config("nibe.tempFreqMin"))
-			{
-				// $htgMode = "on";
-				$htgMode = "intermittent";
-			}
-			elseif ($avgOutdoorTemp < config("nibe.dmTargetOffTemp"))
-			{
-				$htgMode = "intermittent";
-			}
-			else
-			{
-				$htgMode = "intermittent";
-			}
+			// default starting point
+			$htgMode = "intermittent";
+
+			// set $htgMode initially based on outside temperature...
+			// if ($outdoorTemp < config("nibe.tempFreqMin"))
+			// {
+			// 	$htgMode = "on";
+			// 	// $htgMode = "intermittent";
+			// }
+			// elseif ($avgOutdoorTemp < config("nibe.dmTargetOffTemp"))
+			// {
+			// 	$htgMode = "intermittent";
+			// }
+			// else
+			// {
+			// 	$htgMode = "intermittent";
+			// }
 
 			$nextDayHighTemperatureAverage = null;
 			$nextDayLowTemperatureAverage = null;
@@ -735,77 +739,9 @@
 
 			if (config("weather.useForecast") !== false)
 			{
-				$forecastTemperature = WeatherController::getForecastAverageTemperature();
 				$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
 				$nextDayLowTemperatureAverage = WeatherController::getNextDayLowTemperatures();
-			}
-
-			// set $htgMode initially based on forecasted room temperature...
-			if (static::$loadCompensationOn !== false)
-			{
-				if (!is_null(static::getRoomTemperature("Rad_temperature")))
-				{
-					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff)
-					{
-						$htgMode = "off";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.': $htgMode = '.$htgMode,
-						]);
-					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent)
-					{
-						$htgMode = "intermittent";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.': $htgMode = '.$htgMode,
-						]);
-					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn)
-					{
-						$htgMode = "on";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.': $htgMode = '.$htgMode,
-						]);
-					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1)
-					{
-						$htgMode = "boost";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
-						]);
-					}
-					else
-					{
-						$htgMode = "extraBoost";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
-						]);
-					}
-				}
+				$forecastTemperature = WeatherController::getForecastAverageTemperature();
 			}
 
 			// adjustment check 1: nudge $htgMode down a notch if warmer temps expected later
@@ -839,24 +775,6 @@
 				]);
 			}
 
-			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
-			if (true)
-			{
-				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
-				{
-					$htgMode = static::nudgeHeatingModeUp($htgMode);
-					// $htgMode = "boost";
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => 'Boost is active: $htgMode = '.$htgMode,
-					]);
-				}
-			}
-
 			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
 			if (true)
 			{
@@ -882,6 +800,24 @@
 						'method'     => __FUNCTION__,
 						'level'      => "info",
 						'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.tempFreqMin").': $htgMode = '.$htgMode,
+					]);
+				}
+			}
+
+			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
+			if (true)
+			{
+				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+				{
+					$htgMode = static::nudgeHeatingModeUp($htgMode);
+					// $htgMode = "boost";
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => 'Boost is active: $htgMode = '.$htgMode,
 					]);
 				}
 			}
@@ -930,6 +866,73 @@
 						'level'      => "info",
 						'message'    => '$forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
 					]);
+				}
+			}
+
+			if (static::$loadCompensationOn !== false)
+			{
+				if (!is_null(static::getRoomTemperature("Rad_temperature")))
+				{
+					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff)
+					{
+						$htgMode = "off";
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.': $htgMode = '.$htgMode,
+						]);
+					}
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent)
+					{
+						$htgMode = static::htgModeAtLeastIntermittent($htgMode);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.': $htgMode = '.$htgMode,
+						]);
+					}
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn)
+					{
+						$htgMode = static::htgModeAtLeastOn($htgMode);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.': $htgMode = '.$htgMode,
+						]);
+					}
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1)
+					{
+						$htgMode = static::htgModeAtLeastBoost($htgMode);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
+						]);
+					}
+					else
+					{
+						$htgMode = "extraBoost";
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
+						]);
+					}
 				}
 			}
 
@@ -1026,6 +1029,16 @@
 			return $htgMode;
 		}
 
+		public static function htgModeAtLeastIntermittent(string $htgMode) : string
+		{
+			if ($htgMode == "off")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			return $htgMode;
+		}
+
 		public static function htgModeAtLeastOn(string $htgMode) : string
 		{
 			if ($htgMode == "off")
@@ -1034,6 +1047,26 @@
 			}
 
 			if ($htgMode == "intermittent")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			return $htgMode;
+		}
+
+		public static function htgModeAtLeastBoost(string $htgMode) : string
+		{
+			if ($htgMode == "off")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			if ($htgMode == "intermittent")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			if ($htgMode == "on")
 			{
 				$htgMode = static::nudgeHeatingModeUp($htgMode);
 			}
