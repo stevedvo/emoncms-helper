@@ -775,24 +775,6 @@
 				]);
 			}
 
-			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
-			if (true)
-			{
-				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
-				{
-					$htgMode = static::nudgeHeatingModeUp($htgMode);
-					// $htgMode = "boost";
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => 'Boost is active: $htgMode = '.$htgMode,
-					]);
-				}
-			}
-
 			// adjustment check 4: ensure htgMode is at least "on" if Rad Zone temperature is below a certain threshold
 			if (false)
 			{
@@ -904,6 +886,24 @@
 							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
 						]);
 					}
+				}
+			}
+
+			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
+			if (true)
+			{
+				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+				{
+					$htgMode = static::nudgeHeatingModeUp($htgMode);
+					// $htgMode = "boost";
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => 'Boost is active: $htgMode = '.$htgMode,
+					]);
 				}
 			}
 
