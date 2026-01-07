@@ -775,35 +775,6 @@
 				]);
 			}
 
-			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
-			if (true)
-			{
-				if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < config("nibe.tempFreqMin"))
-				{
-					$htgMode = static::htgModeAtLeastOn($htgMode);
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => '$nextDayLowTemperatureAverage '.$nextDayLowTemperatureAverage.' < '.config("nibe.tempFreqMin").': $htgMode = '.$htgMode,
-					]);
-				}
-				elseif ($outdoorTemp < config("nibe.tempFreqMin") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.tempFreqMin")))
-				{
-					$htgMode = static::htgModeAtLeastOn($htgMode);
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.tempFreqMin").': $htgMode = '.$htgMode,
-					]);
-				}
-			}
-
 			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
 			if (true)
 			{
@@ -936,21 +907,65 @@
 				}
 			}
 
-			// adjustment check 6: nudge $htgMode down if we're in the peak [expensive] window
+			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
 			if (true)
 			{
-				if (static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
+				if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
 				{
-					$htgMode = static::nudgeHeatingModeDown($htgMode);
-					$htgMode = static::nudgeHeatingModeDown($htgMode);
+					$htgMode = "extraBoost";
 
 					ActivityLog::create(
 					[
 						'controller' => __CLASS__,
 						'method'     => __FUNCTION__,
 						'level'      => "info",
-						'message'    => 'isPeakImport: $htgMode = '.$htgMode,
+						'message'    => '$nextDayLowTemperatureAverage '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
 					]);
+				}
+				elseif ($outdoorTemp < config("nibe.dmTargetBoostTemp") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp")))
+				{
+					$htgMode = static::htgModeAtLeastOn($htgMode);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+					]);
+				}
+			}
+
+			// adjustment check 6: nudge $htgMode down if we're in the peak [expensive] window
+			if (true)
+			{
+				if (static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
+				{
+					if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
+					{
+						$htgMode = "intermittent";
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'isPeakImport and $nextDayLowTemperatureAverage '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+						]);
+					}
+					else
+					{
+						$htgMode = static::nudgeHeatingModeDown($htgMode);
+						$htgMode = static::nudgeHeatingModeDown($htgMode);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'isPeakImport : $htgMode = '.$htgMode,
+						]);
+					}
 				}
 			}
 
@@ -1417,9 +1432,7 @@
 
 			if ($htgMode == "extraBoost")
 			{
-				// $dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost"); // room temperature/forecast very low - give it all the beans!
-				// $dmTarget = config("nibe.dmTargetBoost"); // #51: ^^^ that was too many beans! Stick to dmTargetBoost but now the Hive stat will be off so Grannexe gets all the heat
-				$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost"); // #59: now that we are easing off the htgMode if the evaporator is getting too cold we have a pathway for the compressor to slow down if needed so let's try this again
+				$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost") - 60;
 
 				ActivityLog::create(
 				[
