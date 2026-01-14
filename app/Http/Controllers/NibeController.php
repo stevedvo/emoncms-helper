@@ -12,13 +12,15 @@
 	use App\Models\NibeParameter;
 	use App\Models\Setting;
 	use Carbon\CarbonImmutable;
+	use Carbon\CarbonInterface;
 	use Illuminate\Database\Eloquent\Collection;
 	use Illuminate\Support\Facades\Log;
 
 	class NibeController extends Controller
 	{
-		protected static $roomTemperature;
-		protected static $roomTemperatureForecast;
+		protected static $defrostDewpointMin;
+		protected static $defrostDewpointMax;
+		protected static $defrostEvaporatorMax;
 		protected static $loadCompensationOn;
 		protected static $loadCompTempOff;
 		protected static $loadCompTempOn;
@@ -26,14 +28,21 @@
 		protected static $loadCompTempLevel1;
 		protected static $hotWaterSchedules;
 		protected static $hotWaterComfortModes;
+		protected static $minRadZoneTemp;
+		protected static $roomTemperature;
+		protected static $roomTemperatureForecast;
 
 		protected static function initConfig() : void
 		{
+			static::$defrostDewpointMin       ??= config("nibe.defrostDewpointMin");
+			static::$defrostDewpointMax       ??= config("nibe.defrostDewpointMax");
+			static::$defrostEvaporatorMax     ??= config("nibe.defrostEvaporatorMax");
 			static::$loadCompensationOn       ??= config("nibe.loadCompensationOn");
 			static::$loadCompTempOff          ??= config("nibe.loadCompTempOff");
 			static::$loadCompTempIntermittent ??= config("nibe.loadCompTempIntermittent");
 			static::$loadCompTempOn           ??= config("nibe.loadCompTempOn");
 			static::$loadCompTempLevel1       ??= config("nibe.loadCompTempLevel1");
+			static::$minRadZoneTemp           ??= config("nibe.minRadZoneTemp");
 
 			static::$hotWaterSchedules        ??=
 			[
@@ -68,14 +77,23 @@
 			];
 		}
 
-		protected static function getRoomTemperature() : ?float
+		protected static function getRoomTemperature(string $feedName) : ?float
 		{
-			if (is_null(static::$roomTemperature))
+			if (is_null(static::$roomTemperature) || !isset(static::$roomTemperature[$feedName]))
 			{
-				static::$roomTemperature = EmonController::getLatestRoomTemperatureData();
+				static::$roomTemperature[$feedName] = EmonController::getLatestEmonData($feedName, "local", 180);
 			}
 
-			return static::$roomTemperature;
+			if (!is_null(static::$roomTemperature[$feedName]))
+			{
+				Setting::updateOrCreate(["key" => "RoomTemperature[".$feedName."]"], ["value" => static::$roomTemperature[$feedName]]);
+			}
+			else
+			{
+				static::$roomTemperature[$feedName] = Setting::firstWhere("key", "RoomTemperature[".$feedName."]")->value;
+			}
+
+			return static::$roomTemperature[$feedName];
 		}
 
 		protected static function getRoomTemperatureForecast() : ?array
@@ -96,7 +114,7 @@
 				$now = CarbonImmutable::now();
 				$nibe = new NibeAPI();
 
-				// $nibe->setParameterData([static::$hotWaterSchedules['schedule2']['tue']['comfortMode'] => static::$hotWaterComfortModes['economy']]);
+				// $nibe->setParameterData([static::$hotWaterSchedules['schedule2']['tue']['comfortMode'] => static::$hotWaterComfortModes['economy']]);exit;
 
 				$parameterData = collect($nibe->getParameterData())->unique(function(array $item)
 				{
@@ -381,6 +399,8 @@
 					'message'    => '$htgMode: '.$htgMode,
 				]);
 
+				$setting = Setting::updateOrCreate(["key" => "htgMode"], ["value" => $htgMode]);
+
 				$dmTarget = static::calculateTargetDm($priority, $htgMode, $outdoorTemp);
 
 				$calculatedFlowTemp = $htgMode == "cooling" ? $calculatedFlowTempCool : $calculatedFlowTempHtg;
@@ -403,8 +423,16 @@
 				// if it's warm enough at the daytime peak for $htgMode to be "off" then set $minOffset to -3
 				// night-time temperatures may be low enough to need a little heat so that indoor temps don't drop too far
 				// ...however if we're in hot water mode then allow lower $minOffset otherwise DegreeMinutes may drop too much
-				$minOffset = ($htgMode == "off" && $priority <> 20) ? (config("nibe.cheapMode") !== false ? config("nibe.offsetMinimum") : -3) : config("nibe.offsetMinimum");
+				// $minOffset = ($htgMode == "off" && $priority <> 20) ? (config("nibe.cheapMode") !== false ? config("nibe.offsetMinimum") : -3) : config("nibe.offsetMinimum");
+				// now that we have room-influence control we can just keep this more simple
+				$minOffset = config("nibe.offsetMinimum");
 				$maxOffset = config("nibe.offsetMaximum");
+
+				// set minOffset just for testing
+				if (!static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
+				{
+					// $minOffset = 0;
+				}
 
 				if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
 				{
@@ -704,35 +732,118 @@
 
 		public static function calculateHeatingMode(float $outdoorTemp, float $avgOutdoorTemp) : string
 		{
-			if ($outdoorTemp < config("nibe.tempFreqMin"))
-			{
-				// $htgMode = "on";
-				$htgMode = "intermittent";
-			}
-			elseif ($avgOutdoorTemp < config("nibe.dmTargetOffTemp"))
-			{
-				$htgMode = "intermittent";
-			}
-			else
-			{
-				$htgMode = "intermittent";
-			}
+			// default starting point
+			$htgMode = "intermittent";
+
+			// set $htgMode initially based on outside temperature...
+			// if ($outdoorTemp < config("nibe.tempFreqMin"))
+			// {
+			// 	$htgMode = "on";
+			// 	// $htgMode = "intermittent";
+			// }
+			// elseif ($avgOutdoorTemp < config("nibe.dmTargetOffTemp"))
+			// {
+			// 	$htgMode = "intermittent";
+			// }
+			// else
+			// {
+			// 	$htgMode = "intermittent";
+			// }
 
 			$nextDayHighTemperatureAverage = null;
+			$nextDayLowTemperatureAverage = null;
 			$forecastTemperature = null;
 
 			if (config("weather.useForecast") !== false)
 			{
-				$forecastTemperature = WeatherController::getForecastAverageTemperature();
 				$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
+				$nextDayLowTemperatureAverage = WeatherController::getNextDayLowTemperatures();
+				$forecastTemperature = WeatherController::getForecastAverageTemperature();
 			}
 
-			// set $htgMode initially based on forecasted room temperature...
+			// adjustment check 1: nudge $htgMode down a notch if warmer temps expected later
+			if (true)
+			{
+				if (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+				{
+					$htgMode = static::nudgeHeatingModeDown($htgMode);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$nextDayHighTemperatureAverage '.$nextDayHighTemperatureAverage.' > '.config("nibe.runLevel1Temp").': $htgMode = '.$htgMode,
+					]);
+				}
+			}
+
+			// adjustment check 1.5: just run in intermittent mode for testing the heating curve
+			if (false)
+			{
+				$htgMode = "intermittent";
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => 'testing heating curve: $htgMode = '.$htgMode,
+				]);
+			}
+
+			// adjustment check 4: ensure htgMode is at least "on" if Rad Zone temperature is below a certain threshold
+			if (false)
+			{
+				try
+				{
+					if (!is_null(static::getRoomTemperature("Rad_temperature")) && static::getRoomTemperature("Rad_temperature") < static::$minRadZoneTemp)
+					{
+						$htgMode = static::htgModeAtLeastOn($htgMode);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => '$Rad_temperature '.static::$roomTemperature["Rad_temperature"].' < '.static::$minRadZoneTemp.': $htgMode = '.$htgMode,
+						]);
+					}
+				}
+				catch (Throwable $e)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "warning",
+						'message'    => $e->getMessage(),
+					]);
+				}
+			}
+
+			// adjustment check 5: nudge $htgMode up a notch if forecast outside temperature is below a certain threshold
+			if (false)
+			{
+				if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
+				{
+					$htgMode = static::nudgeHeatingModeUp($htgMode);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+					]);
+				}
+			}
+
 			if (static::$loadCompensationOn !== false)
 			{
-				if (!is_null(static::getRoomTemperatureForecast()))
+				if (!is_null(static::getRoomTemperature("Rad_temperature")))
 				{
-					if (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempOff)
+					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff)
 					{
 						$htgMode = "off";
 
@@ -741,43 +852,43 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' > '.static::$loadCompTempOff.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempIntermittent)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent)
 					{
-						$htgMode = "intermittent";
+						$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
 						ActivityLog::create(
 						[
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' > '.static::$loadCompTempIntermittent.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempOn)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn)
 					{
-						$htgMode = "on";
+						$htgMode = static::htgModeAtLeastOn($htgMode);
 
 						ActivityLog::create(
 						[
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' > '.static::$loadCompTempOn.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempLevel1)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1)
 					{
-						$htgMode = "boost";
+						$htgMode = static::htgModeAtLeastBoost($htgMode);
 
 						ActivityLog::create(
 						[
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' > '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
 						]);
 					}
 					else
@@ -789,60 +900,133 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' is <= '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
 						]);
 					}
 				}
 			}
 
-			// adjustment check 1: nudge $htgMode down a notch if warmer temps expected later
-			if (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
+			if (true)
 			{
-				$htgMode = static::nudgeHeatingModeDown($htgMode);
+				if (!is_null($nextDayLowTemperatureAverage))
+				{
+					if ($nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
+					{
+						$htgMode = "extraBoost";
 
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "info",
-					'message'    => '$nextDayHighTemperatureAverage '.$nextDayHighTemperatureAverage.' > '.config("nibe.runLevel1Temp").': $htgMode = '.$htgMode,
-				]);
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+						]);
+					}
+					elseif ($nextDayLowTemperatureAverage < 3)
+					{
+						$htgMode = static::htgModeAtLeastOn($htgMode);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < 3: $htgMode = '.$htgMode,
+						]);
+					}
+				}
+				elseif ($outdoorTemp < config("nibe.dmTargetBoostTemp") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp")))
+				{
+					$htgMode = static::htgModeAtLeastOn($htgMode);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+					]);
+				}
 			}
 
 			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
-			if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+			if (true)
 			{
-				$htgMode = static::nudgeHeatingModeUp($htgMode);
+				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+				{
+					$htgMode = static::nudgeHeatingModeUp($htgMode);
+					// $htgMode = "boost";
 
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "info",
-					'message'    => 'Boost is active: $htgMode = '.$htgMode,
-				]);
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => 'Boost is active: $htgMode = '.$htgMode,
+					]);
+				}
 			}
 
-			// adjustment check 3: nudge $htgMode up a notch if forecast outside temperature is below a certain threshold
-			if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
+			// adjustment check 6: nudge $htgMode down if we're in the peak [expensive] window
+			if (true)
 			{
-				$htgMode = static::nudgeHeatingModeUp($htgMode);
+				if (static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
+				{
+					if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
+					{
+						$htgMode = "intermittent";
 
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => "info",
-					'message'    => '$forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
-				]);
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'isPeakImport and nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+						]);
+					}
+					else
+					{
+						$htgMode = static::nudgeHeatingModeDown($htgMode);
+						$htgMode = static::nudgeHeatingModeDown($htgMode);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'isPeakImport : $htgMode = '.$htgMode,
+						]);
+					}
+				}
 			}
 
-			// recent past average temperature is above threshold, or forecast high temperature is a few degrees above threshold [pre-emptive cooling]
-			// actually this won't work since the ASHP won't switch to cooling until the first condition is met anyway
-			// if ($avgOutdoorTemp > config("nibe.coolingStartTemp") || (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > (config("nibe.coolingStartTemp") + 3)))
-			if ($avgOutdoorTemp > config("nibe.coolingStartTemp"))
+			// adjustment check 7: to hopefully reduce defrosting like crazy, set $htgMode to at most "on"
+			if (true)
 			{
-				$htgMode = "cooling";
+				if (static::isReducingDefrosts())
+				{
+					$htgMode = static::htgModeAtMostOn($htgMode);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => 'isReducingDefrosts is true: $htgMode = '.$htgMode,
+					]);
+				}
+			}
+
+			if (true)
+			{
+				// recent past average temperature is above threshold, or forecast high temperature is a few degrees above threshold [pre-emptive cooling]
+				// actually this won't work since the ASHP won't switch to cooling until the first condition is met anyway
+				// if ($avgOutdoorTemp > config("nibe.coolingStartTemp") || (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > (config("nibe.coolingStartTemp") + 3)))
+				if ($avgOutdoorTemp > config("nibe.coolingStartTemp"))
+				{
+					$htgMode = "cooling";
+				}
 			}
 
 			return $htgMode;
@@ -892,6 +1076,66 @@
 			return $htgMode;
 		}
 
+		public static function htgModeAtLeastIntermittent(string $htgMode) : string
+		{
+			if ($htgMode == "off")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			return $htgMode;
+		}
+
+		public static function htgModeAtLeastOn(string $htgMode) : string
+		{
+			if ($htgMode == "off")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			if ($htgMode == "intermittent")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			return $htgMode;
+		}
+
+		public static function htgModeAtLeastBoost(string $htgMode) : string
+		{
+			if ($htgMode == "off")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			if ($htgMode == "intermittent")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			if ($htgMode == "on")
+			{
+				$htgMode = static::nudgeHeatingModeUp($htgMode);
+			}
+
+			return $htgMode;
+		}
+
+		public static function htgModeAtMostOn(string $htgMode) : string
+		{
+			if ($htgMode == "extraBoost")
+			{
+				$htgMode = static::nudgeHeatingModeDown($htgMode);
+			}
+
+			if ($htgMode == "boost")
+			{
+				$htgMode = static::nudgeHeatingModeDown($htgMode);
+			}
+
+			return $htgMode;
+		}
+
 		public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp) : bool
 		{
 			// return true;
@@ -915,15 +1159,44 @@
 
 					if ($outdoorTemp < config("nibe.tempFreqMin") || $forecastTemperature < config("nibe.tempFreqMin"))
 					{
-						$scheduleWindow = "constant";
+						// following #61 this may be redundant, but leaving in for now
+						// $scheduleWindow = "constant";
+						// or not
+						$scheduleWindow = "cosy";
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.tempFreqMin"),
+						]);
+
+						// return true;
 					}
 					elseif ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
 					{
 						$scheduleWindow = "cosy";
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.runLevel2Temp"),
+						]);
 					}
 					elseif ($outdoorTemp < config("nibe.runLevel1Temp") || $forecastTemperature < config("nibe.runLevel1Temp"))
 					{
 						$scheduleWindow = "cosy";
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.runLevel1Temp"),
+						]);
 					}
 					else
 					{
@@ -931,6 +1204,14 @@
 						// #53: testing what happens if we stick to Cosy even if this condition is true
 						// return false;
 						$scheduleWindow = "cosy";
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => '$outdoorTemp '.$outdoorTemp.' and $forecastTemperature '.$forecastTemperature.' not below < '.config("nibe.runLevel1Temp"),
+						]);
 					}
 
 					ActivityLog::create(
@@ -967,6 +1248,14 @@
 							$scheduleWindow = "cosy";
 						}
 					}
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$scheduleWindow: '.$scheduleWindow,
+					]);
 
 					if ($scheduleWindow == "constant")
 					{
@@ -1175,7 +1464,7 @@
 
 			if ($htgMode == "extraBoost")
 			{
-				$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost"); // room temperature/forecast very low - give it all the beans!
+				$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost") + 90;
 
 				ActivityLog::create(
 				[
@@ -1187,89 +1476,6 @@
 
 				return $dmTarget;
 			}
-
-			// if (static::$loadCompensationOn !== false)
-			// {
-			// 	if (!is_null(static::getRoomTemperature()))
-			// 	{
-			// 		if (static::getRoomTemperature() > static::$loadCompTempOff)
-			// 		{
-			// 			// $htgMode == "off" - we shouldn't get here
-			// 			// $dmTarget = config("nibe.dmTargetOff");
-			// 		}
-			// 		elseif (static::getRoomTemperature() > static::$loadCompTempIntermittent)
-			// 		{
-			// 			// $htgMode = "intermittent"
-			// 			// if $dmTarget hasn't been changed to dmTargetBoost it will be dmTarget so we don't need to set it again
-			// 			// if $dmTarget has been changed to dmTargetBoost then we probs don't want to change it back again
-			// 			// $dmTarget = config("nibe.dmTarget");
-			// 		}
-			// 		elseif (static::getRoomTemperature() > static::$loadCompTempLevel1)
-			// 		{
-			// 			$dmTarget = config("nibe.dmTargetBoost"); // $htgMode = "boost"
-
-			// 			ActivityLog::create(
-			// 			[
-			// 				'controller' => __CLASS__,
-			// 				'method'     => __FUNCTION__,
-			// 				'level'      => "info",
-			// 				'message'    => '$htgMode is "'.$htgMode.'" and room temperature '.static::getRoomTemperature().' > '.static::$loadCompTempLevel1.': $dmTarget = '.$dmTarget,
-			// 			]);
-			// 		}
-			// 		else
-			// 		{
-			// 			$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost"); // $htgMode = "boost" and room temperature very low - give it all the beans!
-
-			// 			ActivityLog::create(
-			// 			[
-			// 				'controller' => __CLASS__,
-			// 				'method'     => __FUNCTION__,
-			// 				'level'      => "info",
-			// 				'message'    => '$htgMode is "'.$htgMode.'" and room temperature '.static::getRoomTemperature().' <= '.static::$loadCompTempLevel1.': $dmTarget = '.$dmTarget,
-			// 			]);
-			// 		}
-			// 	}
-
-			// 	if (!is_null(static::getRoomTemperatureForecast()['tempForecast']))
-			// 	{
-			// 		if (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempOff)
-			// 		{
-			// 			// $htgMode == "off" - we shouldn't get here
-			// 			// $dmTarget = config("nibe.dmTargetOff");
-			// 		}
-			// 		elseif (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempIntermittent)
-			// 		{
-			// 			// $htgMode = "intermittent"
-			// 			// if $dmTarget hasn't been changed to dmTargetBoost it will be dmTarget so we don't need to set it again
-			// 			// if $dmTarget has been changed to dmTargetBoost then we probs don't want to change it back again
-			// 			// $dmTarget = config("nibe.dmTarget");
-			// 		}
-			// 		elseif (static::getRoomTemperatureForecast()['tempForecast'] > static::$loadCompTempLevel1)
-			// 		{
-			// 			$dmTarget = config("nibe.dmTargetBoost"); // $htgMode = "boost"
-
-			// 			ActivityLog::create(
-			// 			[
-			// 				'controller' => __CLASS__,
-			// 				'method'     => __FUNCTION__,
-			// 				'level'      => "info",
-			// 				'message'    => '$htgMode is "'.$htgMode.'" and room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' > '.static::$loadCompTempLevel1.': $dmTarget = '.$dmTarget,
-			// 			]);
-			// 		}
-			// 		else
-			// 		{
-			// 			$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost"); // $htgMode = "boost" and room temperature forecast very low - give it all the beans!
-
-			// 			ActivityLog::create(
-			// 			[
-			// 				'controller' => __CLASS__,
-			// 				'method'     => __FUNCTION__,
-			// 				'level'      => "info",
-			// 				'message'    => '$htgMode is "'.$htgMode.'" and room temperature forecast '.static::getRoomTemperatureForecast()['tempForecast'].' <= '.static::$loadCompTempLevel1.': $dmTarget = '.$dmTarget,
-			// 			]);
-			// 		}
-			// 	}
-			// }
 
 			if ($htgMode == "cooling")
 			{
@@ -1297,6 +1503,124 @@
 			return 0;
 		}
 
+		public static function isPeakImport(CarbonInterface $time) : bool
+		{
+			try
+			{
+				$offsetToOn = 25;
+				$offsetToOff = 80;
+
+				$startPeak = $time->copy()->setTime(16, 0)->subMinutes($offsetToOff);
+				$endPeak   = $time->copy()->setTime(19, 0)->subMinutes($offsetToOn);
+
+				return ($time->betweenIncluded($startPeak, $endPeak));
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+
+				return false;
+			}
+		}
+
+		public static function isReducingDefrosts() : bool
+		{
+			try
+			{
+				// get last 60 minutes of data for the evaporator temperature
+				$evaporatorNibeFeedItems = static::getLatestNibeFeedItems("44363", 60);
+
+				$evaporatorMin = $evaporatorNibeFeedItems->filter(fn($i) => is_numeric($i->rawValue))->min(fn($i) => (float)$i->rawValue); // null if filtered collection is empty
+
+				if ($evaporatorMin === null)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "warning",
+						'message'    => '$evaporatorMin is null',
+					]);
+
+					return false;
+				}
+
+				if ($evaporatorMin < static::$defrostEvaporatorMax - 5)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$evaporatorMin is '.$evaporatorMin,
+					]);
+
+					return true;
+				}
+
+				$dewpoint = WeatherController::getCurrentDewpoint();
+
+				if ($dewpoint === null)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "warning",
+						'message'    => '$dewpoint is null',
+					]);
+
+					return false;
+				}
+
+				if ($dewpoint > static::$defrostDewpointMin && $dewpoint < static::$defrostDewpointMax && $evaporatorMin < static::$defrostEvaporatorMax)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => static::$defrostDewpointMin.' < $dewpoint['.$dewpoint.'] < '.static::$defrostDewpointMax.'; $evaporatorMin is '.$evaporatorMin,
+					]);
+
+					return true;
+				}
+
+				/* ChatGPT suggested alternative, looking at the minimum evaporator temperature
+				*  $dewpoint = ...;               // e.g. 3°C
+				*  $avgEvap  = ...;               // e.g. 1°C
+				*  $minEvap  = ...;               // e.g. -2°C
+				*
+				*  $icingRisk = $dewpoint - $minEvap; // 5°C gap = high risk
+				*
+				*  if ($icingRisk < 1.0)
+				*  {
+				*      // coil too warm to freeze quickly → safe to reduce effort
+				*  }
+				*/
+
+				return false;
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+
+				return false;
+			}
+		}
+
 		public static function syncRoomTemperatureForecastWithEmon() : void
 		{
 			try
@@ -1317,6 +1641,39 @@
 					'level'      => "error",
 					'message'    => $e->getMessage(),
 				]);
+			}
+		}
+
+		public static function getLatestNibeFeedItems(string $parameterId, int $minutes) : Collection
+		{
+			try
+			{
+				if ($parameterId === '')
+				{
+					throw new Exception('$parameterId missing');
+				}
+
+				if ($minutes < 1)
+				{
+					throw new Exception("Invalid minutes value [$minutes]");
+				}
+
+				$to   = CarbonImmutable::now();
+				$from = $to->subMinutes($minutes);
+
+				return NibeFeedItem::where('parameterId', $parameterId)->whereBetween('created_at', [$from, $to])->get();
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+
+				return collect();
 			}
 		}
 	}
