@@ -47,7 +47,7 @@
 		{
 			if (is_null(static::$roomTemperature) || !isset(static::$roomTemperature[$feedName]))
 			{
-				static::$roomTemperature[$feedName] = EmonController::getLatestEmonData($feedName, "local", 5);
+				static::$roomTemperature[$feedName] = EmonController::getLatestEmonData($feedName, "local", 180);
 			}
 
 			if (!is_null(static::$roomTemperature[$feedName]))
@@ -889,6 +889,50 @@
 				}
 			}
 
+			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
+			if (true)
+			{
+				if (!is_null($nextDayLowTemperatureAverage))
+				{
+					if ($nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
+					{
+						$htgMode = "extraBoost";
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+						]);
+					}
+					elseif ($nextDayLowTemperatureAverage < 3)
+					{
+						$htgMode = static::htgModeAtLeastOn($htgMode);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < 3: $htgMode = '.$htgMode,
+						]);
+					}
+				}
+				elseif ($outdoorTemp < config("nibe.dmTargetBoostTemp") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp")))
+				{
+					$htgMode = static::htgModeAtLeastOn($htgMode);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+					]);
+				}
+			}
+
 			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
 			if (true)
 			{
@@ -907,35 +951,6 @@
 				}
 			}
 
-			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
-			if (true)
-			{
-				if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
-				{
-					$htgMode = "extraBoost";
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => '$nextDayLowTemperatureAverage '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
-					]);
-				}
-				elseif ($outdoorTemp < config("nibe.dmTargetBoostTemp") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp")))
-				{
-					$htgMode = static::htgModeAtLeastOn($htgMode);
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
-					]);
-				}
-			}
-
 			// adjustment check 6: nudge $htgMode down if we're in the peak [expensive] window
 			if (true)
 			{
@@ -950,7 +965,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'isPeakImport and $nextDayLowTemperatureAverage '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+							'message'    => 'isPeakImport and nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
 						]);
 					}
 					else
@@ -1432,7 +1447,7 @@
 
 			if ($htgMode == "extraBoost")
 			{
-				$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost") - 60;
+				$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost") + 90;
 
 				ActivityLog::create(
 				[
