@@ -955,8 +955,16 @@
 			{
 				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
 				{
-					$htgMode = static::nudgeHeatingModeUp($htgMode);
-					// $htgMode = "boost";
+					// if already running at a low level then -> 'boost'
+					if ($htgMode == "on" || $htgMode == "intermittent")
+					{
+						$htgMode = "boost";
+					}
+					// else 'off' -> 'intermittent', 'boost' -> extraBoost
+					else
+					{
+						$htgMode = static::nudgeHeatingModeUp($htgMode);
+					}
 
 					ActivityLog::create(
 					[
