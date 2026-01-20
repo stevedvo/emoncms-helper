@@ -223,6 +223,11 @@
 					{
 						static::syncRoomTemperatureForecastWithEmon();
 					}
+
+					if (true)
+					{
+						static::checkHotWaterRequirement($parameterData->firstWhere('parameterId', 40014));
+					}
 				}
 			}
 			catch (Throwable $e)
@@ -1682,6 +1687,86 @@
 				]);
 
 				return collect();
+			}
+		}
+
+		public static function checkHotWaterRequirement(?array $hotWaterCharging) : void
+		{
+			try
+			{
+				Log::info("in checkHotWaterRequirement");
+				if ($hotWaterCharging === null)
+				{
+					throw new Exception('$hotWaterCharging is null');
+				}
+
+				if (!array_key_exists('value', $hotWaterCharging))
+				{
+					throw new Exception('$hotWaterCharging value is not set');
+				}
+
+				$hotWaterChargingValue = (float)$hotWaterCharging['value'];
+
+				$now = CarbonImmutable::now('Europe/London');
+				$day = strtolower($now->format('D')); // mon..sun
+
+				// Don't touch Sunday settings
+				if ($day === 'sun')
+				{
+					return;
+				}
+
+				$hotWaterSet = Setting::firstWhere('key', 'hotWaterSet')?->value === 'true';
+
+				$comfortModeParamId = static::$hotWaterSchedules['schedule2'][$day]['comfortMode']; // always defined for mon..sun
+
+				$nibe = new NibeAPI();
+
+				// --- Midday boost condition ---
+				if ($hotWaterChargingValue < 33.0 && $now->format('H:i') >= '11:00' && $now->format('H:i') <= '14:00' && $hotWaterSet === false)
+				{
+					// Set comfort mode to "normal"
+					$nibe->setParameterData([$comfortModeParamId => static::$hotWaterComfortModes['normal']]);
+
+					// Mark as set so we don't keep re-applying it today
+					Setting::updateOrCreate(['key' => 'hotWaterSet'], ['value' => 'true']);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => 'info',
+						'message'    => "HW schedule set to 'normal' (schedule2/$day). value={$hotWaterChargingValue}, time=".$now->format('H:i'),
+					]);
+				}
+
+				// --- Reset condition at end of day ---
+				if ($now->format('H:i') > '18:00' && $hotWaterSet === true)
+				{
+					// Set comfort mode back to "economy"
+					$nibe->setParameterData([$comfortModeParamId => static::$hotWaterComfortModes['economy']]);
+
+					// Clear flag ready for the next day
+					Setting::updateOrCreate(['key' => 'hotWaterSet'], ['value' => 'false']);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => 'info',
+						'message'    => "HW schedule reset to 'economy' (schedule2/$day). time=".$now->format('H:i'),
+					]);
+				}
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
 			}
 		}
 	}
