@@ -998,6 +998,18 @@
 							'message'    => 'isPeakImport and nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
 						]);
 					}
+					elseif (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < 3)
+					{
+						$htgMode = static::nudgeHeatingModeDown($htgMode);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'isPeakImport and nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < 3: $htgMode = '.$htgMode,
+						]);
+					}
 					else
 					{
 						$htgMode = static::nudgeHeatingModeDown($htgMode);
