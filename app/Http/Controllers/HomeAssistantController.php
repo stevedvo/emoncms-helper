@@ -30,7 +30,23 @@
 				// #59: allowing extraBoosts to drop DM again, using $forecastTemperature of UFH instead to determine Hive setpoint
 
 				$latestforecastTemperatureData = EmonController::getForecastRoomTemperatureData();
-				$forecastTemperature = $latestforecastTemperatureData['tempForecast'] ?? null;
+
+				if ($latestforecastTemperatureData === null)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$latestforecastTemperatureData is null',
+					]);
+
+					// return; // not bailing out of the method since $forecastTemperature isn't actually currently used
+				}
+				else
+				{
+					$forecastTemperature = $latestforecastTemperatureData['tempForecast'] ?? null;
+				}
 
 				$targetTemp = config("hive.targetOffTemp");
 

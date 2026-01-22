@@ -1654,6 +1654,19 @@
 		{
 			try
 			{
+				if (static::getRoomTemperatureForecast() === null)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => 'static::getRoomTemperatureForecast() is null',
+					]);
+
+					return;
+				}
+
 				$syncSuccess = EmonAPI::postInputData("local", static::getRoomTemperatureForecast()['tempCurrentTimestamp'], "emonth2_23", json_encode(["temperature forecast" => static::getRoomTemperatureForecast()['tempForecast']]));
 
 				if (!$syncSuccess)

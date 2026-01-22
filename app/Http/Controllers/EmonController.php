@@ -426,6 +426,14 @@
 			{
 				if (!isset($latestData[$key]))
 				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$latestData ['.serialize($latestData).'] is missing $key: '.$key,
+					]);
+
 					return null;
 				}
 			}
