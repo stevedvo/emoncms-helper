@@ -844,11 +844,15 @@
 				}
 			}
 
+			$boostActive = static::isBoostActive($outdoorTemp, $avgOutdoorTemp);
+
 			if (static::$loadCompensationOn !== false)
 			{
 				if (!is_null(static::getRoomTemperature("Rad_temperature")))
 				{
-					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff)
+					$boostRoomTempAdjust = $boostActive ? 1 : 0;
+
+					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff + $boostRoomTempAdjust)
 					{
 						$htgMode = "off";
 
@@ -857,10 +861,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent + $boostRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
@@ -869,10 +873,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn + $boostRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastOn($htgMode);
 
@@ -881,10 +885,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1 + $boostRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastBoost($htgMode);
 
@@ -893,7 +897,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1 + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
 						]);
 					}
 					else
@@ -905,7 +909,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1 + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
 						]);
 					}
 				}
@@ -958,7 +962,7 @@
 			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
 			if (true)
 			{
-				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+				if ((config("nibe.allowBoosts") !== false) ? $boostActive : false)
 				{
 					// if already running at a low level then -> 'boost'
 					if ($htgMode == "on" || $htgMode == "intermittent")
