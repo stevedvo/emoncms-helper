@@ -81,7 +81,8 @@
 		{
 			if (is_null(static::$roomTemperature) || !isset(static::$roomTemperature[$feedName]))
 			{
-				static::$roomTemperature[$feedName] = EmonController::getLatestEmonData($feedName, "local", 180);
+				$feedDataRaw = EmonController::getLatestEmonData($feedName, "local", 180);
+				static::$roomTemperature[$feedName] = (is_null($feedDataRaw) || $feedDataRaw === "") ? null : (float)$feedDataRaw;
 			}
 
 			if (!is_null(static::$roomTemperature[$feedName]))
