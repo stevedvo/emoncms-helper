@@ -1774,7 +1774,7 @@
 				$nibe = new NibeAPI();
 
 				// --- Midday boost condition ---
-				if ($hotWaterChargingValue < 33.0 && $now->format('H:i') >= '11:00' && $now->format('H:i') <= '14:00' && $hotWaterSet === false)
+				if ($hotWaterChargingValue < 33.0 && $now->format('H:i') >= '09:30' && $now->format('H:i') <= '14:00' && $hotWaterSet === false)
 				{
 					// Set comfort mode to "normal"
 					$nibe->setParameterData([$comfortModeParamId => static::$hotWaterComfortModes['normal']]);
