@@ -26,6 +26,8 @@
 		protected static $loadCompTempOn;
 		protected static $loadCompTempIntermittent;
 		protected static $loadCompTempLevel1;
+		protected static $hotWaterSchedules;
+		protected static $hotWaterComfortModes;
 		protected static $minRadZoneTemp;
 		protected static $roomTemperature;
 		protected static $roomTemperatureForecast;
@@ -41,6 +43,38 @@
 			static::$loadCompTempOn           ??= config("nibe.loadCompTempOn");
 			static::$loadCompTempLevel1       ??= config("nibe.loadCompTempLevel1");
 			static::$minRadZoneTemp           ??= config("nibe.minRadZoneTemp");
+
+			static::$hotWaterSchedules        ??=
+			[
+				'schedule1' =>
+				[
+					'mon' => [ 'comfortMode' => "47693" ],
+					'tue' => [ 'comfortMode' => "47692" ],
+					'wed' => [ 'comfortMode' => "47691" ],
+					'thu' => [ 'comfortMode' => "47690" ],
+					'fri' => [ 'comfortMode' => "47689" ],
+					'sat' => [ 'comfortMode' => "47688" ],
+					'sun' => [ 'comfortMode' => "47687" ],
+				],
+				'schedule2' =>
+				[
+					'mon' => [ 'comfortMode' => "47659" ],
+					'tue' => [ 'comfortMode' => "47658" ],
+					'wed' => [ 'comfortMode' => "47657" ],
+					'thu' => [ 'comfortMode' => "47656" ],
+					'fri' => [ 'comfortMode' => "47655" ],
+					'sat' => [ 'comfortMode' => "47654" ],
+					'sun' => [ 'comfortMode' => "47653" ],
+				],
+			];
+
+			static::$hotWaterComfortModes     ??=
+			[
+				'off'     => "-1",
+				'economy' => "0",
+				'normal'  => "1",
+				'luxury'  => "2",
+			];
 		}
 
 		protected static function getRoomTemperature(string $feedName) : ?float
@@ -79,6 +113,8 @@
 				static::initConfig();
 				$now = CarbonImmutable::now();
 				$nibe = new NibeAPI();
+
+				// $nibe->setParameterData([static::$hotWaterSchedules['schedule2']['tue']['comfortMode'] => static::$hotWaterComfortModes['economy']]);exit;
 
 				$parameterData = collect($nibe->getParameterData())->unique(function(array $item)
 				{
@@ -186,6 +222,11 @@
 					if (static::$loadCompensationOn !== false)
 					{
 						static::syncRoomTemperatureForecastWithEmon();
+					}
+
+					if (true)
+					{
+						static::checkHotWaterRequirement($parameterData->firstWhere('parameterId', 40014));
 					}
 				}
 			}
@@ -616,26 +657,7 @@
 				}
 
 				$nibe = new NibeAPI();
-				$response = $nibe->setParameterData($parameterData);
-
-				$errors = [];
-
-				foreach ($parameterData as $parameterId => $value)
-				{
-					if (!isset($response[$parameterId]))
-					{
-						$errors[] = "No response for parameter #".$parameterId;
-					}
-					elseif ($response[$parameterId] != "modified")
-					{
-						$errors[] = "Parameter #".$parameterId." not modified";
-					}
-				}
-
-				if (count($errors) > 0)
-				{
-					throw new Exception("Error(s) with request: ".implode("; ", $errors));
-				}
+				$nibe->setParameterData($parameterData);
 			}
 			catch (Throwable $e)
 			{
@@ -822,11 +844,15 @@
 				}
 			}
 
+			$boostActive = static::isBoostActive($outdoorTemp, $avgOutdoorTemp);
+
 			if (static::$loadCompensationOn !== false)
 			{
 				if (!is_null(static::getRoomTemperature("Rad_temperature")))
 				{
-					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff)
+					$boostRoomTempAdjust = $boostActive ? 1 : 0;
+
+					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff + $boostRoomTempAdjust)
 					{
 						$htgMode = "off";
 
@@ -835,10 +861,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent + $boostRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
@@ -847,10 +873,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn + $boostRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastOn($htgMode);
 
@@ -859,10 +885,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1 + $boostRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastBoost($htgMode);
 
@@ -871,7 +897,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1 + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
 						]);
 					}
 					else
@@ -883,7 +909,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1 + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
 						]);
 					}
 				}
@@ -936,10 +962,18 @@
 			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
 			if (true)
 			{
-				if ((config("nibe.allowBoosts") !== false) ? static::isBoostActive($outdoorTemp, $avgOutdoorTemp) : false)
+				if ((config("nibe.allowBoosts") !== false) ? $boostActive : false)
 				{
-					$htgMode = static::nudgeHeatingModeUp($htgMode);
-					// $htgMode = "boost";
+					// if already running at a low level then -> 'boost'
+					if ($htgMode == "on" || $htgMode == "intermittent")
+					{
+						$htgMode = "boost";
+					}
+					// else 'off' -> 'intermittent', 'boost' -> extraBoost
+					else
+					{
+						$htgMode = static::nudgeHeatingModeUp($htgMode);
+					}
 
 					ActivityLog::create(
 					[
@@ -966,6 +1000,18 @@
 							'method'     => __FUNCTION__,
 							'level'      => "info",
 							'message'    => 'isPeakImport and nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+						]);
+					}
+					elseif (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < 3)
+					{
+						$htgMode = static::nudgeHeatingModeDown($htgMode);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => 'isPeakImport and nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < 3: $htgMode = '.$htgMode,
 						]);
 					}
 					else
@@ -1608,6 +1654,19 @@
 		{
 			try
 			{
+				if (static::getRoomTemperatureForecast() === null)
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => 'static::getRoomTemperatureForecast() is null',
+					]);
+
+					return;
+				}
+
 				$syncSuccess = EmonAPI::postInputData("local", static::getRoomTemperatureForecast()['tempCurrentTimestamp'], "emonth2_23", json_encode(["temperature forecast" => static::getRoomTemperatureForecast()['tempForecast']]));
 
 				if (!$syncSuccess)
@@ -1657,6 +1716,86 @@
 				]);
 
 				return collect();
+			}
+		}
+
+		public static function checkHotWaterRequirement(?array $hotWaterCharging) : void
+		{
+			try
+			{
+				Log::info("in checkHotWaterRequirement");
+				if ($hotWaterCharging === null)
+				{
+					throw new Exception('$hotWaterCharging is null');
+				}
+
+				if (!array_key_exists('value', $hotWaterCharging))
+				{
+					throw new Exception('$hotWaterCharging value is not set');
+				}
+
+				$hotWaterChargingValue = (float)$hotWaterCharging['value'];
+
+				$now = CarbonImmutable::now('Europe/London');
+				$day = strtolower($now->format('D')); // mon..sun
+
+				// Don't touch Sunday settings
+				if ($day === 'sun')
+				{
+					return;
+				}
+
+				$hotWaterSet = Setting::firstWhere('key', 'hotWaterSet')?->value === 'true';
+
+				$comfortModeParamId = static::$hotWaterSchedules['schedule2'][$day]['comfortMode']; // always defined for mon..sun
+
+				$nibe = new NibeAPI();
+
+				// --- Midday boost condition ---
+				if ($hotWaterChargingValue < 33.0 && $now->format('H:i') >= '11:00' && $now->format('H:i') <= '14:00' && $hotWaterSet === false)
+				{
+					// Set comfort mode to "normal"
+					$nibe->setParameterData([$comfortModeParamId => static::$hotWaterComfortModes['normal']]);
+
+					// Mark as set so we don't keep re-applying it today
+					Setting::updateOrCreate(['key' => 'hotWaterSet'], ['value' => 'true']);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => 'info',
+						'message'    => "HW schedule set to 'normal' (schedule2/$day). value={$hotWaterChargingValue}, time=".$now->format('H:i'),
+					]);
+				}
+
+				// --- Reset condition at end of day ---
+				if ($now->format('H:i') > '18:00' && $hotWaterSet === true)
+				{
+					// Set comfort mode back to "economy"
+					$nibe->setParameterData([$comfortModeParamId => static::$hotWaterComfortModes['economy']]);
+
+					// Clear flag ready for the next day
+					Setting::updateOrCreate(['key' => 'hotWaterSet'], ['value' => 'false']);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => 'info',
+						'message'    => "HW schedule reset to 'economy' (schedule2/$day). time=".$now->format('H:i'),
+					]);
+				}
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
 			}
 		}
 	}

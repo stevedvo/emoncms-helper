@@ -279,7 +279,7 @@
 
 		private static function saveCheapestPeriods(array $cheapestPeriods) : void
 		{
-			$offsetToOn = -50;
+			$offsetToOn = -25;
 			$offsetToOff = -100;
 
 			$schedule =
