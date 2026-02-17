@@ -852,10 +852,23 @@
 			{
 				if (!is_null(static::getRoomTemperature("Rad_temperature")))
 				{
+					$defrostRoomTempAdjust = 0;
 					$boostRoomTempAdjust = $boostActive ? 1 : 0;
 					$peakRoomTempAdjust = $peakImport ? -0.5 : 0;
 
-					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff + $boostRoomTempAdjust + $peakRoomTempAdjust)
+					if (!is_null($nextDayLowTemperatureAverage))
+					{
+						if ($nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
+						{
+							$defrostRoomTempAdjust = 2;
+						}
+						elseif ($nextDayLowTemperatureAverage < 3)
+						{
+							$defrostRoomTempAdjust = 1;
+						}
+					}
+
+					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff + $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust)
 					{
 						$htgMode = "off";
 
@@ -864,10 +877,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.'+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.'+('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent + $boostRoomTempAdjust + $peakRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent + $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
@@ -876,10 +889,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.'+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.'+('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn + $boostRoomTempAdjust + $peakRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn + $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastOn($htgMode);
 
@@ -888,10 +901,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.'+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.'+('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1 + $boostRoomTempAdjust + $peakRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1 + $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastBoost($htgMode);
 
@@ -900,7 +913,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.'+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.'+('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
 						]);
 					}
 					else
@@ -912,14 +925,14 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.'+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.'+('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
 						]);
 					}
 				}
 			}
 
 			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
-			if (true)
+			if (false)
 			{
 				if (!is_null($nextDayLowTemperatureAverage))
 				{
