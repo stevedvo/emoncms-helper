@@ -845,14 +845,16 @@
 			}
 
 			$boostActive = static::isBoostActive($outdoorTemp, $avgOutdoorTemp);
+			$peakImport = static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London"));
 
 			if (static::$loadCompensationOn !== false)
 			{
 				if (!is_null(static::getRoomTemperature("Rad_temperature")))
 				{
 					$boostRoomTempAdjust = $boostActive ? 1 : 0;
+					$peakRoomTempAdjust = $peakImport ? -0.5 : 0;
 
-					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff + $boostRoomTempAdjust)
+					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff + $boostRoomTempAdjust + $peakRoomTempAdjust)
 					{
 						$htgMode = "off";
 
@@ -861,10 +863,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.'+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent + $boostRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent + $boostRoomTempAdjust + $peakRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
@@ -873,10 +875,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.'+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn + $boostRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn + $boostRoomTempAdjust + $peakRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastOn($htgMode);
 
@@ -885,10 +887,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.'+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1 + $boostRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1 + $boostRoomTempAdjust + $peakRoomTempAdjust)
 					{
 						$htgMode = static::htgModeAtLeastBoost($htgMode);
 
@@ -897,7 +899,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1 + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.'+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
 						]);
 					}
 					else
@@ -909,7 +911,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1 + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.'+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
 						]);
 					}
 				}
@@ -969,7 +971,7 @@
 					{
 						$htgMode = "boost";
 					}
-					// else 'off' -> 'intermittent', 'boost' -> extraBoost
+					// else 'off' -> 'intermittent', 'boost' -> 'extraBoost'
 					else
 					{
 						$htgMode = static::nudgeHeatingModeUp($htgMode);
@@ -988,11 +990,11 @@
 			// adjustment check 6: nudge $htgMode down if we're in the peak [expensive] window
 			if (true)
 			{
-				if (static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
+				if ($peakImport)
 				{
 					if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
 					{
-						$htgMode = "intermittent";
+						$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
 						ActivityLog::create(
 						[
@@ -1004,7 +1006,7 @@
 					}
 					elseif (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < 3)
 					{
-						$htgMode = static::nudgeHeatingModeDown($htgMode);
+						// $htgMode = static::nudgeHeatingModeDown($htgMode);
 
 						ActivityLog::create(
 						[
@@ -1016,8 +1018,8 @@
 					}
 					else
 					{
-						$htgMode = static::nudgeHeatingModeDown($htgMode);
-						$htgMode = static::nudgeHeatingModeDown($htgMode);
+						// $htgMode = static::nudgeHeatingModeDown($htgMode);
+						// $htgMode = static::nudgeHeatingModeDown($htgMode);
 
 						ActivityLog::create(
 						[
@@ -1723,7 +1725,6 @@
 		{
 			try
 			{
-				Log::info("in checkHotWaterRequirement");
 				if ($hotWaterCharging === null)
 				{
 					throw new Exception('$hotWaterCharging is null');
