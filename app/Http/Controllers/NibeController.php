@@ -7,6 +7,7 @@
 	use App\APIs\NibeAPI;
 	use App\Http\Controllers\EmonController;
 	use App\Http\Controllers\WeatherController;
+	use App\Mail\NibeOffline;
 	use App\Models\ActivityLog;
 	use App\Models\NibeFeedItem;
 	use App\Models\NibeParameter;
@@ -14,7 +15,9 @@
 	use Carbon\CarbonImmutable;
 	use Carbon\CarbonInterface;
 	use Illuminate\Database\Eloquent\Collection;
+	use Illuminate\Support\Facades\DB;
 	use Illuminate\Support\Facades\Log;
+	use Illuminate\Support\Facades\Mail;
 
 	class NibeController extends Controller
 	{
@@ -183,9 +186,13 @@
 						'level'      => "info",
 						'message'    => "No new NIBE data found",
 					]);
+
+					static::monitorEmptyNibeCollection();
 				}
 				else
 				{
+					Setting::updateOrCreate(['key' => 'nibeEmptyDataCount'], ['value' => 0]);
+
 					static::syncNibeData("local", $emonPostCollection->all());
 
 					// Log::info('$emonPostCollection: '.$emonPostCollection);
@@ -1801,6 +1808,44 @@
 						'message'    => "HW schedule reset to 'economy' (schedule2/$day). time=".$now->format('H:i'),
 					]);
 				}
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
+		}
+
+		public static function monitorEmptyNibeCollection() : void
+		{
+			try
+			{
+				$threshold = 15;
+
+				DB::transaction(function () use ($threshold)
+				{
+					// Ensure the counter exists.
+					$setting = Setting::firstOrCreate(['key' => 'nibeEmptyDataCount'], ['value' => 0]);
+
+					// Atomically increment the counter.
+					Setting::where('key', 'nibeEmptyDataCount')->increment('value');
+
+					// Re-read the current value (inside the same transaction).
+					$currentCount = (int) Setting::where('key', 'nibeEmptyDataCount')->value('value');
+
+					// Fire exactly once when hitting the threshold.
+					if ($currentCount === $threshold)
+					{
+						$nibeOffline = new NibeOffline($currentCount);
+
+						Mail::to(config("app.admin_email"))->send($nibeOffline);
+					}
+				});
 			}
 			catch (Throwable $e)
 			{
