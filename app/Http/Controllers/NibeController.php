@@ -91,10 +91,36 @@
 			if (!is_null(static::$roomTemperature[$feedName]))
 			{
 				Setting::updateOrCreate(["key" => "RoomTemperature[".$feedName."]"], ["value" => static::$roomTemperature[$feedName]]);
+
+				$allowLoadCompensationSetting = Setting::updateOrCreate(['key' => 'allowLoadCompensation'], ['value' => 'true']);
+
+				if ($allowLoadCompensationSetting->wasChanged('value'))
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => "allowLoadCompensation Setting changed to 'true'",
+					]);
+				}
 			}
 			else
 			{
 				static::$roomTemperature[$feedName] = Setting::firstWhere("key", "RoomTemperature[".$feedName."]")->value;
+
+				$allowLoadCompensationSetting = Setting::updateOrCreate(['key' => 'allowLoadCompensation'], ['value' => 'false']);
+
+				if ($allowLoadCompensationSetting->wasChanged('value'))
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => "allowLoadCompensation Setting changed to 'false'",
+					]);
+				}
 			}
 
 			return static::$roomTemperature[$feedName];
@@ -854,8 +880,9 @@
 
 			$boostActive = static::isBoostActive($outdoorTemp, $avgOutdoorTemp);
 			$peakImport = static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London"));
+			$allowLoadCompensation = Setting::firstWhere("key", "allowLoadCompensation")?->value === "true";
 
-			if (static::$loadCompensationOn !== false)
+			if (static::$loadCompensationOn !== false && $allowLoadCompensation === true)
 			{
 				if (!is_null(static::getRoomTemperature("Rad_temperature")))
 				{
