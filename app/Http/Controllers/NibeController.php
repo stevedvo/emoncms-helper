@@ -880,6 +880,9 @@
 
 			$boostActive = static::isBoostActive($outdoorTemp, $avgOutdoorTemp);
 			$peakImport = static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London"));
+
+			// need to hit this method first to set the Setting to true/false
+			static::getRoomTemperature("Rad_temperature");
 			$allowLoadCompensation = Setting::firstWhere("key", "allowLoadCompensation")?->value === "true";
 
 			if (static::$loadCompensationOn !== false && $allowLoadCompensation === true)
@@ -888,7 +891,7 @@
 				{
 					$defrostRoomTempAdjust = 0;
 					$boostRoomTempAdjust = $boostActive ? 1 : 0;
-					$peakRoomTempAdjust = $peakImport ? -0.5 : 0;
+					$peakRoomTempAdjust = $peakImport ? -2 : 0;
 
 					if (!is_null($nextDayLowTemperatureAverage))
 					{
