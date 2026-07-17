@@ -7,6 +7,7 @@
 	use App\APIs\NibeAPI;
 	use App\Http\Controllers\EmonController;
 	use App\Http\Controllers\WeatherController;
+	use App\Mail\NibeOffline;
 	use App\Models\ActivityLog;
 	use App\Models\NibeFeedItem;
 	use App\Models\NibeParameter;
@@ -14,7 +15,9 @@
 	use Carbon\CarbonImmutable;
 	use Carbon\CarbonInterface;
 	use Illuminate\Database\Eloquent\Collection;
+	use Illuminate\Support\Facades\DB;
 	use Illuminate\Support\Facades\Log;
+	use Illuminate\Support\Facades\Mail;
 
 	class NibeController extends Controller
 	{
@@ -81,16 +84,43 @@
 		{
 			if (is_null(static::$roomTemperature) || !isset(static::$roomTemperature[$feedName]))
 			{
-				static::$roomTemperature[$feedName] = EmonController::getLatestEmonData($feedName, "local", 180);
+				$feedDataRaw = EmonController::getLatestEmonData($feedName, "local", 180);
+				static::$roomTemperature[$feedName] = (is_null($feedDataRaw) || $feedDataRaw === "") ? null : (float)$feedDataRaw;
 			}
 
 			if (!is_null(static::$roomTemperature[$feedName]))
 			{
 				Setting::updateOrCreate(["key" => "RoomTemperature[".$feedName."]"], ["value" => static::$roomTemperature[$feedName]]);
+
+				$allowLoadCompensationSetting = Setting::updateOrCreate(['key' => 'allowLoadCompensation'], ['value' => 'true']);
+
+				if ($allowLoadCompensationSetting->wasChanged('value'))
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => "allowLoadCompensation Setting changed to 'true'",
+					]);
+				}
 			}
 			else
 			{
 				static::$roomTemperature[$feedName] = Setting::firstWhere("key", "RoomTemperature[".$feedName."]")->value;
+
+				$allowLoadCompensationSetting = Setting::updateOrCreate(['key' => 'allowLoadCompensation'], ['value' => 'false']);
+
+				if ($allowLoadCompensationSetting->wasChanged('value'))
+				{
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => "allowLoadCompensation Setting changed to 'false'",
+					]);
+				}
 			}
 
 			return static::$roomTemperature[$feedName];
@@ -182,9 +212,13 @@
 						'level'      => "info",
 						'message'    => "No new NIBE data found",
 					]);
+
+					static::monitorEmptyNibeCollection();
 				}
 				else
 				{
+					Setting::updateOrCreate(['key' => 'nibeEmptyDataCount'], ['value' => 0]);
+
 					static::syncNibeData("local", $emonPostCollection->all());
 
 					// Log::info('$emonPostCollection: '.$emonPostCollection);
@@ -393,7 +427,7 @@
 				$calculatedFlowTempCool = $dmOverrideCollection->get("44270");
 				$coolingOffsetCurrent   = $dmOverrideCollection->get("48739");
 
-				$htgMode = static::calculateHeatingMode($outdoorTemp, $avgOutdoorTemp);
+				$htgMode = static::calculateHeatingMode($priority, $outdoorTemp, $avgOutdoorTemp);
 				// $htgMode = "boost";
 
 				ActivityLog::create(
@@ -735,7 +769,7 @@
 			}
 		}
 
-		public static function calculateHeatingMode(float $outdoorTemp, float $avgOutdoorTemp) : string
+		public static function calculateHeatingMode(int $priority, float $outdoorTemp, float $avgOutdoorTemp) : string
 		{
 			// default starting point
 			$htgMode = "intermittent";
@@ -766,10 +800,12 @@
 				$forecastTemperature = WeatherController::getForecastAverageTemperature();
 			}
 
+			$highTemperatureForecast = !is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp");
+
 			// adjustment check 1: nudge $htgMode down a notch if warmer temps expected later
 			if (true)
 			{
-				if (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+				if ($highTemperatureForecast)
 				{
 					$htgMode = static::nudgeHeatingModeDown($htgMode);
 
@@ -845,14 +881,43 @@
 			}
 
 			$boostActive = static::isBoostActive($outdoorTemp, $avgOutdoorTemp);
+			$peakImport = static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London"));
 
-			if (static::$loadCompensationOn !== false)
+			// need to hit this method first to set the Setting to true/false
+			static::getRoomTemperature("Rad_temperature");
+			$allowLoadCompensation = Setting::firstWhere("key", "allowLoadCompensation")?->value === "true";
+
+			if (static::$loadCompensationOn !== false && $allowLoadCompensation === true)
 			{
 				if (!is_null(static::getRoomTemperature("Rad_temperature")))
 				{
-					$boostRoomTempAdjust = $boostActive ? 1 : 0;
+					$defrostRoomTempAdjust = 0;
+					$boostRoomTempAdjust = 0;
+					$peakRoomTempAdjust = $peakImport ? -2 : 0;
+					$highForecastRoomTempAdjust = $highTemperatureForecast ? -1 : 0;
 
-					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff + $boostRoomTempAdjust)
+					// if high temps are expected then don't add positive adjustments
+					if ($highForecastRoomTempAdjust === 0)
+					{
+						$boostRoomTempAdjust = $boostActive ? 1 : 0;
+
+						if (!is_null($nextDayLowTemperatureAverage))
+						{
+							if ($nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
+							{
+								$defrostRoomTempAdjust = 2;
+							}
+							elseif ($nextDayLowTemperatureAverage < 3)
+							{
+								$defrostRoomTempAdjust = 1;
+							}
+						}
+					}
+
+					$sumAdjustments = $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust + $highForecastRoomTempAdjust;
+					$adjustmentsString = '('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.')+('.$highForecastRoomTempAdjust.')';
+
+					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff + $sumAdjustments)
 					{
 						$htgMode = "off";
 
@@ -861,10 +926,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent + $boostRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent + $sumAdjustments)
 					{
 						$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
@@ -873,10 +938,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn + $boostRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn + $sumAdjustments)
 					{
 						$htgMode = static::htgModeAtLeastOn($htgMode);
 
@@ -885,10 +950,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1 + $boostRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1 + $sumAdjustments)
 					{
 						$htgMode = static::htgModeAtLeastBoost($htgMode);
 
@@ -897,7 +962,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1 + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
 						]);
 					}
 					else
@@ -909,14 +974,14 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1 + $boostRoomTempAdjust.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
 						]);
 					}
 				}
 			}
 
 			// adjustment check 3: ensure htgMode is at least "on" if cold outside now or in forecast
-			if (true)
+			if (false)
 			{
 				if (!is_null($nextDayLowTemperatureAverage))
 				{
@@ -969,7 +1034,7 @@
 					{
 						$htgMode = "boost";
 					}
-					// else 'off' -> 'intermittent', 'boost' -> extraBoost
+					// else 'off' -> 'intermittent', 'boost' -> 'extraBoost'
 					else
 					{
 						$htgMode = static::nudgeHeatingModeUp($htgMode);
@@ -985,14 +1050,31 @@
 				}
 			}
 
+			if (true)
+			{
+				// if we have determined that htgMode should be "off", but we are currently heating let's nudge it up so that we're not artifically shortening the heating cycle
+				if ($htgMode == "off" && $priority == 30)
+				{
+					$htgMode = static::nudgeHeatingModeUp($htgMode);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$htgMode was "off" but currently heating so changed to "'.$htgMode.'"',
+					]);
+				}
+			}
+
 			// adjustment check 6: nudge $htgMode down if we're in the peak [expensive] window
 			if (true)
 			{
-				if (static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
+				if ($peakImport)
 				{
 					if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
 					{
-						$htgMode = "intermittent";
+						$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
 						ActivityLog::create(
 						[
@@ -1004,7 +1086,7 @@
 					}
 					elseif (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < 3)
 					{
-						$htgMode = static::nudgeHeatingModeDown($htgMode);
+						// $htgMode = static::nudgeHeatingModeDown($htgMode);
 
 						ActivityLog::create(
 						[
@@ -1016,8 +1098,8 @@
 					}
 					else
 					{
-						$htgMode = static::nudgeHeatingModeDown($htgMode);
-						$htgMode = static::nudgeHeatingModeDown($htgMode);
+						// $htgMode = static::nudgeHeatingModeDown($htgMode);
+						// $htgMode = static::nudgeHeatingModeDown($htgMode);
 
 						ActivityLog::create(
 						[
@@ -1267,9 +1349,23 @@
 					{
 						if ($nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
 						{
-							// return false;
 							// #53: testing what happens if we stick to Cosy even if this condition is true
-							$scheduleWindow = "cosy";
+							// $scheduleWindow = "cosy";
+
+							/* Apr-26: high diurnal range means that heating is on due to cold overnight temps even though house temperature still does not require it
+							// plenty of solar gain to overheat the house in the daytime
+							// boosting here will change htgMode from 'off' to 'intermittent' but we don't need even that
+							*/
+
+							ActivityLog::create(
+							[
+								'controller' => __CLASS__,
+								'method'     => __FUNCTION__,
+								'level'      => "info",
+								'message'    => '$nextDayHighTemperatureAverage > '.config("nibe.runLevel1Temp").': not boosting',
+							]);
+
+							return false;
 						}
 
 						if ($nextDayHighTemperatureAverage > config("nibe.runLevel2Temp"))
@@ -1723,7 +1819,6 @@
 		{
 			try
 			{
-				Log::info("in checkHotWaterRequirement");
 				if ($hotWaterCharging === null)
 				{
 					throw new Exception('$hotWaterCharging is null');
@@ -1752,7 +1847,7 @@
 				$nibe = new NibeAPI();
 
 				// --- Midday boost condition ---
-				if ($hotWaterChargingValue < 33.0 && $now->format('H:i') >= '11:00' && $now->format('H:i') <= '14:00' && $hotWaterSet === false)
+				if ($hotWaterChargingValue < 33.0 && $now->format('H:i') >= '09:30' && $now->format('H:i') <= '14:00' && $hotWaterSet === false)
 				{
 					// Set comfort mode to "normal"
 					$nibe->setParameterData([$comfortModeParamId => static::$hotWaterComfortModes['normal']]);
@@ -1786,6 +1881,44 @@
 						'message'    => "HW schedule reset to 'economy' (schedule2/$day). time=".$now->format('H:i'),
 					]);
 				}
+			}
+			catch (Throwable $e)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "error",
+					'message'    => $e->getMessage(),
+				]);
+			}
+		}
+
+		public static function monitorEmptyNibeCollection() : void
+		{
+			try
+			{
+				$threshold = 15;
+
+				DB::transaction(function () use ($threshold)
+				{
+					// Ensure the counter exists.
+					$setting = Setting::firstOrCreate(['key' => 'nibeEmptyDataCount'], ['value' => 0]);
+
+					// Atomically increment the counter.
+					Setting::where('key', 'nibeEmptyDataCount')->increment('value');
+
+					// Re-read the current value (inside the same transaction).
+					$currentCount = (int) Setting::where('key', 'nibeEmptyDataCount')->value('value');
+
+					// Fire exactly once when hitting the threshold.
+					if ($currentCount === $threshold)
+					{
+						$nibeOffline = new NibeOffline($currentCount);
+
+						Mail::to(config("app.admin_email"))->send($nibeOffline);
+					}
+				});
 			}
 			catch (Throwable $e)
 			{

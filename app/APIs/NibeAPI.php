@@ -31,11 +31,11 @@
 			$this->nibeDeviceId     = config("nibe.deviceId");
 			$this->nibeTokenCurrent = $settings->where("key", "nibe_token_current")->first();
 			$this->nibeTokenExpiry  = $settings->where("key", "nibe_token_expiry")->first();
-			$this->nibeTokenRefresh = $settings->where("key", "nibe_token_refresh")->first();
+			// $this->nibeTokenRefresh = $settings->where("key", "nibe_token_refresh")->first();
 			$this->nibeTokenUrl     = config("nibe.tokenUrl");
 			$this->nibeFunctionUrl  = config("nibe.functionUrl");
 
-			if (is_null($this->nibeTokenCurrent) || is_null($this->nibeTokenExpiry) || is_null($this->nibeTokenRefresh))
+			if (is_null($this->nibeTokenCurrent) || is_null($this->nibeTokenExpiry)/* || is_null($this->nibeTokenRefresh)*/)
 			{
 				throw new Exception("Invalid NIBE token parameters");
 			}
@@ -59,21 +59,23 @@
 
 					$response = API::post($this->nibeTokenUrl)->formData(
 					[
-						'grant_type'    => "refresh_token",
+						'grant_type'    => "client_credentials",
 						'client_id'     => $this->nibeClientId,
 						'client_secret' => $this->nibeClientSecret,
-						'refresh_token' => $this->nibeTokenRefresh->value,
+						// 'refresh_token' => $this->nibeTokenRefresh->value,
+						'scope'         => "READSYSTEM WRITESYSTEM",
 					])->send();
 
 					$body = json_decode((string)$response->getBody(), true);
+					// Log::info($body);
 
 					$this->nibeTokenCurrent->value = $body['access_token'];
 					$this->nibeTokenExpiry->value  = $now->addSeconds($body['expires_in'])->format("U");
-					$this->nibeTokenRefresh->value = $body['refresh_token'];
+					// $this->nibeTokenRefresh->value = $body['refresh_token'];
 
 					$this->nibeTokenCurrent->save();
 					$this->nibeTokenExpiry->save();
-					$this->nibeTokenRefresh->save();
+					// $this->nibeTokenRefresh->save();
 				}
 			}
 			catch (Throwable $e)
