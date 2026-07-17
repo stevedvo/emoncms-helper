@@ -427,7 +427,7 @@
 				$calculatedFlowTempCool = $dmOverrideCollection->get("44270");
 				$coolingOffsetCurrent   = $dmOverrideCollection->get("48739");
 
-				$htgMode = static::calculateHeatingMode($outdoorTemp, $avgOutdoorTemp);
+				$htgMode = static::calculateHeatingMode($priority, $outdoorTemp, $avgOutdoorTemp);
 				// $htgMode = "boost";
 
 				ActivityLog::create(
@@ -769,7 +769,7 @@
 			}
 		}
 
-		public static function calculateHeatingMode(float $outdoorTemp, float $avgOutdoorTemp) : string
+		public static function calculateHeatingMode(int $priority, float $outdoorTemp, float $avgOutdoorTemp) : string
 		{
 			// default starting point
 			$htgMode = "intermittent";
@@ -800,10 +800,12 @@
 				$forecastTemperature = WeatherController::getForecastAverageTemperature();
 			}
 
+			$highTemperatureForecast = !is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp");
+
 			// adjustment check 1: nudge $htgMode down a notch if warmer temps expected later
 			if (true)
 			{
-				if (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+				if ($highTemperatureForecast)
 				{
 					$htgMode = static::nudgeHeatingModeDown($htgMode);
 
@@ -890,22 +892,32 @@
 				if (!is_null(static::getRoomTemperature("Rad_temperature")))
 				{
 					$defrostRoomTempAdjust = 0;
-					$boostRoomTempAdjust = $boostActive ? 1 : 0;
+					$boostRoomTempAdjust = 0;
 					$peakRoomTempAdjust = $peakImport ? -2 : 0;
+					$highForecastRoomTempAdjust = $highTemperatureForecast ? -1 : 0;
 
-					if (!is_null($nextDayLowTemperatureAverage))
+					// if high temps are expected then don't add positive adjustments
+					if ($highForecastRoomTempAdjust === 0)
 					{
-						if ($nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
+						$boostRoomTempAdjust = $boostActive ? 1 : 0;
+
+						if (!is_null($nextDayLowTemperatureAverage))
 						{
-							$defrostRoomTempAdjust = 2;
-						}
-						elseif ($nextDayLowTemperatureAverage < 3)
-						{
-							$defrostRoomTempAdjust = 1;
+							if ($nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
+							{
+								$defrostRoomTempAdjust = 2;
+							}
+							elseif ($nextDayLowTemperatureAverage < 3)
+							{
+								$defrostRoomTempAdjust = 1;
+							}
 						}
 					}
 
-					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff + $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust)
+					$sumAdjustments = $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust + $highForecastRoomTempAdjust;
+					$adjustmentsString = '('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.')+('.$highForecastRoomTempAdjust.')';
+
+					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff + $sumAdjustments)
 					{
 						$htgMode = "off";
 
@@ -914,10 +926,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.'+('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent + $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent + $sumAdjustments)
 					{
 						$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
@@ -926,10 +938,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.'+('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempIntermittent.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn + $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOn + $sumAdjustments)
 					{
 						$htgMode = static::htgModeAtLeastOn($htgMode);
 
@@ -938,10 +950,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.'+('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOn.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
 						]);
 					}
-					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1 + $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust)
+					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempLevel1 + $sumAdjustments)
 					{
 						$htgMode = static::htgModeAtLeastBoost($htgMode);
 
@@ -950,7 +962,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.'+('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempLevel1.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
 						]);
 					}
 					else
@@ -962,7 +974,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.'+('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.'): $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' is <= '.static::$loadCompTempLevel1.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
 						]);
 					}
 				}
@@ -1034,6 +1046,23 @@
 						'method'     => __FUNCTION__,
 						'level'      => "info",
 						'message'    => 'Boost is active: $htgMode = '.$htgMode,
+					]);
+				}
+			}
+
+			if (true)
+			{
+				// if we have determined that htgMode should be "off", but we are currently heating let's nudge it up so that we're not artifically shortening the heating cycle
+				if ($htgMode == "off" && $priority == 30)
+				{
+					$htgMode = static::nudgeHeatingModeUp($htgMode);
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => "info",
+						'message'    => '$htgMode was "off" but currently heating so changed to "'.$htgMode.'"',
 					]);
 				}
 			}
@@ -1320,9 +1349,23 @@
 					{
 						if ($nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
 						{
-							// return false;
 							// #53: testing what happens if we stick to Cosy even if this condition is true
-							$scheduleWindow = "cosy";
+							// $scheduleWindow = "cosy";
+
+							/* Apr-26: high diurnal range means that heating is on due to cold overnight temps even though house temperature still does not require it
+							// plenty of solar gain to overheat the house in the daytime
+							// boosting here will change htgMode from 'off' to 'intermittent' but we don't need even that
+							*/
+
+							ActivityLog::create(
+							[
+								'controller' => __CLASS__,
+								'method'     => __FUNCTION__,
+								'level'      => "info",
+								'message'    => '$nextDayHighTemperatureAverage > '.config("nibe.runLevel1Temp").': not boosting',
+							]);
+
+							return false;
 						}
 
 						if ($nextDayHighTemperatureAverage > config("nibe.runLevel2Temp"))

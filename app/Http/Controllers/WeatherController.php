@@ -157,7 +157,7 @@
 
 				$sumTemperatures = 0;
 				$count = 0;
-				$weighting = 18;
+				$weighting = 42;
 				$weightingSum = 0;
 				$weightingArray = [];
 
@@ -193,6 +193,7 @@
 				// Calculate weighted average
 				$weightedAverage = round(array_sum(array_column($weightingArray, 'weightedValue')) / array_sum(array_column($weightingArray, 'weighting')), 2);
 
+				// Log::info($weightingArray);
 				// Log::info('$averageTemperature is '.$averageTemperature);
 				// Log::info('$count is '.$count);
 				// Log::info('$weightedAverage is '.$weightedAverage);
@@ -225,6 +226,7 @@
 				}
 
 				$now = CarbonImmutable::now();
+				$limitAhead = $now->addHours(24);
 
 				$temperatures = [];
 
@@ -232,7 +234,7 @@
 				{
 					$period = CarbonImmutable::parse($datetime);
 
-					if ($period->greaterThanOrEqualTo($now))
+					if ($period->greaterThanOrEqualTo($now) && $period->lessThanOrEqualTo($limitAhead))
 					{
 						$temperatures[] = $datum['temperature'];
 					}
@@ -277,6 +279,7 @@
 				}
 
 				$now = CarbonImmutable::now();
+				$limitAhead = $now->addHours(24);
 
 				$temperatures = [];
 
@@ -284,7 +287,7 @@
 				{
 					$period = CarbonImmutable::parse($datetime);
 
-					if ($period->greaterThanOrEqualTo($now))
+					if ($period->greaterThanOrEqualTo($now) && $period->lessThanOrEqualTo($limitAhead))
 					{
 						$temperatures[] = $datum['temperature'];
 					}
