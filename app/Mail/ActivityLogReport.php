@@ -2,9 +2,9 @@
 	namespace App\Mail;
 
 	use Illuminate\Bus\Queueable;
-	use Illuminate\Database\Eloquent\Collection;
 	use Illuminate\Mail\Mailable;
 	use Illuminate\Queue\SerializesModels;
+	use Illuminate\Support\Collection;
 
 	class ActivityLogReport extends Mailable
 	{
@@ -13,17 +13,20 @@
 		public $data;
 		public $fromDateTimeString;
 		public $logType;
+		public $totalCount;
 
 		/**
 		 * Create a new message instance.
 		 *
-		 * @param $data
+		 * @param Collection<int, array<string, mixed>> $data
+		 * @param int $totalCount Total number of individual logs represented by the summary.
 		 */
-		public function __construct(string $logType, string $fromDateTimeString, Collection $data)
+		public function __construct(string $logType, string $fromDateTimeString, Collection $data, int $totalCount)
 		{
 			$this->logType            = $logType;
 			$this->fromDateTimeString = $fromDateTimeString;
 			$this->data               = $data;
+			$this->totalCount         = $totalCount;
 		}
 
 		/**
