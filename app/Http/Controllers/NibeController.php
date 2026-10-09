@@ -80,7 +80,7 @@
 			];
 		}
 
-		protected static function getRoomTemperature(string $feedName) : ?float
+		protected static function getRoomTemperature(string $feedName, bool $updateSettings = true) : ?float
 		{
 			if (is_null(static::$roomTemperature) || !isset(static::$roomTemperature[$feedName]))
 			{
@@ -88,38 +88,41 @@
 				static::$roomTemperature[$feedName] = (is_null($feedDataRaw) || $feedDataRaw === "") ? null : (float)$feedDataRaw;
 			}
 
-			if (!is_null(static::$roomTemperature[$feedName]))
+			if ($updateSettings)
 			{
-				Setting::updateOrCreate(["key" => "RoomTemperature[".$feedName."]"], ["value" => static::$roomTemperature[$feedName]]);
-
-				$allowLoadCompensationSetting = Setting::updateOrCreate(['key' => 'allowLoadCompensation'], ['value' => 'true']);
-
-				if ($allowLoadCompensationSetting->wasChanged('value'))
+				if (!is_null(static::$roomTemperature[$feedName]))
 				{
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => "allowLoadCompensation Setting changed to 'true'",
-					]);
+					Setting::updateOrCreate(["key" => "RoomTemperature[".$feedName."]"], ["value" => static::$roomTemperature[$feedName]]);
+
+					$allowLoadCompensationSetting = Setting::updateOrCreate(['key' => 'allowLoadCompensation'], ['value' => 'true']);
+
+					if ($allowLoadCompensationSetting->wasChanged('value'))
+					{
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => "allowLoadCompensation Setting changed to 'true'",
+						]);
+					}
 				}
-			}
-			else
-			{
-				static::$roomTemperature[$feedName] = Setting::firstWhere("key", "RoomTemperature[".$feedName."]")->value;
-
-				$allowLoadCompensationSetting = Setting::updateOrCreate(['key' => 'allowLoadCompensation'], ['value' => 'false']);
-
-				if ($allowLoadCompensationSetting->wasChanged('value'))
+				else
 				{
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => "allowLoadCompensation Setting changed to 'false'",
-					]);
+					static::$roomTemperature[$feedName] = Setting::firstWhere("key", "RoomTemperature[".$feedName."]")->value;
+
+					$allowLoadCompensationSetting = Setting::updateOrCreate(['key' => 'allowLoadCompensation'], ['value' => 'false']);
+
+					if ($allowLoadCompensationSetting->wasChanged('value'))
+					{
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => "info",
+							'message'    => "allowLoadCompensation Setting changed to 'false'",
+						]);
+					}
 				}
 			}
 
@@ -1064,6 +1067,42 @@
 						'level'      => "info",
 						'message'    => '$htgMode was "off" but currently heating so changed to "'.$htgMode.'"',
 					]);
+				}
+			}
+
+			if (true)
+			{
+				// if using load compensation and UFH is less than 19 then let htgMode be at least on
+				// else if UFH is less than 19.5 then let htgMode be at least intermittent
+				if (static::$loadCompensationOn !== false && $allowLoadCompensation === true)
+				{
+					if (!is_null(static::getRoomTemperature("UFH_temperature", false)))
+					{
+						if (static::$roomTemperature["UFH_temperature"] < 19)
+						{
+							$htgMode = static::htgModeAtLeastOn($htgMode);
+
+							ActivityLog::create(
+							[
+								'controller' => __CLASS__,
+								'method'     => __FUNCTION__,
+								'level'      => "info",
+								'message'    => 'UFH_temperature < 19: $htgMode = '.$htgMode,
+							]);
+						}
+						elseif (static::$roomTemperature["UFH_temperature"] < 19.5)
+						{
+							$htgMode = static::htgModeAtLeastIntermittent($htgMode);
+
+							ActivityLog::create(
+							[
+								'controller' => __CLASS__,
+								'method'     => __FUNCTION__,
+								'level'      => "info",
+								'message'    => 'UFH_temperature < 19.5: $htgMode = '.$htgMode,
+							]);
+						}
+					}
 				}
 			}
 
