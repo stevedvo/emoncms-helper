@@ -1,66 +1,74 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Emoncms Helper
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Emoncms Helper coordinates a NIBE heat pump, local and remote Emoncms installations, weather forecasts, Octopus electricity schedules, and a Hive thermostat through Home Assistant. Its main job is to decide how much space heating to encourage, then adjust NIBE's flow-temperature settings to steer its degree minutes toward a chosen target.
 
-## About Laravel
+The heating levels in the code are `off`, `intermittent`, `on`, `boost`, and `extraBoost`. There is also a separate `cooling` mode. The lower running level is named **intermittent**, rather than intermediate.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+This is a Laravel 10 / PHP application driven primarily by scheduled commands. The home page is the stock Laravel welcome page; there is no heating-control dashboard in this repository.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Documentation
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+| Guide | Contents |
+| --- | --- |
+| [Heat pump control](docs/heat-pump-control.md) | Exact decision order, room-temperature bands, boosts, peak periods, defrost reduction, degree-minute calculations, cooling, and worked examples. |
+| [Integrations and data](docs/integrations-and-data.md) | NIBE polling, Emoncms feeds, weather payloads, tariff schedules, Hive, hot water, database tables, and logging. |
+| [Configuration and operation](docs/configuration-and-operation.md) | Environment variables and defaults, initial data requirements, command schedule, time zones, and troubleshooting. |
+| [Implementation notes](docs/implementation-notes.md) | Disabled experiments, incomplete features, and edge cases that matter when interpreting the code. |
 
-## Learning Laravel
+These guides describe the checked-in implementation reviewed on **17 October 2026**, starting from commit `287c794`. Numerical examples use defaults from `config/`; an installation's `.env` or cached configuration can override them. The review traced application code, configuration, migrations, routes, email templates, and tests. It did not query the live database, inspect secret configuration, contact connected services, or change the heating logic.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## How the pieces fit together
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+```mermaid
+flowchart TD
+    Scheduler[Laravel scheduler] --> Poll[Poll myUplink each minute]
+    NIBE[NIBE / myUplink] --> Poll
+    Poll --> History[(NIBE readings and settings)]
+    Poll --> Emon[Local Emoncms]
+    Poll --> Control[Control calculation every five minutes]
+    Weather[Weather POST endpoint] --> Forecast[(Stored weather forecast)]
+    Forecast --> Control
+    Emon --> Rooms[Rad and UFH temperatures]
+    Rooms --> Control
+    Octopus[Octopus rates] --> Schedule[(Stored boost schedule)]
+    Schedule --> Control
+    Control --> Mode[Choose heating mode]
+    Mode --> Target[Choose degree-minute target]
+    Target --> Adjust[Adjust heating or cooling offset and minimum flow temperature]
+    Adjust --> NIBE
+    History --> Hive[Home Assistant / Hive adjustment]
+    History --> Heartbeat[Priority heartbeat to both Emoncms installations]
+    Emon --> Compare[Compare selected local and remote feeds]
+    Compare --> Backlog[(Record differences; upload is unfinished)]
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains over 2000 video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+The controller combines indoor comfort with forecast conditions and time windows. Room-temperature thresholds move upward during boost windows and cold forecasts, and downward during the afternoon peak or a warm forecast. It then preserves an existing heating cycle, protects a cool UFH zone, applies a defrost-related cap, and finally checks for cooling.
 
-## Laravel Sponsors
+The selected mode is a request made through temperature settings. The helper does not directly set compressor frequency, write the degree-minute value, or issue a compressor start/stop command. NIBE's own controls determine the physical response. `intermittent` permits more cycling by limiting the heating offset; `on` uses the same degree-minute target with more scope to maintain demand.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the Laravel [Patreon page](https://patreon.com/taylorotwell).
+## Where to look in the source
 
-### Premium Partners
+| Location | Responsibility |
+| --- | --- |
+| `app/Http/Controllers/NibeController.php` | Main control loop, polling, target calculations, priority heartbeat, hot water, and offline detection. |
+| `app/Http/Controllers/EmonController.php` | Feed comparison, indoor readings, and UFH temperature extrapolation. |
+| `app/Http/Controllers/WeatherController.php` | Weather ingestion, forecast summaries, approximate dew point, and forecast publication. |
+| `app/Http/Controllers/OctopusController.php` | Rate retrieval, window selection, schedule generation, and rates email. |
+| `app/Http/Controllers/HomeAssistantController.php` | Hive setpoint selected from the last recorded NIBE priority. |
+| `app/APIs/` | HTTP adapters for the four external services and a shared Guzzle wrapper. |
+| `app/Console/Kernel.php`, `app/Console/Commands/` | Timings and command entry points. |
+| `app/Models/`, `database/migrations/` | Stored readings, mappings, settings, and logs. |
+| `app/Services/ActivityLogSummarizer.php`, `app/Mail/`, `resources/views/emails/` | Administrator reports and notification formatting. |
+| `routes/`, `resources/`, `public/`, `bootstrap/`, `app/Providers/` | Mostly Laravel scaffolding; the custom weather endpoint is in `routes/api.php`. |
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Cubet Techno Labs](https://cubettech.com)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[Many](https://www.many.co.uk)**
-- **[Webdock, Fast VPS Hosting](https://www.webdock.io/en)**
-- **[DevSquad](https://devsquad.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[OP.GG](https://op.gg)**
-- **[WebReinvent](https://webreinvent.com/?utm_source=laravel&utm_medium=github&utm_campaign=patreon-sponsors)**
-- **[Lendio](https://lendio.com)**
+## Getting started
 
-## Contributing
+See [configuration and operation](docs/configuration-and-operation.md) before enabling scheduled commands: several of them write to NIBE, Emoncms, Home Assistant, or send email. A fresh migration creates the database structure but does **not** populate the parameter catalogue, feed mappings, or initial token settings needed by the integrations.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+The existing tests can be run with:
 
-## Code of Conduct
+```text
+php vendor/bin/phpunit
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+At the documentation review, all **7 tests / 25 assertions** passed. Coverage includes error-summary grouping, report rendering, and basic framework examples. There are no automated tests of the heating decision rules or external integrations in the current suite.
