@@ -1072,13 +1072,13 @@
 
 			if (true)
 			{
-				// if using load compensation and UFH is less than 19 then let htgMode be at least on
-				// else if UFH is less than 19.5 then let htgMode be at least intermittent
+				// if using load compensation and UFH is less than 19.5 then let htgMode be at least on
+				// else if UFH is less than 20.0 then let htgMode be at least intermittent
 				if (static::$loadCompensationOn !== false && $allowLoadCompensation === true)
 				{
 					if (!is_null(static::getRoomTemperature("UFH_temperature", false)))
 					{
-						if (static::$roomTemperature["UFH_temperature"] < 19)
+						if (static::$roomTemperature["UFH_temperature"] <= 19.5)
 						{
 							$htgMode = static::htgModeAtLeastOn($htgMode);
 
@@ -1090,7 +1090,7 @@
 								'message'    => 'UFH_temperature < 19: $htgMode = '.$htgMode,
 							]);
 						}
-						elseif (static::$roomTemperature["UFH_temperature"] < 19.5)
+						elseif (static::$roomTemperature["UFH_temperature"] <= 20)
 						{
 							$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
