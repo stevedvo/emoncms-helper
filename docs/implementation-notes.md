@@ -2,7 +2,7 @@
 
 [Project overview](../README.md) · [Heat pump control](heat-pump-control.md) · [Integrations](integrations-and-data.md) · [Configuration](configuration-and-operation.md)
 
-These observations explain the checked-in implementation. They are not changes to the heating strategy or a claim that every edge case has occurred in service. The review did not alter application code or inspect the deployed database/configuration.
+These observations explain the checked-in implementation, including the 18 October 2026 radiator-demand change. They are not a claim that every edge case has occurred in service. The work did not inspect the deployed database/configuration or operate the connected equipment.
 
 ## Active behaviour that is easy to misread
 
@@ -17,7 +17,8 @@ These observations explain the checked-in implementation. They are not changes t
 | Default cold comparisons both use 3°C. | `calculateHeatingMode`, `config/nibe.php` | The +2°C room adjustment wins below 3°C; the +1°C cold adjustment is unreachable with defaults. |
 | UFH comparisons are <=19.5°C and <=20°C. | `calculateHeatingMode` | Older comments/log strings saying <19 or <19.5 do not describe current boundaries. |
 | Forecast-average lookahead is a starting offset. | `WeatherController::getForecastAverageTemperature` | The value summarises data from six hours ahead onward, not the coming six hours. |
-| Forecast temperature is not currently used to select Hive's target. | `HomeAssistantController::adjustHiveThermostat` | Actual recorded NIBE priority alone selects the target. |
+| UFH forecast temperature is not used to select Hive's target. | `HomeAssistantController::adjustHiveThermostat` | Recorded priority and a fresh radiator-demand decision select the target; the unused prediction lookup/disabled experiments have been removed from this method. |
+| Radiator demand is captured before later mode promotions. | `calculateHeatingMode`, `RadiatorHeatDemand` | Preserving a running cycle, a scheduled boost, or a UFH minimum can keep NIBE heating while Hive keeps a warm radiator zone off. |
 | Disabling DM override does not disable other NIBE writes. | `getNibeData`, `checkHotWaterRequirement` | The five-minute hot-water schedule routine remains active. |
 
 ## Unfinished or unused pieces
@@ -49,7 +50,7 @@ The implementation relies on expected incoming data without checking age everywh
 
 ## Boundary and provisioning details
 
-The missing-Rad fallback dereferences `Setting::firstWhere(...)->value` without a null-safe check. If no saved room reading exists, Laravel's error handling can abort that override before the fallback flag update. Even when compensation is configured off, `calculateHeatingMode()` still calls the Rad lookup before checking that switch.
+The missing-Rad fallback now uses a null-safe lookup. If no saved room reading exists, it returns null and sets `allowLoadCompensation` to false. A successful mode calculation records unknown radiator demand, preventing a prior false demand from being treated as current. Even when compensation is configured off, `calculateHeatingMode()` still calls the Rad lookup before checking that switch.
 
 `getLatestEmonData()` uses a loose `$latestValue == null` check, which treats zero as missing for its error log, although the numeric value may still be returned. Other paths have different null handling. Historical comparisons search for the literal text `null`; native nulls and the text `null` do not necessarily behave alike. The cooling dew-point check also uses a loose null comparison, skipping zero dew point.
 
@@ -71,4 +72,4 @@ Caught integration errors commonly leave a successful command exit status and an
 
 Daily schedules use UTC by default, while peak/hot-water/Cosy/fetch-cutoff rules explicitly use London time. Tariff window searches use application time and the email displays London labels. The summer-time difference is documented in the operations guide; this review did not normalise it.
 
-Existing tests cover reporting, not control decisions or the cases above. The reported passing suite is useful regression evidence for those covered paths, not validation of the physical control strategy.
+Automated tests now cover radiator-demand capture, overall mode selection for the new zone-control scenarios, persistence/freshness, and Hive targets using controlled inputs and a mocked Home Assistant API, alongside the existing reporting tests. This is regression evidence for those paths, not validation of the physical control strategy. Other integration/data limitations above remain.

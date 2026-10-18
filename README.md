@@ -15,7 +15,7 @@ This is a Laravel 10 / PHP application driven primarily by scheduled commands. T
 | [Configuration and operation](docs/configuration-and-operation.md) | Environment variables and defaults, initial data requirements, command schedule, time zones, and troubleshooting. |
 | [Implementation notes](docs/implementation-notes.md) | Disabled experiments, incomplete features, and edge cases that matter when interpreting the code. |
 
-These guides describe the checked-in implementation reviewed on **17 October 2026**, starting from commit `287c794`. Numerical examples use defaults from `config/`; an installation's `.env` or cached configuration can override them. The review traced application code, configuration, migrations, routes, email templates, and tests. It did not query the live database, inspect secret configuration, contact connected services, or change the heating logic.
+These guides describe the implementation initially reviewed on **17 October 2026**, starting from commit `287c794`, and updated on **18 October 2026** for independent radiator demand during UFH heating. Numerical examples use defaults from `config/`; an installation's `.env` or cached configuration can override them. The work traced application code, configuration, migrations, routes, email templates, and tests without querying the live database, inspecting secret configuration, or contacting connected services.
 
 ## How the pieces fit together
 
@@ -46,6 +46,8 @@ The controller combines indoor comfort with forecast conditions and time windows
 
 The selected mode is a request made through temperature settings. The helper does not directly set compressor frequency, write the degree-minute value, or issue a compressor start/stop command. NIBE's own controls determine the physical response. `intermittent` permits more cycling by limiting the heating offset; `on` uses the same degree-minute target with more scope to maintain demand.
 
+Radiator demand is recorded separately from the overall mode. During heating, Hive requests its on temperature only when the radiator temperature warrants intermittent heating or higher, using the same adjusted room thresholds. UFH-only demand can therefore run the heat pump while Hive keeps the radiator zone at its off target. Missing or stale decisions fall back to the existing priority-based behaviour; cooling is unchanged.
+
 ## Where to look in the source
 
 | Location | Responsibility |
@@ -54,7 +56,7 @@ The selected mode is a request made through temperature settings. The helper doe
 | `app/Http/Controllers/EmonController.php` | Feed comparison, indoor readings, and UFH temperature extrapolation. |
 | `app/Http/Controllers/WeatherController.php` | Weather ingestion, forecast summaries, approximate dew point, and forecast publication. |
 | `app/Http/Controllers/OctopusController.php` | Rate retrieval, window selection, schedule generation, and rates email. |
-| `app/Http/Controllers/HomeAssistantController.php` | Hive setpoint selected from the last recorded NIBE priority. |
+| `app/Http/Controllers/HomeAssistantController.php`, `app/Services/RadiatorHeatDemand.php` | Hive setpoint selected from NIBE priority and a fresh, separately recorded radiator-demand decision. |
 | `app/APIs/` | HTTP adapters for the four external services and a shared Guzzle wrapper. |
 | `app/Console/Kernel.php`, `app/Console/Commands/` | Timings and command entry points. |
 | `app/Models/`, `database/migrations/` | Stored readings, mappings, settings, and logs. |
@@ -71,4 +73,4 @@ The existing tests can be run with:
 php vendor/bin/phpunit
 ```
 
-At the documentation review, all **7 tests / 25 assertions** passed. Coverage includes error-summary grouping, report rendering, and basic framework examples. There are no automated tests of the heating decision rules or external integrations in the current suite.
+After the radiator-demand change, all **42 tests / 141 assertions** passed. Coverage includes zone-demand decisions and Hive targets with an isolated test database and mocked Home Assistant API, error-summary grouping, report rendering, and basic framework examples. These tests do not operate the physical equipment.

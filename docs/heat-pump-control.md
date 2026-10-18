@@ -78,7 +78,7 @@ A **warm forecast** means the high-six average is strictly greater than `runLeve
 
 Read `Rad_temperature` from local Emoncms, searching back 180 minutes and taking the last non-null value, rounded to one decimal place. A usable reading is stored as `RoomTemperature[Rad_temperature]` and sets `allowLoadCompensation` to the string `true`. If unavailable, the saved temperature is used and `allowLoadCompensation` becomes `false`.
 
-The room-temperature bands apply only when load compensation is enabled and that setting is exactly the string `true`. The fallback value therefore does not enable the bands on its own. A first-ever failure with no saved temperature is an error path; see the implementation notes.
+The room-temperature bands apply only when load compensation is enabled and that setting is exactly the string `true`. The fallback value therefore does not enable the bands on its own. A first-ever failure with no saved temperature returns null and disables load compensation for that calculation.
 
 Every band boundary is shifted by the same adjustment `A`:
 
@@ -105,6 +105,8 @@ The radiator temperature is tested against these bands in descending order:
 | T <= 19 + A | Set `extraBoost`. |
 
 Equality falls into the colder, more demanding band. A positive adjustment requests warmer rooms; a negative adjustment permits cooler rooms. There is no separate thermostat deadband or mode-persistence timer in this calculation.
+
+At this stage, the controller separately captures whether `T <= loadCompTempOff + A`: true means the radiator zone warrants at least intermittent heating, false means it is warm enough to remain off. Later boost promotion, cycle preservation, UFH demand, and peak minimum-mode rules can raise the overall heat-pump mode without changing this radiator decision. If the room bands cannot be evaluated, radiator demand is null (unknown).
 
 ### 4. Promote the mode during an allowed boost
 
@@ -151,7 +153,9 @@ True caps `boost` or `extraBoost` at `on`; lower modes stay unchanged. Missing e
 
 If NIBE's average outdoor temperature is strictly above `coolingStartTemp` (default 24°C), return `cooling`. This final rule overrides all heating decisions, including the defrost cap. Forecast-based pre-emptive cooling is commented out.
 
-The result is logged and saved as `settings.htgMode` before calculating and sending temperature changes. A later write failure can leave that setting describing a mode whose requested settings were not applied.
+At the end of a successful mode calculation, `RadiatorHeatDemand::record()` stores the separate radiator decision and calculation timestamp in `settings.radiatorHeatDemand`. This happens on every calculation, including unchanged or unknown decisions, before the offset calculation or any possible early return in that later work. Hive uses a fresh decision to gate heating of the radiator zone; see [Home Assistant / Hive](integrations-and-data.md#home-assistant--hive).
+
+The overall result is logged and saved as `settings.htgMode` before calculating and sending temperature changes. A later write failure can leave that setting describing a mode whose requested settings were not applied.
 
 ## Boost schedule selection
 
@@ -258,4 +262,4 @@ These use defaults, valid room data, no defrost cap unless stated, and average o
 | Warm forecast, Rad 20.8°C, UFH above 20°C, idle | Start nudged off; A = -1; off threshold is 20.5°C; boosts suppressed. | `off` |
 | Any heating decision, average outdoor temperature 24.1°C | Last rule selects cooling. | `cooling` |
 
-The examples demonstrate code paths; they are not results from a physical heat-pump test or an automated controller test suite.
+The examples demonstrate code paths rather than results from a physical heat-pump test. `RadiatorHeatDemandTest` exercises the production mode calculation with controlled sensor/window inputs and verifies the resulting persisted radiator demand and Hive targets, including UFH-only demand and threshold adjustments.

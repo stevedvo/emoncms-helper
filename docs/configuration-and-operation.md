@@ -129,8 +129,9 @@ The following are hard-coded rather than environment-configured: UFH floors 19.5
 | | Fixed API base | `https://api.octopus.energy/v1/`. |
 | `config/weather.php` | `WEATHER_USE_FORECAST` | true; controls forecast use in heating/boost selection and Emon weather publication. Dew-point calls still exist outside this switch. |
 | | `WEATHER_LOOKAHEAD_HOURS` | 6; offset to the start of the weighted future average. |
-| `config/hive.php` | `HIVE_TARGET_ON_TEMP` | 30°C target while priority is heating/cooling. |
-| | `HIVE_TARGET_OFF_TEMP` | 16°C target for other priorities. |
+| `config/hive.php` | `HIVE_TARGET_ON_TEMP` | 30°C target during cooling, or heating with radiator demand (including unknown/stale-demand fallback). |
+| | `HIVE_TARGET_OFF_TEMP` | 16°C target during heating with fresh false radiator demand, or for other priorities. |
+| | `HIVE_RADIATOR_DEMAND_MAX_AGE_MINUTES` | 10; maximum age of a radiator-demand decision used to gate Hive during heating. Exactly this age is accepted; older/future/unknown/invalid decisions fall back to priority-based control. |
 | `config/homeAssistant.php` | Fixed webhook base/path | `http://homeassistant.local:8123/api/webhook/` + `hive_thermostat_adjust`; edit config to change. |
 | `config/app.php` | `APP_ADMIN_EMAIL` | `test@example.com`; recipient of all three notification types. |
 | `config/mail.php` | Standard `MAIL_*` variables | Mail transport, credentials, sender; SMTP is the default transport. |
@@ -152,6 +153,7 @@ Values are stored as text, not typed model casts. In particular, the boolean fla
 | `RoomTemperature[Rad_temperature]` | Room lookup | Last usable Rad temperature, used as a fallback value. |
 | `allowLoadCompensation` | Room lookup / mode selection | Whether a usable Rad reading was obtained for room compensation. |
 | `htgMode` | DM override | Most recently selected helper mode, saved before applying settings. |
+| `radiatorHeatDemand` | Mode calculation / Hive control | JSON `required` (boolean or null) and `calculatedAt` (Unix seconds); separate radiator demand before mode promotions. Refreshed on every successful mode calculation, even if the decision is unchanged. |
 | `hotWaterSet` | Hot-water check | Shared, undated flag tracking a normal-mode schedule change pending reset. |
 | `nibeEmptyDataCount` | Polling / offline monitor | Consecutive empty non-priority outgoing collections. |
 
@@ -173,6 +175,8 @@ Common symptoms:
 | --- | --- |
 | No DM adjustments | `NIBE_DM_OVERRIDE`, all eleven required response points, timing gate, API/database errors, and whether calculated changes are zero. |
 | No priority/Hive updates | Catalogue contains `49994`; a stored reading exists; inspect age and errors. |
+| Hive stays off while NIBE is heating | Check the radiator-demand decision and adjusted Rad threshold. A fresh false decision keeps Hive at its off target while the UFH or other mode rules can keep the heat pump running. |
+| Hive turns on despite a warm Rad zone | Check fallback warnings, demand age and field types, `NIBE_DM_OVERRIDE`, `NIBE_LOAD_COMPENSATION_ON`, and whether adjusted thresholds currently request radiator heating. |
 | Boost missing | Forecast retrieval, high-six warm suppression, schedule dates/types, strict start/end boundaries, and explicit promotion flag. |
 | Boost occurs with boosts disallowed | Room-band +1°C adjustment still uses `boostActive`; room demand alone can also select boost modes. |
 | No load compensation | Local feed mappings, usable Rad data within the 180-minute query, saved fallback, and exact `true` string. |
@@ -185,6 +189,6 @@ Common symptoms:
 
 ## Verification and maintenance
 
-The review ran `php vendor/bin/phpunit`: **7 tests, 25 assertions passed**, using PHP 8.2.11. The suite tests summary grouping, rendered report content/empty state, and framework examples. It does not simulate heating control, test database provisioning, or verify external integrations. No live integration commands were run for this documentation work.
+After the radiator-demand feature, `php vendor/bin/phpunit` passed **42 tests, 141 assertions**, using PHP 8.2.11. `RadiatorHeatDemandTest` uses a dedicated SQLite in-memory connection and mocks the Home Assistant adapter, exercising the production mode calculation, persistence, and Hive command. It covers UFH-only/both-zone demand, thresholds, boost/forecast/peak adjustments, already-running cycles, demand transitions, freshness/invalid-data fallback, disabled controls, defrost capping, and cooling/hot-water behaviour. The existing reporting and framework tests also pass. No live integration commands were run, and these tests do not validate physical circulation or equipment response.
 
 To keep these guides accurate, update the decision-order tables and examples when changing `calculateHeatingMode()`, target/offset descriptions when changing `dmOverride()` or `calculateTargetDm()`, configuration tables when changing `config/`, and schedule/time-zone tables when changing the console kernel or date handling.

@@ -12,6 +12,7 @@
 	use App\Models\NibeFeedItem;
 	use App\Models\NibeParameter;
 	use App\Models\Setting;
+	use App\Services\RadiatorHeatDemand;
 	use Carbon\CarbonImmutable;
 	use Carbon\CarbonInterface;
 	use Illuminate\Database\Eloquent\Collection;
@@ -109,7 +110,7 @@
 				}
 				else
 				{
-					static::$roomTemperature[$feedName] = Setting::firstWhere("key", "RoomTemperature[".$feedName."]")->value;
+					static::$roomTemperature[$feedName] = Setting::firstWhere("key", "RoomTemperature[".$feedName."]")?->value;
 
 					$allowLoadCompensationSetting = Setting::updateOrCreate(['key' => 'allowLoadCompensation'], ['value' => 'false']);
 
@@ -774,6 +775,8 @@
 
 		public static function calculateHeatingMode(int $priority, float $outdoorTemp, float $avgOutdoorTemp) : string
 		{
+			$radiatorHeatRequired = null;
+
 			// default starting point
 			$htgMode = "intermittent";
 
@@ -920,7 +923,10 @@
 					$sumAdjustments = $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust + $highForecastRoomTempAdjust;
 					$adjustmentsString = '('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.')+('.$highForecastRoomTempAdjust.')';
 
-					if (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempOff + $sumAdjustments)
+					// Capture zone demand before boost/cycle preservation and UFH can raise the overall mode.
+					$radiatorHeatRequired = static::getRoomTemperature("Rad_temperature") <= static::$loadCompTempOff + $sumAdjustments;
+
+					if (!$radiatorHeatRequired)
 					{
 						$htgMode = "off";
 
@@ -1178,6 +1184,8 @@
 					$htgMode = "cooling";
 				}
 			}
+
+			RadiatorHeatDemand::record($radiatorHeatRequired);
 
 			return $htgMode;
 		}

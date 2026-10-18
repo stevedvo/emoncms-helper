@@ -69,7 +69,7 @@ Named readings resolve through `emon_feed_maps.localName` or `remoteName`. `getL
 | `tempForecast` | Two-hour linear projection, rounded to one decimal. |
 | `tempIncreasing` | Whether rounded last temperature exceeds rounded first temperature. |
 
-Missing required fields produce null. `syncRoomTemperatureForecastWithEmon()` posts `temperature forecast` to local node `emonth2_23`, using the **last sample's timestamp**, not the future forecast time. The prediction is currently for logging/graphing: the main mode bands use measured Rad temperature and the UFH floor uses measured UFH temperature. Home Assistant obtains the prediction but its conditional use is disabled.
+Missing required fields produce null. `syncRoomTemperatureForecastWithEmon()` posts `temperature forecast` to local node `emonth2_23`, using the **last sample's timestamp**, not the future forecast time. The prediction is currently for logging/graphing: the main mode bands use measured Rad temperature and the UFH floor uses measured UFH temperature. Hive control does not fetch or use this prediction.
 
 `getLatestRoomTemperatureData()` is another five-minute UFH lookup helper with no active application caller found.
 
@@ -154,14 +154,21 @@ Although forecast-enabled heating currently uses the fixed Cosy entries, their g
 
 Each minute, `adjustHiveThermostat()` reads the latest inserted NIBE priority and requests:
 
-| Priority | Hive target default |
-| --- | ---: |
-| Heating `30` or cooling `60` | 30°C (`hive.targetOnTemp`). |
-| Anything else, including hot water `20` | 16°C (`hive.targetOffTemp`). |
+| Priority | Radiator heat demand | Hive target default |
+| --- | --- | ---: |
+| Heating `30` | Fresh true | 30°C (`hive.targetOnTemp`). |
+| Heating `30` | Fresh false | 16°C (`hive.targetOffTemp`), allowing UFH-only heating. |
+| Heating `30` | Missing, invalid, unknown, stale, or feature disabled | 30°C, retaining priority-based behaviour and logging a warning. |
+| Cooling `60` | Any | 30°C, retaining existing cooling behaviour. |
+| Anything else, including hot water `20` | Any | 16°C. |
+
+`RadiatorHeatDemand` stores JSON in `settings.radiatorHeatDemand`, with `required` (boolean or null) and `calculatedAt` (Unix seconds). The mode calculation records this every five minutes, independently of whether an offset PATCH is necessary. A decision older than `hive.radiatorDemandMaxAgeMinutes` (default 10), dated in the future, or with invalid fields is ignored. An age of exactly ten minutes is accepted. Disabled DM override or load compensation also bypasses gating. Null means radiator-temperature demand could not be evaluated; it does not mean the radiator zone is warm.
+
+This demand is captured directly from the adjusted radiator room threshold, before subsequent rules promote the overall mode. It is not inferred from NIBE's current activity or whether the UFH check happened to change the mode. During UFH-only heating, a later radiator demand change can therefore open or close the radiator circuit at Hive's next minute check without restarting the heat-pump cycle.
 
 The request is PUT `http://homeassistant.local:8123/api/webhook/hive_thermostat_adjust` with JSON `{"temperature": 30}` or the configured target. This appears intended to coordinate a zone's demand with the heat pump's actual activity; the Home Assistant automation and physical valve/wiring behaviour are outside this repository.
 
-There is no stored-priority age check, setpoint-change check, or read-back of Hive state. The UFH forecast is fetched but currently has no effect. The adapter accepts an integer target and does not inspect the response body beyond HTTP success.
+There is no stored-priority age check, setpoint-change check, or read-back of Hive state. The adapter accepts an integer target and does not inspect the response body beyond HTTP success. Each request logs the priority, radiator decision, and chosen target. The Home Assistant adapter is resolved through Laravel's container so automated tests can substitute it without sending a webhook.
 
 ## Hot water
 
