@@ -1,0 +1,93 @@
+# Control panel and live operating settings
+
+[Project overview](../README.md) · [Control logic](heat-pump-control.md) · [Configuration and operation](configuration-and-operation.md)
+
+The control panel has two pages: **Overview** at `/`, and **Settings** at `/settings`. Both require sign-in. No public registration or default password is supplied.
+
+## First use
+
+For an existing installation whose database tables already exist:
+
+```text
+php artisan settings:import
+php artisan app:create-user
+```
+
+The first command imports missing operating parameters from the application's effective configuration. It never overwrites an existing database parameter. The second asks for a name, email address and password; password entry is hidden and requires confirmation and at least 12 characters. Existing accounts are not replaced. Users already in the Laravel `users` table can sign in without creating another account. All manually provisioned accounts are trusted control-panel operators; there is no separate read-only role.
+
+Open the application's normal URL and sign in. A web server must serve the `public/` directory. The panel uses local CSS/JavaScript files and needs no Vite build, npm install, or external asset service. A new installation still needs the ordinary Laravel/database setup and migrations described in the operations guide. No additional database migration is needed for the control panel: it uses the existing `settings`, `users`, catalogue, reading and log tables.
+
+The Settings page also imports any missing operating parameters when first opened. This supports existing installations and newly added parameter definitions without replacing values already saved. Importing preserves the current effective operating values; it does not send any command to the heat pump, Hive or Home Assistant.
+
+## Where values live
+
+The dedicated [parameter catalogue](../config/control-parameters.php) defines the editable keys, labels, groups, defaults, data types and validation bounds. [ControlSettings](../app/Services/ControlSettings.php) reads them with:
+
+```php
+ControlSettings::get('nibe.dmTarget');
+```
+
+The corresponding database row is:
+
+```text
+settings.key   = control.nibe.dmTarget
+settings.value = -180
+```
+
+Values are JSON scalars, so booleans are stored as `true`/`false`, integers as numbers, and fractional parameters as numbers. The `control.` prefix keeps editable parameters separate from runtime settings such as tokens, `htgMode`, forecasts and radiator demand. An unregistered key cannot be edited through the form or accepted by the accessor.
+
+Until a parameter has been imported, its effective Laravel configuration value is the compatibility fallback, followed by the catalogue's default for newly introduced settings. After import, the database takes precedence. Editing its old `.env` variable no longer changes that operating parameter. Existing environment entries may be retained as bootstrap fallbacks, or removed after confirming the import; secrets and service connection details should stay in environment configuration.
+
+The catalogue currently has 42 entries: existing NIBE, Hive, weather and Emon operating settings, plus the two UFH thresholds, room-sensor history and four log-retention periods. The two inactive legacy NIBE parameters remain clearly labelled as unused. Not every hard-coded algorithm constant or schedule has been made editable: boost/peak timing offsets, room-band adjustment amounts, hot-water rules, and other remaining constants retain their existing implementation.
+
+## When changes take effect
+
+There is no process-lifetime cache in `ControlSettings::get()`: each access reads the database. The NIBE controller reloads its parameter properties at each polling/control calculation rather than retaining the first values with `??=`. Room-data caches reset for each polling invocation.
+
+Consequently:
+
+- Mode and degree-minute steering normally use edits at the next five-minute calculation.
+- Hive reads its operating values on the next minute invocation.
+- Emon comparison history applies at the next comparison.
+- Retention periods apply at the next cleanup.
+
+No scheduler restart or configuration-cache rebuild is needed for **subsequent operating-setting edits**. Deploying new PHP code or changing credentials, connection configuration or command schedules still follows the installation's normal deployment process. The change does not reschedule tasks or force an immediate heating cycle. A calculation already in progress can overlap a save and may read settings on either side of that commit; the next complete calculation sees the new values.
+
+## Saving and validation
+
+The form submits to authenticated, CSRF-protected `PUT /settings`. Server validation checks types, numeric limits and related values, including:
+
+- Radiator and UFH temperature-band ordering.
+- Positive steering horizon and offset factor.
+- Minimum/maximum offsets and inclusion of special-mode limits.
+- Normal, off and boost DM target ordering.
+- Outdoor thresholds, dew-point bounds and Hive target ordering.
+
+Edits are saved in one database transaction. A validation error saves nothing. A revision token detects a form based on older parameter values, so one browser session cannot silently overwrite another session's edits. On a stale-form error, reload the page before editing again. An invalid form retains its entered values for correction, but retains its old revision as well.
+
+Changed parameters are logged with operator ID, label and old/new values; secrets are excluded by the editable-key catalogue. Unchanged parameters create no change record. Runtime records and credentials cannot be changed by submitting extra field names.
+
+## Overview data
+
+The overview shows NIBE priority, selected helper mode, radiator-demand status, automatic-control enablement, Rad/UFH temperature cards, outdoor temperature, degree minutes, latest stored NIBE points, all returned local Emon feeds, warning/error counts, and recent settings edits.
+
+NIBE readings come from the helper's database, selecting the last inserted row per parameter and joining catalogue labels/units. The page does not trigger a myUplink poll. It shows **source sample times** in Europe/London; opening the page does not make an old sample current. Reload the overview to refresh the stored NIBE/state sections.
+
+The browser separately fetches `/dashboard/feeds` immediately and every minute while visible. That authenticated endpoint reads local Emon `/feed/list.json` with the configured read key. The request has a two-second connection timeout and four-second total timeout. It does not call the heat-pump or thermostat write paths. No key or raw service exception is returned to the browser.
+
+Room-feed freshness uses the configured room-sensor history; other feed samples older than five minutes are marked for attention. Missing values remain missing, including when the legitimate numeric value is zero. If Emon fails, the stored NIBE page remains available, the connection message explains the problem, and any previously displayed Emon values are labelled as last displayed values. Refresh/retry does not claim those values are current. The read adapter is separate from the existing integration wrapper and does not add dashboard reads to `api_logs`.
+
+## Source and verification
+
+| Source | Responsibility |
+| --- | --- |
+| `config/control-parameters.php`, `app/Services/ControlSettings.php` | Allowed parameters, typed reads, initial import, revision check and audited writes. |
+| `app/Http/Requests/UpdateControlSettingsRequest.php` | Field and relationship validation. |
+| `app/Http/Controllers/SettingsController.php` | Settings page and save flow. |
+| `app/Http/Controllers/SessionController.php` | Session sign-in/out; login is rate limited to six attempts per minute per IP. |
+| `app/Http/Controllers/DashboardController.php`, `app/Services/LocalEmonFeeds.php` | Stored NIBE/state overview and bounded live Emon reads. |
+| `resources/views/layouts/control-panel.blade.php`, `resources/views/dashboard.blade.php`, `resources/views/settings.blade.php`, `resources/views/login.blade.php` | Responsive pages and accessible, labelled forms. |
+| `public/css/control-panel.css`, `public/js/control-panel.js` | Styling, unsaved-edit notice, and Emon refresh/error handling. |
+| `app/Console/Commands/ImportControlSettings.php`, `app/Console/Commands/CreateControlPanelUser.php` | Initial import and manual account provisioning. |
+
+The test suite uses isolated in-memory SQLite connections and mocked outbound requests. It covers import preservation, typed/live control reads, cache refresh, login/logout/throttling, unauthenticated requests, CSRF protection, validation with no partial writes, stale-form rejection, secret exclusion, dashboard empty/readings states, zero-valued Emon data and service failures. Browser checks used a separate demonstration database and a local fake Emon service; no live heating commands were sent.

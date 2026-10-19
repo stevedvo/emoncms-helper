@@ -2,7 +2,7 @@
 
 [Project overview](../README.md) · [Heat pump control](heat-pump-control.md) · [Integrations](integrations-and-data.md) · [Configuration](configuration-and-operation.md)
 
-These observations explain the checked-in implementation, including the 18 October 2026 radiator-demand change. They are not a claim that every edge case has occurred in service. The work did not inspect the deployed database/configuration or operate the connected equipment.
+These observations explain the checked-in implementation, including radiator demand (18 October 2026) and the control panel/live settings (19 October 2026). They are not a claim that every edge case has occurred in service. The latter work imports effective operating parameters into the configured database but does not send commands to the connected heating equipment.
 
 ## Active behaviour that is easy to misread
 
@@ -15,7 +15,7 @@ These observations explain the checked-in implementation, including the 18 Octob
 | Boost permission gates explicit promotion only. | `calculateHeatingMode` | A boost window can still shift room bands +1°C with `allowBoosts = false`. Room demand can independently select boost/extraBoost. |
 | Peak downward nudges are commented out. | `calculateHeatingMode` | Peak reduction mainly comes from the -2°C room-band shift; the remaining cold-forecast peak rule can impose a minimum intermittent mode. |
 | Default cold comparisons both use 3°C. | `calculateHeatingMode`, `config/nibe.php` | The +2°C room adjustment wins below 3°C; the +1°C cold adjustment is unreachable with defaults. |
-| UFH comparisons are <=19.5°C and <=20°C. | `calculateHeatingMode` | Older comments/log strings saying <19 or <19.5 do not describe current boundaries. |
+| Default UFH comparisons are <=19.5°C and <=20°C. | `calculateHeatingMode` | The two thresholds are now database-backed settings, and logs report their current values. |
 | Forecast-average lookahead is a starting offset. | `WeatherController::getForecastAverageTemperature` | The value summarises data from six hours ahead onward, not the coming six hours. |
 | UFH forecast temperature is not used to select Hive's target. | `HomeAssistantController::adjustHiveThermostat` | Recorded priority and a fresh radiator-demand decision select the target; the unused prediction lookup/disabled experiments have been removed from this method. |
 | Radiator demand is captured before later mode promotions. | `calculateHeatingMode`, `RadiatorHeatDemand` | Preserving a running cycle, a scheduled boost, or a UFH minimum can keep NIBE heating while Hive keeps a warm radiator zone off. |
@@ -33,7 +33,7 @@ These observations explain the checked-in implementation, including the 18 Octob
 - `ApiLog::markAsProcessed()` and the API-log hash/ignored/processed fields are not used by an active processing pipeline found in this review.
 - `command:test` currently invokes a protected method from another class and logs the resulting error. It is a scratch command, not a dry-run interface.
 - Schedule 1 hot-water parameter mappings and off/luxury comfort constants are defined but unused by the active hot-water check.
-- The standard user/auth/queue/frontend scaffolding remains, but there is no custom settings UI, operational database seeder, or queued integration job pipeline.
+- The authenticated control panel now provides settings editing and an overview, with `settings:import` for operating parameters and `app:create-user` for login accounts. There is still no integration-catalogue/feed-map seeder or queued integration job pipeline.
 
 ## Data freshness and recovery limitations
 
@@ -60,7 +60,7 @@ Stored schedule start/end values are integers. `CarbonImmutable::parse()` accept
 
 The migrations create no unique index on `settings.key` or NIBE `(parameterId, timestamp)`. Application-level find/create logic is not a database uniqueness guarantee under overlapping runs. No overlap prevention is configured in the scheduler. Models for the catalogue/mapping tables retain default Eloquent ID/timestamp assumptions even where the corresponding schema omits those columns; their current read usage does not supply a ready-made write/import interface.
 
-The degree-minute formula divides by `minutesToDm` and `offsetFactor`; zero values fail. No validation enforces threshold ordering, positive horizons, or compatible min/max limits. The first minimum-flow preparation write is not clamped to the later escalation cap. Cooling's dew-point +1 override is not re-clamped, and its projected temperature uses hard-coded 2 rather than `offsetFactor`.
+The degree-minute formula divides by `minutesToDm` and `offsetFactor`. The Settings page now validates positive values, threshold ordering and compatible offset limits before saving. Direct database edits or imported legacy values bypass form validation and should be checked separately. The first minimum-flow preparation write is not clamped to the later escalation cap. Cooling's dew-point +1 override is not re-clamped, and its projected temperature uses hard-coded 2 rather than `offsetFactor`.
 
 ## Integration and operational limits
 

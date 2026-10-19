@@ -57,7 +57,7 @@ Input success requires a decoded response array containing `success` equal to th
 
 ### Indoor temperature and trend
 
-Named readings resolve through `emon_feed_maps.localName` or `remoteName`. `getLatestEmonData()` searches a requested number of minutes ending at the current minute boundary, chooses the last non-null reading, and rounds to one decimal place. The main control loop requests 180 minutes of Rad and UFH data, so a returned reading can be nearly three hours old. There is no additional age check on the selected pair.
+Named readings resolve through `emon_feed_maps.localName` or `remoteName`. `getLatestEmonData()` searches a requested number of minutes ending at the current minute boundary, chooses the last non-null reading, and rounds to one decimal place. The main control loop uses editable `nibe.roomTemperatureLookbackMinutes` (default 180) for Rad/UFH data, so with defaults a returned reading can be nearly three hours old. There is no additional age check on the selected pair. The [dashboard](control-panel.md) separately reads the local feed list with a bounded read-only request; it does not trigger a control calculation.
 
 `getForecastRoomTemperatureData()` reads the last 60 minutes of local `UFH_temperature`, drops nulls, fits a least-squares straight line against time, and projects **two hours beyond the final sample**. A single point produces zero slope. It returns:
 
@@ -184,7 +184,7 @@ The flag has no date. If the evening reset is missed, it can carry into a later 
 
 | Table / model | Contents and current use |
 | --- | --- |
-| `settings` / `Setting` | Text key/value state; see the setting inventory in the operations guide. No unique constraint on `key` in the migration. |
+| `settings` / `Setting` | Runtime text state plus `control.*` JSON-scalar operating parameters. The latter are typed, validated and editable through the authenticated control panel. No unique constraint on `key` in the migration. |
 | `nibe_parameters` / `NibeParameter` | Parameter catalogue: primary `parameterId`, `title`, `designation`, `unit`. Gates which readings are stored and names Emon inputs. |
 | `nibe_feed_items` / `NibeFeedItem` | ID, timestamps, parameter ID, optional local feed ID, source timestamp in seconds, decimal raw value, sync attempts/status. A non-unique `(parameterId, timestamp)` index speeds lookups. |
 | `emon_feed_maps` / `EmonFeedMap` | Local/remote feed IDs and names. Used for named room readings and historical comparisons. |
@@ -192,7 +192,7 @@ The flag has no date. If the evening reset is missed, it can carry into a later 
 | `nibe_to_emon_feed_maps` / `NibeToEmonFeedMap` | Mapping structure present, but no active application caller found. NIBE publication currently uses catalogue titles instead. |
 | `activity_logs` / `ActivityLog` | Controller, method, level, message, and creation/update timestamps. |
 | `api_logs` / `ApiLog` | HTTP method, endpoint (first 255 characters), optional JSON payload; hash/ignored/processed fields exist but are not part of an active processing pipeline. |
-| Standard Laravel tables | Users, password resets, failed jobs, personal access tokens. No custom heating UI or user-management flow is built on them here. |
+| Standard Laravel tables | Users, password resets, failed jobs, personal access tokens. The control panel uses existing users for session sign-in and provides a CLI account-creation command; it has no public registration. |
 
 Migrations define structure only. `DatabaseSeeder` does not insert operational data. Feed-map and catalogue migrations omit normal model IDs/timestamps, while their models retain Eloquent defaults; the active code reads these tables, so future tooling that writes through those models needs to account for the schema.
 
@@ -206,4 +206,4 @@ At 06:00 application time, `admin:emails` selects error-level activity logs newe
 
 Other mail subjects are `Agile Rates` and `Nibe Offline?`. All use `app.admin_email` as recipient and `mail.from.address` as sender. Calls use synchronous `Mail::send()`; the Queueable traits do not make them queued jobs.
 
-Daily log cleanup deletes info logs older than 30 days, warnings older than 60 days, errors and API logs older than 90 days. No cleanup for NIBE readings or feed backlog is implemented. `ApiLog::markAsProcessed()` exists but has no active caller found.
+Daily log cleanup uses the editable `logs.*RetentionDays` operating settings (defaults: info 30, warning 60, errors/API 90 days). No cleanup for NIBE readings or feed backlog is implemented. `ApiLog::markAsProcessed()` exists but has no active caller found.

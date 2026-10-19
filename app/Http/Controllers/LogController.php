@@ -2,17 +2,13 @@
 	namespace App\Http\Controllers;
 
 	use Throwable;
+	use App\Services\ControlSettings;
 	use App\Http\Controllers\Controller;
 	use App\Models\ActivityLog;
 	use App\Models\ApiLog;
 
 	class LogController extends Controller
 	{
-		static $daysToKeepInfoLogs    = 30;
-		static $daysToKeepWarningLogs = 60;
-		static $daysToKeepErrorLogs   = 90;
-		static $daysToKeepApiLogs     = 90;
-
 		public static function purgeOldLogEntries() : void
 		{
 			ActivityLog::create(
@@ -23,9 +19,9 @@
 				'message'    => "Purge start.",
 			]);
 
-			static::purgeActivityLogs("info", static::$daysToKeepInfoLogs);
-			static::purgeActivityLogs("warning", static::$daysToKeepWarningLogs);
-			static::purgeActivityLogs("error", static::$daysToKeepErrorLogs);
+			static::purgeActivityLogs("info", ControlSettings::get('logs.infoRetentionDays'));
+			static::purgeActivityLogs("warning", ControlSettings::get('logs.warningRetentionDays'));
+			static::purgeActivityLogs("error", ControlSettings::get('logs.errorRetentionDays'));
 			static::purgeApiLogs();
 
 			ActivityLog::create(
@@ -80,10 +76,10 @@
 					'controller' => __CLASS__,
 					'method'     => __FUNCTION__,
 					'level'      => "info",
-					'message'    => "Purging API logs older than ".static::$daysToKeepApiLogs." days.",
+					'message'    => "Purging API logs older than ".ControlSettings::get('logs.apiRetentionDays')." days.",
 				]);
 
-				$purged = ApiLog::where("created_at", "<", now()->subDays(static::$daysToKeepApiLogs))->delete();
+				$purged = ApiLog::where("created_at", "<", now()->subDays(ControlSettings::get('logs.apiRetentionDays')))->delete();
 
 				ActivityLog::create(
 				[

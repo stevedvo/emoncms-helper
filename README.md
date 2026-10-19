@@ -4,18 +4,19 @@ Emoncms Helper coordinates a NIBE heat pump, local and remote Emoncms installati
 
 The heating levels in the code are `off`, `intermittent`, `on`, `boost`, and `extraBoost`. There is also a separate `cooling` mode. The lower running level is named **intermittent**, rather than intermediate.
 
-This is a Laravel 10 / PHP application driven primarily by scheduled commands. The home page is the stock Laravel welcome page; there is no heating-control dashboard in this repository.
+This is a Laravel 10 / PHP application driven primarily by scheduled commands. Its authenticated web control panel provides an overview at `/` and editable operating settings at `/settings`. Credentials and connection details stay in environment configuration; operating parameters are stored separately in the existing settings table and read without a scheduler restart.
 
 ## Documentation
 
 | Guide | Contents |
 | --- | --- |
+| [Control panel and live settings](docs/control-panel.md) | First sign-in, importing existing values, live parameter editing, validation, authentication, and dashboard behaviour. |
 | [Heat pump control](docs/heat-pump-control.md) | Exact decision order, room-temperature bands, boosts, peak periods, defrost reduction, degree-minute calculations, cooling, and worked examples. |
 | [Integrations and data](docs/integrations-and-data.md) | NIBE polling, Emoncms feeds, weather payloads, tariff schedules, Hive, hot water, database tables, and logging. |
 | [Configuration and operation](docs/configuration-and-operation.md) | Environment variables and defaults, initial data requirements, command schedule, time zones, and troubleshooting. |
 | [Implementation notes](docs/implementation-notes.md) | Disabled experiments, incomplete features, and edge cases that matter when interpreting the code. |
 
-These guides describe the implementation initially reviewed on **17 October 2026**, starting from commit `287c794`, and updated on **18 October 2026** for independent radiator demand during UFH heating. Numerical examples use defaults from `config/`; an installation's `.env` or cached configuration can override them. The work traced application code, configuration, migrations, routes, email templates, and tests without querying the live database, inspecting secret configuration, or contacting connected services.
+These guides describe the implementation initially reviewed on **17 October 2026**, starting from commit `287c794`, with independent radiator demand added on **18 October** and the live settings/control panel on **19 October 2026**. Numerical examples use checked-in defaults; imported database operating parameters take precedence. The control-panel work imports the installation's effective operating configuration without displaying credentials or sending heating commands.
 
 ## How the pieces fit together
 
@@ -61,11 +62,22 @@ Radiator demand is recorded separately from the overall mode. During heating, Hi
 | `app/Console/Kernel.php`, `app/Console/Commands/` | Timings and command entry points. |
 | `app/Models/`, `database/migrations/` | Stored readings, mappings, settings, and logs. |
 | `app/Services/ActivityLogSummarizer.php`, `app/Mail/`, `resources/views/emails/` | Administrator reports and notification formatting. |
-| `routes/`, `resources/`, `public/`, `bootstrap/`, `app/Providers/` | Mostly Laravel scaffolding; the custom weather endpoint is in `routes/api.php`. |
+| `app/Services/ControlSettings.php`, `config/control-parameters.php` | Editable operating-parameter catalogue, typed live reads, import and audited saves. |
+| `routes/web.php`, `resources/views/`, `public/css/control-panel.css`, `public/js/control-panel.js` | Authenticated dashboard/settings pages, login, responsive styling and Emon refresh. |
+| `routes/api.php` | Existing weather-ingestion endpoint and Sanctum user endpoint. |
 
 ## Getting started
 
 See [configuration and operation](docs/configuration-and-operation.md) before enabling scheduled commands: several of them write to NIBE, Emoncms, Home Assistant, or send email. A fresh migration creates the database structure but does **not** populate the parameter catalogue, feed mappings, or initial token settings needed by the integrations.
+
+For the web panel on an existing installation, import current operating values and create a login account if needed:
+
+```text
+php artisan settings:import
+php artisan app:create-user
+```
+
+The import preserves existing saved parameters. The account command prompts privately for a password; no default login or public registration is provided. See [the control-panel guide](docs/control-panel.md) for details.
 
 The existing tests can be run with:
 
@@ -73,4 +85,4 @@ The existing tests can be run with:
 php vendor/bin/phpunit
 ```
 
-After the radiator-demand change, all **42 tests / 141 assertions** passed. Coverage includes zone-demand decisions and Hive targets with an isolated test database and mocked Home Assistant API, error-summary grouping, report rendering, and basic framework examples. These tests do not operate the physical equipment.
+After the control-panel change, all **68 tests / 279 assertions** passed. Coverage includes live settings, validation, access protection, dashboard behaviour, zone-demand decisions, Hive targets, reports and framework examples, using isolated test databases and mocked external calls. These tests do not operate the physical equipment.

@@ -2,7 +2,7 @@
 
 [Project overview](../README.md) · [Integrations](integrations-and-data.md) · [Configuration](configuration-and-operation.md) · [Implementation notes](implementation-notes.md)
 
-This guide describes the active code in [NibeController.php](../app/Http/Controllers/NibeController.php). All defaults are the checked-in values, not a claim about the live installation.
+This guide describes the active code in [NibeController.php](../app/Http/Controllers/NibeController.php). All defaults are the checked-in values, not a claim about the live installation. Operating values are now read through `ControlSettings::get()` from the database and can be edited on the authenticated [Settings page](control-panel.md).
 
 ## The control loop
 
@@ -76,7 +76,7 @@ A **warm forecast** means the high-six average is strictly greater than `runLeve
 
 ### 3. Apply radiator-zone load compensation
 
-Read `Rad_temperature` from local Emoncms, searching back 180 minutes and taking the last non-null value, rounded to one decimal place. A usable reading is stored as `RoomTemperature[Rad_temperature]` and sets `allowLoadCompensation` to the string `true`. If unavailable, the saved temperature is used and `allowLoadCompensation` becomes `false`.
+Read `Rad_temperature` from local Emoncms, searching back `roomTemperatureLookbackMinutes` (default 180 minutes) and taking the last non-null value, rounded to one decimal place. A usable reading is stored as `RoomTemperature[Rad_temperature]` and sets `allowLoadCompensation` to the string `true`. If unavailable, the saved temperature is used and `allowLoadCompensation` becomes `false`.
 
 The room-temperature bands apply only when load compensation is enabled and that setting is exactly the string `true`. The fallback value therefore does not enable the bands on its own. A first-ever failure with no saved temperature returns null and disables load compensation for that calculation.
 
@@ -128,13 +128,13 @@ If the calculated mode is `off` but priority is `30` (already heating), change t
 
 ### 6. Protect a cool UFH zone
 
-When radiator-based load compensation is allowed, read `UFH_temperature` from the last 180 minutes:
+When radiator-based load compensation is allowed, read `UFH_temperature` using the configured room-sensor history (default 180 minutes). With the default editable UFH thresholds:
 
 - At or below **19.5°C**, ensure at least `on`.
 - Otherwise, at or below **20°C**, ensure at least `intermittent`.
 - Above 20°C, leave the mode alone.
 
-This read uses `updateSettings = false`; it neither falls back to saved UFH temperature nor changes `allowLoadCompensation`. Missing UFH data skips this step. Some source comments and log messages contain older thresholds; the comparisons above are the active ones.
+The thresholds are now `nibe.ufhTempOn` and `nibe.ufhTempIntermittent` in the Settings page. This read uses `updateSettings = false`; it neither falls back to saved UFH temperature nor changes `allowLoadCompensation`. Missing UFH data skips this step. Log messages use the current configured thresholds.
 
 ### 7. Apply the remaining peak-period rule
 

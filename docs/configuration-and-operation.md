@@ -12,15 +12,16 @@ A fresh deployment needs the following setup before it can perform the same role
 
 1. Install dependencies with `composer install`, using a compatible PHP runtime and extensions. Create a local `.env` from `.env.example` if one does not exist, configure the database/application/mail, and generate an application key with `php artisan key:generate` for a new installation.
 2. Create a dedicated database and run `php artisan migrate` against that intended database. Existing installations should retain their data and application key. The seed file does not populate any integration records.
-3. Configure the service credentials and tuning values below. `.env.example` contains only standard Laravel entries; the integration variables must be added separately.
+3. Configure the service credentials below. Existing operating environment variables are compatibility bootstrap inputs; run `php artisan settings:import` to preserve effective values in the database. Future operating edits belong on `/settings`. `.env.example` contains only standard Laravel entries; connection/credential variables must be added separately.
 4. Provision the installation's `nibe_parameters` catalogue and `emon_feed_maps` mappings. Retain an existing installation's records or populate them from the actual device/Emoncms feed definitions. No operational seed, import file, or automatic catalogue/feed discovery is supplied.
 5. Create `settings` rows `nibe_token_current` and `nibe_token_expiry`. The API constructor requires both. To use the implemented renewal path, the expiry must represent a time already in the past and valid myUplink client credentials must be configured. The repository does not provide an initial-token setup command.
 6. Arrange the external weather sender, Emon input processing/feed setup, and Home Assistant webhook automation. Those external configurations are not included here.
 7. Configure one scheduler runner and enable the required integration commands only once the connected systems and settings are ready.
+8. Create a web-panel account with `php artisan app:create-user` if no suitable Laravel user already exists. The command asks for a private, confirmed password. Visit the normal application URL to sign in. See [the control-panel guide](control-panel.md).
 
 At minimum, catalogue entries for priority `49994` and evaporator `44363` are needed for the stored-priority consumers and defrost history. Other recognised points enable logging/publication. The eleven current-response points required by the DM override are listed in the control guide. Exact feed names `Rad_temperature` and `UFH_temperature` are important for room control.
 
-The web server should serve Laravel's `public/` directory. The registered web routes are `/` (welcome page), `/api/weather_data` (weather POST), and `/api/user` (Sanctum-authenticated user GET). There is no browser page for editing heating settings.
+The web server should serve Laravel's `public/` directory. `/` is the authenticated overview; `/settings` provides operating-parameter editing; `/login` and POST `/logout` manage sessions. `/dashboard/feeds` provides authenticated, bounded local Emon reads. The existing `/api/weather_data` POST and Sanctum-authenticated `/api/user` GET remain separate from web sign-in.
 
 ## Scheduled commands
 
@@ -72,7 +73,7 @@ Consequently, rate-search clock ranges and displayed London labels differ by one
 
 ## NIBE configuration
 
-These variables are read by `config/nibe.php`. Temperatures are treated as °C; offset values are NIBE offset steps. Booleans should use Laravel's unquoted `true` / `false` environment syntax. Several checks are strict comparisons against boolean false rather than general truthiness.
+The following table retains the legacy environment-variable mapping and checked-in defaults for import/bootstrap. Credentials continue to use `config/nibe.php`; operating keys are now read through `ControlSettings::get()` from `control.<group>.<key>` rows in `settings`. Imported database values take precedence over environment/config values. Temperatures are treated as °C; offset values are NIBE offset steps. Boolean operating values are returned as real booleans. See [live settings](control-panel.md) for the complete editable catalogue and validation.
 
 | Environment variable | Config key (`nibe.` prefix) | Default | Purpose |
 | --- | --- | --- | --- |
@@ -112,7 +113,9 @@ These variables are read by `config/nibe.php`. Temperatures are treated as °C; 
 
 The myUplink token and function URLs are fixed in `config/nibe.php` to `https://api.myuplink.com/oauth/token` and `https://api.myuplink.com/v2`.
 
-The following are hard-coded rather than environment-configured: UFH floors 19.5/20°C, peak offsets 80/25 minutes, boost schedule offsets -15/-100 minutes, extraBoost's +90, room-band adjustments, the 60-minute evaporator window, minimum-flow baseline/cap 10/60°C, two-hour UFH extrapolation, and hot-water schedule/time/temperature rules.
+The UFH thresholds are now editable as `nibe.ufhTempOn` (default 19.5°C) and `nibe.ufhTempIntermittent` (default 20°C), and room-sensor history as `nibe.roomTemperatureLookbackMinutes` (default 180). Log retention is editable under `logs.infoRetentionDays`, `warningRetentionDays`, `errorRetentionDays` and `apiRetentionDays` (defaults 30/60/90/90).
+
+The remaining hard-coded constants include peak offsets 80/25 minutes, boost schedule offsets -15/-100 minutes, extraBoost's +90, room-band adjustments, the 60-minute evaporator window, minimum-flow baseline/cap 10/60°C, two-hour UFH extrapolation, and hot-water schedule/time/temperature rules.
 
 ## Other integration configuration
 
@@ -137,11 +140,13 @@ The following are hard-coded rather than environment-configured: UFH floors 19.5
 | `config/mail.php` | Standard `MAIL_*` variables | Mail transport, credentials, sender; SMTP is the default transport. |
 | `config/database.php` | Standard `DB_*` variables | Database connection. |
 
-The project's `.env` is ignored by Git. Keep credentials there or in deployment environment configuration. If configuration is cached, apply configuration changes through the installation's normal cache rebuild/restart procedure; editing `.env` alone may not affect running commands. `NibeController` also caches several config/room values in static properties for its PHP process lifetime.
+The project's `.env` is ignored by Git. Keep credentials and connection details there or in deployment environment configuration; their changes still follow the normal cache rebuild/restart procedure. Operating parameters now come from the database without a process-lifetime cache. NIBE's parameter properties reload for each calculation, and room-data caches reset per polling invocation. Once operating values are imported, changing their old `.env` entries does not override the saved database values.
 
 ## Persistent settings
 
 Values are stored as text, not typed model casts. In particular, the boolean flags below use literal strings `true` and `false`.
+
+This paragraph and the table below describe runtime state. The separate `control.*` rows use JSON scalars and are typed by `ControlSettings`; they are the only values editable through the Settings page. Tokens, forecast payloads and other runtime state are excluded from that page.
 
 | `settings.key` | Written/read by | Meaning |
 | --- | --- | --- |
@@ -189,6 +194,6 @@ Common symptoms:
 
 ## Verification and maintenance
 
-After the radiator-demand feature, `php vendor/bin/phpunit` passed **42 tests, 141 assertions**, using PHP 8.2.11. `RadiatorHeatDemandTest` uses a dedicated SQLite in-memory connection and mocks the Home Assistant adapter, exercising the production mode calculation, persistence, and Hive command. It covers UFH-only/both-zone demand, thresholds, boost/forecast/peak adjustments, already-running cycles, demand transitions, freshness/invalid-data fallback, disabled controls, defrost capping, and cooling/hot-water behaviour. The existing reporting and framework tests also pass. No live integration commands were run, and these tests do not validate physical circulation or equipment response.
+After the control-panel feature, `php vendor/bin/phpunit` passed **68 tests, 279 assertions**, using PHP 8.2.11. The suite covers import preservation, typed live settings, validation, authentication, CSRF, stale forms, dashboard data/error states, same-process parameter refresh, and the radiator/UFH/Hive scenarios. Test databases are isolated in-memory SQLite connections and outbound calls are mocked. Browser checks used a separate demonstration database. The installation's operating values were imported without sending live heating commands; these checks do not validate physical circulation or equipment response.
 
 To keep these guides accurate, update the decision-order tables and examples when changing `calculateHeatingMode()`, target/offset descriptions when changing `dmOverride()` or `calculateTargetDm()`, configuration tables when changing `config/`, and schedule/time-zone tables when changing the console kernel or date handling.

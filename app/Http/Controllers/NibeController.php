@@ -3,6 +3,7 @@
 
 	use Exception;
 	use Throwable;
+	use App\Services\ControlSettings;
 	use App\APIs\EmonAPI;
 	use App\APIs\NibeAPI;
 	use App\Http\Controllers\EmonController;
@@ -38,15 +39,15 @@
 
 		protected static function initConfig() : void
 		{
-			static::$defrostDewpointMin       ??= config("nibe.defrostDewpointMin");
-			static::$defrostDewpointMax       ??= config("nibe.defrostDewpointMax");
-			static::$defrostEvaporatorMax     ??= config("nibe.defrostEvaporatorMax");
-			static::$loadCompensationOn       ??= config("nibe.loadCompensationOn");
-			static::$loadCompTempOff          ??= config("nibe.loadCompTempOff");
-			static::$loadCompTempIntermittent ??= config("nibe.loadCompTempIntermittent");
-			static::$loadCompTempOn           ??= config("nibe.loadCompTempOn");
-			static::$loadCompTempLevel1       ??= config("nibe.loadCompTempLevel1");
-			static::$minRadZoneTemp           ??= config("nibe.minRadZoneTemp");
+			static::$defrostDewpointMin       = ControlSettings::get('nibe.defrostDewpointMin');
+			static::$defrostDewpointMax       = ControlSettings::get('nibe.defrostDewpointMax');
+			static::$defrostEvaporatorMax     = ControlSettings::get('nibe.defrostEvaporatorMax');
+			static::$loadCompensationOn       = ControlSettings::get('nibe.loadCompensationOn');
+			static::$loadCompTempOff          = ControlSettings::get('nibe.loadCompTempOff');
+			static::$loadCompTempIntermittent = ControlSettings::get('nibe.loadCompTempIntermittent');
+			static::$loadCompTempOn           = ControlSettings::get('nibe.loadCompTempOn');
+			static::$loadCompTempLevel1       = ControlSettings::get('nibe.loadCompTempLevel1');
+			static::$minRadZoneTemp           = ControlSettings::get('nibe.minRadZoneTemp');
 
 			static::$hotWaterSchedules        ??=
 			[
@@ -85,7 +86,7 @@
 		{
 			if (is_null(static::$roomTemperature) || !isset(static::$roomTemperature[$feedName]))
 			{
-				$feedDataRaw = EmonController::getLatestEmonData($feedName, "local", 180);
+				$feedDataRaw = EmonController::getLatestEmonData($feedName, "local", ControlSettings::get('nibe.roomTemperatureLookbackMinutes'));
 				static::$roomTemperature[$feedName] = (is_null($feedDataRaw) || $feedDataRaw === "") ? null : (float)$feedDataRaw;
 			}
 
@@ -142,6 +143,9 @@
 
 		public static function getNibeData() : void
 		{
+			static::$roomTemperature = null;
+			static::$roomTemperatureForecast = null;
+
 			try
 			{
 				static::initConfig();
@@ -247,12 +251,12 @@
 				// if (true)
 				if ($now->format("i") % 5 == 0)
 				{
-					if (config("nibe.dmOverride") !== false)
+					if (ControlSettings::get('nibe.dmOverride') !== false)
 					{
 						static::dmOverride($dmOverrideCollection);
 					}
 
-					if (config("weather.useForecast") !== false)
+					if (ControlSettings::get('weather.useForecast') !== false)
 					{
 						WeatherController::syncForecastWithEmon();
 					}
@@ -450,7 +454,7 @@
 
 				// calculate what the difference should be between ext & calc flow so that we get DM to {$dmTarget} in {minutesToDm} mins
 				// each change of offset adjusts the calc flow by approx {offsetFactor}K so we divide by {offsetFactor} at the end and round down to integer
-				$offsetChange = round(($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
+				$offsetChange = round(($externalFlowTemp - (($dmTarget - $degreeMinutes) / ControlSettings::get('nibe.minutesToDm')) - $calculatedFlowTemp) / ControlSettings::get('nibe.offsetFactor'));
 
 				if ($offsetChange != 0)
 				{
@@ -459,17 +463,17 @@
 						'controller' => __CLASS__,
 						'method'     => __FUNCTION__,
 						'level'      => "info",
-						'message'    => '$offsetChange = round(('.$externalFlowTemp.' - (('.$dmTarget.' - '.$degreeMinutes.') / '.config("nibe.minutesToDm").') - '.$calculatedFlowTemp.') / '.config("nibe.offsetFactor").') = round('.($externalFlowTemp - (($dmTarget - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor").') = '.$offsetChange,
+						'message'    => '$offsetChange = round(('.$externalFlowTemp.' - (('.$dmTarget.' - '.$degreeMinutes.') / '.ControlSettings::get('nibe.minutesToDm').') - '.$calculatedFlowTemp.') / '.ControlSettings::get('nibe.offsetFactor').') = round('.($externalFlowTemp - (($dmTarget - $degreeMinutes) / ControlSettings::get('nibe.minutesToDm')) - $calculatedFlowTemp) / ControlSettings::get('nibe.offsetFactor').') = '.$offsetChange,
 					]);
 				}
 
 				// if it's warm enough at the daytime peak for $htgMode to be "off" then set $minOffset to -3
 				// night-time temperatures may be low enough to need a little heat so that indoor temps don't drop too far
 				// ...however if we're in hot water mode then allow lower $minOffset otherwise DegreeMinutes may drop too much
-				// $minOffset = ($htgMode == "off" && $priority <> 20) ? (config("nibe.cheapMode") !== false ? config("nibe.offsetMinimum") : -3) : config("nibe.offsetMinimum");
+				// $minOffset = ($htgMode == "off" && $priority <> 20) ? (ControlSettings::get('nibe.cheapMode') !== false ? ControlSettings::get('nibe.offsetMinimum') : -3) : ControlSettings::get('nibe.offsetMinimum');
 				// now that we have room-influence control we can just keep this more simple
-				$minOffset = config("nibe.offsetMinimum");
-				$maxOffset = config("nibe.offsetMaximum");
+				$minOffset = ControlSettings::get('nibe.offsetMinimum');
+				$maxOffset = ControlSettings::get('nibe.offsetMaximum');
 
 				// set minOffset just for testing
 				if (!static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London")))
@@ -477,16 +481,16 @@
 					// $minOffset = 0;
 				}
 
-				if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
+				if ($htgMode == "intermittent" || ControlSettings::get('nibe.cheapMode') !== false)
 				{
 					// what offset do we need to get the DM to the 'off' value?
-					$offsetChangeToOff = round(($externalFlowTemp - ((config("nibe.dmTargetOff") - $degreeMinutes) / config("nibe.minutesToDm")) - $calculatedFlowTemp) / config("nibe.offsetFactor"));
+					$offsetChangeToOff = round(($externalFlowTemp - ((ControlSettings::get('nibe.dmTargetOff') - $degreeMinutes) / ControlSettings::get('nibe.minutesToDm')) - $calculatedFlowTemp) / ControlSettings::get('nibe.offsetFactor'));
 					// Log::info('$offsetChangeToOff: '.$offsetChangeToOff);
 					$heatingOffsetNewToOff = min(max($heatingOffsetCurrent + $offsetChangeToOff, $minOffset), $maxOffset);
 					// Log::info('$heatingOffsetNewToOff: '.$heatingOffsetNewToOff);
 
 					// what is the maxOffset for current mode?
-					$maxOffsetToOff = config("nibe.cheapMode") !== false ? config("nibe.cheapModeOffsetMax") : config("nibe.offsetMaxInt");
+					$maxOffsetToOff = ControlSettings::get('nibe.cheapMode') !== false ? ControlSettings::get('nibe.cheapModeOffsetMax') : ControlSettings::get('nibe.offsetMaxInt');
 					// Log::info('$maxOffsetToOff: '.$maxOffsetToOff);
 
 					if ($heatingOffsetNewToOff > $maxOffsetToOff)
@@ -508,7 +512,7 @@
 				$minFlowLineTempMin = 10;
 
 				// if we're on 'intermittent' or 'cheap' mode then set to 10 so that this does not get changed, otherwise 60
-				$minFlowLineTempMax = ($htgMode == "intermittent" || config("nibe.cheapMode") !== false) ? 10 : 60;
+				$minFlowLineTempMax = ($htgMode == "intermittent" || ControlSettings::get('nibe.cheapMode') !== false) ? 10 : 60;
 				$minFlowLineTempNew = $minFlowLineTempCurrent;
 
 				$parameterData = [];
@@ -527,7 +531,7 @@
 
 					if ($offsetChange > 0)
 					{
-						if ($htgMode == "intermittent" || config("nibe.cheapMode") !== false)
+						if ($htgMode == "intermittent" || ControlSettings::get('nibe.cheapMode') !== false)
 						{
 							// if we're already at/above the $maxOffset we don't want to keep the compressor running
 							// we also don't want to adjust the min flow line temp
@@ -569,7 +573,7 @@
 							else
 							{
 								// heating offset is maxed out so let's increase the min. flow line temp. instead if we need to
-								$minFlowLineTempNew = min($minFlowLineTempCurrent + ($offsetChange * config("nibe.offsetFactor")), $minFlowLineTempMax);
+								$minFlowLineTempNew = min($minFlowLineTempCurrent + ($offsetChange * ControlSettings::get('nibe.offsetFactor')), $minFlowLineTempMax);
 
 								if ($minFlowLineTempNew == $minFlowLineTempCurrent)
 								{
@@ -588,7 +592,7 @@
 							if ($minFlowLineTempCurrent >= $calculatedFlowTemp)
 							{
 								// calculated flow temp is being determined by min. flow line temp. so let's drop it a bit
-								$minFlowLineTempNew = max($minFlowLineTempCurrent + ($offsetChange * config("nibe.offsetFactor")), $minFlowLineTempMin);
+								$minFlowLineTempNew = max($minFlowLineTempCurrent + ($offsetChange * ControlSettings::get('nibe.offsetFactor')), $minFlowLineTempMin);
 
 								if ($minFlowLineTempNew == $minFlowLineTempCurrent)
 								{
@@ -625,7 +629,7 @@
 					// nibe cooling mode continues until avg outdoor temp is 1degC below the temperature setpoint
 					// so whilst $htgMode is not cooling let's not adjust the cooling offset the avg temp has dropped
 					// in case the ashp is still actually running in cooling mode
-					if ($avgOutdoorTemp < config("nibe.coolingStartTemp") - 1)
+					if ($avgOutdoorTemp < ControlSettings::get('nibe.coolingStartTemp') - 1)
 					{
 						if ($coolingOffsetCurrent > 0)
 						{
@@ -671,7 +675,7 @@
 
 					// similar to !cooling above, hold off winding the heating offset down until we're 1degC away from the temperature setpoint
 					// probably don't need this but nice for the symmetry
-					if ($avgOutdoorTemp > config("nibe.coolingStartTemp") + 1)
+					if ($avgOutdoorTemp > ControlSettings::get('nibe.coolingStartTemp') + 1)
 					{
 						if ($heatingOffsetCurrent > 0)
 						{
@@ -775,18 +779,19 @@
 
 		public static function calculateHeatingMode(int $priority, float $outdoorTemp, float $avgOutdoorTemp) : string
 		{
+			static::initConfig();
 			$radiatorHeatRequired = null;
 
 			// default starting point
 			$htgMode = "intermittent";
 
 			// set $htgMode initially based on outside temperature...
-			// if ($outdoorTemp < config("nibe.tempFreqMin"))
+			// if ($outdoorTemp < ControlSettings::get('nibe.tempFreqMin'))
 			// {
 			// 	$htgMode = "on";
 			// 	// $htgMode = "intermittent";
 			// }
-			// elseif ($avgOutdoorTemp < config("nibe.dmTargetOffTemp"))
+			// elseif ($avgOutdoorTemp < ControlSettings::get('nibe.dmTargetOffTemp'))
 			// {
 			// 	$htgMode = "intermittent";
 			// }
@@ -799,14 +804,14 @@
 			$nextDayLowTemperatureAverage = null;
 			$forecastTemperature = null;
 
-			if (config("weather.useForecast") !== false)
+			if (ControlSettings::get('weather.useForecast') !== false)
 			{
 				$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
 				$nextDayLowTemperatureAverage = WeatherController::getNextDayLowTemperatures();
 				$forecastTemperature = WeatherController::getForecastAverageTemperature();
 			}
 
-			$highTemperatureForecast = !is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > config("nibe.runLevel1Temp");
+			$highTemperatureForecast = !is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > ControlSettings::get('nibe.runLevel1Temp');
 
 			// adjustment check 1: nudge $htgMode down a notch if warmer temps expected later
 			if (true)
@@ -820,7 +825,7 @@
 						'controller' => __CLASS__,
 						'method'     => __FUNCTION__,
 						'level'      => "info",
-						'message'    => '$nextDayHighTemperatureAverage '.$nextDayHighTemperatureAverage.' > '.config("nibe.runLevel1Temp").': $htgMode = '.$htgMode,
+						'message'    => '$nextDayHighTemperatureAverage '.$nextDayHighTemperatureAverage.' > '.ControlSettings::get('nibe.runLevel1Temp').': $htgMode = '.$htgMode,
 					]);
 				}
 			}
@@ -872,7 +877,7 @@
 			// adjustment check 5: nudge $htgMode up a notch if forecast outside temperature is below a certain threshold
 			if (false)
 			{
-				if (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp"))
+				if (!is_null($forecastTemperature) && $forecastTemperature < ControlSettings::get('nibe.dmTargetBoostTemp'))
 				{
 					$htgMode = static::nudgeHeatingModeUp($htgMode);
 
@@ -881,7 +886,7 @@
 						'controller' => __CLASS__,
 						'method'     => __FUNCTION__,
 						'level'      => "info",
-						'message'    => '$forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+						'message'    => '$forecastTemperature '.$forecastTemperature.' < '.ControlSettings::get('nibe.dmTargetBoostTemp').': $htgMode = '.$htgMode,
 					]);
 				}
 			}
@@ -909,7 +914,7 @@
 
 						if (!is_null($nextDayLowTemperatureAverage))
 						{
-							if ($nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
+							if ($nextDayLowTemperatureAverage < ControlSettings::get('nibe.dmTargetBoostTemp'))
 							{
 								$defrostRoomTempAdjust = 2;
 							}
@@ -994,7 +999,7 @@
 			{
 				if (!is_null($nextDayLowTemperatureAverage))
 				{
-					if ($nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
+					if ($nextDayLowTemperatureAverage < ControlSettings::get('nibe.dmTargetBoostTemp'))
 					{
 						$htgMode = "extraBoost";
 
@@ -1003,7 +1008,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+							'message'    => 'nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < '.ControlSettings::get('nibe.dmTargetBoostTemp').': $htgMode = '.$htgMode,
 						]);
 					}
 					elseif ($nextDayLowTemperatureAverage < 3)
@@ -1019,7 +1024,7 @@
 						]);
 					}
 				}
-				elseif ($outdoorTemp < config("nibe.dmTargetBoostTemp") || (!is_null($forecastTemperature) && $forecastTemperature < config("nibe.dmTargetBoostTemp")))
+				elseif ($outdoorTemp < ControlSettings::get('nibe.dmTargetBoostTemp') || (!is_null($forecastTemperature) && $forecastTemperature < ControlSettings::get('nibe.dmTargetBoostTemp')))
 				{
 					$htgMode = static::htgModeAtLeastOn($htgMode);
 
@@ -1028,7 +1033,7 @@
 						'controller' => __CLASS__,
 						'method'     => __FUNCTION__,
 						'level'      => "info",
-						'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+						'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.ControlSettings::get('nibe.dmTargetBoostTemp').': $htgMode = '.$htgMode,
 					]);
 				}
 			}
@@ -1036,7 +1041,7 @@
 			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
 			if (true)
 			{
-				if ((config("nibe.allowBoosts") !== false) ? $boostActive : false)
+				if ((ControlSettings::get('nibe.allowBoosts') !== false) ? $boostActive : false)
 				{
 					// if already running at a low level then -> 'boost'
 					if ($htgMode == "on" || $htgMode == "intermittent")
@@ -1084,7 +1089,7 @@
 				{
 					if (!is_null(static::getRoomTemperature("UFH_temperature", false)))
 					{
-						if (static::$roomTemperature["UFH_temperature"] <= 19.5)
+						if (static::$roomTemperature["UFH_temperature"] <= ControlSettings::get('nibe.ufhTempOn'))
 						{
 							$htgMode = static::htgModeAtLeastOn($htgMode);
 
@@ -1093,10 +1098,10 @@
 								'controller' => __CLASS__,
 								'method'     => __FUNCTION__,
 								'level'      => "info",
-								'message'    => 'UFH_temperature < 19: $htgMode = '.$htgMode,
+								'message'    => 'UFH_temperature <= '.ControlSettings::get('nibe.ufhTempOn').': $htgMode = '.$htgMode,
 							]);
 						}
-						elseif (static::$roomTemperature["UFH_temperature"] <= 20)
+						elseif (static::$roomTemperature["UFH_temperature"] <= ControlSettings::get('nibe.ufhTempIntermittent'))
 						{
 							$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
@@ -1105,7 +1110,7 @@
 								'controller' => __CLASS__,
 								'method'     => __FUNCTION__,
 								'level'      => "info",
-								'message'    => 'UFH_temperature < 19.5: $htgMode = '.$htgMode,
+								'message'    => 'UFH_temperature <= '.ControlSettings::get('nibe.ufhTempIntermittent').': $htgMode = '.$htgMode,
 							]);
 						}
 					}
@@ -1117,7 +1122,7 @@
 			{
 				if ($peakImport)
 				{
-					if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < config("nibe.dmTargetBoostTemp"))
+					if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < ControlSettings::get('nibe.dmTargetBoostTemp'))
 					{
 						$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
@@ -1126,7 +1131,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'isPeakImport and nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < '.config("nibe.dmTargetBoostTemp").': $htgMode = '.$htgMode,
+							'message'    => 'isPeakImport and nextDayLowTempAvg '.$nextDayLowTemperatureAverage.' < '.ControlSettings::get('nibe.dmTargetBoostTemp').': $htgMode = '.$htgMode,
 						]);
 					}
 					elseif (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < 3)
@@ -1178,8 +1183,8 @@
 			{
 				// recent past average temperature is above threshold, or forecast high temperature is a few degrees above threshold [pre-emptive cooling]
 				// actually this won't work since the ASHP won't switch to cooling until the first condition is met anyway
-				// if ($avgOutdoorTemp > config("nibe.coolingStartTemp") || (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > (config("nibe.coolingStartTemp") + 3)))
-				if ($avgOutdoorTemp > config("nibe.coolingStartTemp"))
+				// if ($avgOutdoorTemp > ControlSettings::get('nibe.coolingStartTemp') || (!is_null($nextDayHighTemperatureAverage) && $nextDayHighTemperatureAverage > (ControlSettings::get('nibe.coolingStartTemp') + 3)))
+				if ($avgOutdoorTemp > ControlSettings::get('nibe.coolingStartTemp'))
 				{
 					$htgMode = "cooling";
 				}
@@ -1304,7 +1309,7 @@
 				$scheduleString = Setting::firstWhere("key", "agile_schedule")->value;
 				$schedules = json_decode($scheduleString, true);
 
-				if (config("weather.useForecast") !== false)
+				if (ControlSettings::get('weather.useForecast') !== false)
 				{
 					$forecastTemperature = WeatherController::getForecastAverageTemperature();
 
@@ -1315,7 +1320,7 @@
 
 					$scheduleWindow = "";
 
-					if ($outdoorTemp < config("nibe.tempFreqMin") || $forecastTemperature < config("nibe.tempFreqMin"))
+					if ($outdoorTemp < ControlSettings::get('nibe.tempFreqMin') || $forecastTemperature < ControlSettings::get('nibe.tempFreqMin'))
 					{
 						// following #61 this may be redundant, but leaving in for now
 						// $scheduleWindow = "constant";
@@ -1327,12 +1332,12 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.tempFreqMin"),
+							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.ControlSettings::get('nibe.tempFreqMin'),
 						]);
 
 						// return true;
 					}
-					elseif ($outdoorTemp < config("nibe.runLevel2Temp") || $forecastTemperature < config("nibe.runLevel2Temp"))
+					elseif ($outdoorTemp < ControlSettings::get('nibe.runLevel2Temp') || $forecastTemperature < ControlSettings::get('nibe.runLevel2Temp'))
 					{
 						$scheduleWindow = "cosy";
 
@@ -1341,10 +1346,10 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.runLevel2Temp"),
+							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.ControlSettings::get('nibe.runLevel2Temp'),
 						]);
 					}
-					elseif ($outdoorTemp < config("nibe.runLevel1Temp") || $forecastTemperature < config("nibe.runLevel1Temp"))
+					elseif ($outdoorTemp < ControlSettings::get('nibe.runLevel1Temp') || $forecastTemperature < ControlSettings::get('nibe.runLevel1Temp'))
 					{
 						$scheduleWindow = "cosy";
 
@@ -1353,7 +1358,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.config("nibe.runLevel1Temp"),
+							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.ControlSettings::get('nibe.runLevel1Temp'),
 						]);
 					}
 					else
@@ -1368,7 +1373,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => '$outdoorTemp '.$outdoorTemp.' and $forecastTemperature '.$forecastTemperature.' not below < '.config("nibe.runLevel1Temp"),
+							'message'    => '$outdoorTemp '.$outdoorTemp.' and $forecastTemperature '.$forecastTemperature.' not below < '.ControlSettings::get('nibe.runLevel1Temp'),
 						]);
 					}
 
@@ -1394,7 +1399,7 @@
 					// if it's going to be warm enough at some point then override the schedule window to just boost at the cheapest times or not at all
 					if (!is_null($nextDayHighTemperatureAverage))
 					{
-						if ($nextDayHighTemperatureAverage > config("nibe.runLevel1Temp"))
+						if ($nextDayHighTemperatureAverage > ControlSettings::get('nibe.runLevel1Temp'))
 						{
 							// #53: testing what happens if we stick to Cosy even if this condition is true
 							// $scheduleWindow = "cosy";
@@ -1409,13 +1414,13 @@
 								'controller' => __CLASS__,
 								'method'     => __FUNCTION__,
 								'level'      => "info",
-								'message'    => '$nextDayHighTemperatureAverage > '.config("nibe.runLevel1Temp").': not boosting',
+								'message'    => '$nextDayHighTemperatureAverage > '.ControlSettings::get('nibe.runLevel1Temp').': not boosting',
 							]);
 
 							return false;
 						}
 
-						if ($nextDayHighTemperatureAverage > config("nibe.runLevel2Temp"))
+						if ($nextDayHighTemperatureAverage > ControlSettings::get('nibe.runLevel2Temp'))
 						{
 							$scheduleWindow = "cosy";
 						}
@@ -1450,9 +1455,9 @@
 				}
 				else
 				{
-					if ($avgOutdoorTemp >= config("nibe.runLevel1Temp"))
+					if ($avgOutdoorTemp >= ControlSettings::get('nibe.runLevel1Temp'))
 					{
-						if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+						if ($outdoorTemp >= ControlSettings::get('nibe.dmTargetOffTemp'))
 						{
 							return false;
 						}
@@ -1471,14 +1476,14 @@
 						return false;
 					}
 
-					if ($avgOutdoorTemp >= config("nibe.runLevel2Temp"))
+					if ($avgOutdoorTemp >= ControlSettings::get('nibe.runLevel2Temp'))
 					{
-						if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+						if ($outdoorTemp >= ControlSettings::get('nibe.dmTargetOffTemp'))
 						{
 							return false;
 						}
 
-						if ($outdoorTemp >= config("nibe.runLevel1Temp"))
+						if ($outdoorTemp >= ControlSettings::get('nibe.runLevel1Temp'))
 						{
 							foreach ($schedules['cheapest_3_hours'] as $schedule)
 							{
@@ -1508,14 +1513,14 @@
 						return false;
 					}
 
-					if ($avgOutdoorTemp >= config("nibe.tempFreqMin"))
+					if ($avgOutdoorTemp >= ControlSettings::get('nibe.tempFreqMin'))
 					{
-						if ($outdoorTemp >= config("nibe.dmTargetOffTemp"))
+						if ($outdoorTemp >= ControlSettings::get('nibe.dmTargetOffTemp'))
 						{
 							return false;
 						}
 
-						if ($outdoorTemp >= config("nibe.runLevel1Temp"))
+						if ($outdoorTemp >= ControlSettings::get('nibe.runLevel1Temp'))
 						{
 							foreach ($schedules['cheapest_3_hours'] as $schedule)
 							{
@@ -1531,7 +1536,7 @@
 							return false;
 						}
 
-						if ($outdoorTemp >= config("nibe.runLevel2Temp"))
+						if ($outdoorTemp >= ControlSettings::get('nibe.runLevel2Temp'))
 						{
 							foreach ($schedules['cheapest_6_hours'] as $schedule)
 							{
@@ -1571,7 +1576,7 @@
 		{
 			if ($htgMode == "off")
 			{
-				$dmTarget = config("nibe.dmTargetOff");
+				$dmTarget = ControlSettings::get('nibe.dmTargetOff');
 
 				if ($priority == 20)
 				{
@@ -1591,7 +1596,7 @@
 
 			if ($htgMode == "intermittent")
 			{
-				$dmTarget = config("nibe.dmTarget");
+				$dmTarget = ControlSettings::get('nibe.dmTarget');
 
 				ActivityLog::create(
 				[
@@ -1606,7 +1611,7 @@
 
 			if ($htgMode == "on")
 			{
-				$dmTarget = config("nibe.dmTarget");
+				$dmTarget = ControlSettings::get('nibe.dmTarget');
 
 				ActivityLog::create(
 				[
@@ -1621,7 +1626,7 @@
 
 			if ($htgMode == "boost")
 			{
-				$dmTarget = config("nibe.dmTargetBoost");
+				$dmTarget = ControlSettings::get('nibe.dmTargetBoost');
 
 				ActivityLog::create(
 				[
@@ -1636,7 +1641,7 @@
 
 			if ($htgMode == "extraBoost")
 			{
-				$dmTarget = config("nibe.dmTarget") + config("nibe.dmTargetBoost") + 90;
+				$dmTarget = ControlSettings::get('nibe.dmTarget') + ControlSettings::get('nibe.dmTargetBoost') + 90;
 
 				ActivityLog::create(
 				[
@@ -1651,7 +1656,7 @@
 
 			if ($htgMode == "cooling")
 			{
-				$dmTarget = config("nibe.dmTargetCooling");
+				$dmTarget = ControlSettings::get('nibe.dmTargetCooling');
 
 				ActivityLog::create(
 				[

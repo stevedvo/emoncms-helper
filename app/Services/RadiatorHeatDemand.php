@@ -25,7 +25,7 @@
 		{
 			$reason = null;
 
-			if (config('nibe.dmOverride') === false || config('nibe.loadCompensationOn') === false)
+			if (ControlSettings::get('nibe.dmOverride') === false || ControlSettings::get('nibe.loadCompensationOn') === false)
 			{
 				$reason = 'DM override or load compensation is disabled';
 			}
@@ -42,7 +42,7 @@
 				{
 					$ageSeconds = CarbonImmutable::now()->getTimestamp() - $decision['calculatedAt'];
 
-					if ($ageSeconds < 0 || $ageSeconds > config('hive.radiatorDemandMaxAgeMinutes', 10) * 60)
+					if ($ageSeconds < 0 || $ageSeconds > ControlSettings::get('hive.radiatorDemandMaxAgeMinutes') * 60)
 					{
 						$reason = 'decision is stale or dated in the future';
 					}

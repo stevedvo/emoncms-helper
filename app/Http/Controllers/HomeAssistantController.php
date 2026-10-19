@@ -3,6 +3,7 @@
 
 	use Exception;
 	use Throwable;
+	use App\Services\ControlSettings;
 	use App\APIs\HomeAssistantAPI;
 	use App\Models\ActivityLog;
 	use App\Models\NibeFeedItem;
@@ -23,12 +24,12 @@
 
 				$priority = (int)$latestPriorityNibeFeedItem->rawValue;
 				$radiatorHeatRequired = $priority === 30 ? RadiatorHeatDemand::current() : null;
-				$targetTemp = config("hive.targetOffTemp");
+				$targetTemp = ControlSettings::get('hive.targetOffTemp');
 
 				// Cooling retains its existing behaviour. Unknown heating demand falls back to priority.
 				if ($priority === 60 || ($priority === 30 && $radiatorHeatRequired !== false))
 				{
-					$targetTemp = config("hive.targetOnTemp");
+					$targetTemp = ControlSettings::get('hive.targetOnTemp');
 				}
 
 				ActivityLog::create(

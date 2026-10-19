@@ -148,6 +148,21 @@ class RadiatorHeatDemandTest extends TestCase
         $this->assertHiveTarget(30, 30);
     }
 
+    public function test_room_parameters_change_on_the_next_calculation_without_restarting(): void
+    {
+        ControlledNibeController::prepare(22, 20.5);
+        $this->assertSame('off', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        Setting::create(['key' => 'control.nibe.loadCompTempOff', 'value' => '22.5']);
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertTrue(RadiatorHeatDemand::current());
+
+        ControlledNibeController::prepare(24, 20.5);
+        $this->assertSame('off', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        Setting::create(['key' => 'control.nibe.ufhTempIntermittent', 'value' => '21']);
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertFalse(RadiatorHeatDemand::current());
+    }
+
     public function test_missing_room_data_replaces_a_previous_off_decision_with_unknown(): void
     {
         RadiatorHeatDemand::record(false);

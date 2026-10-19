@@ -3,6 +3,7 @@
 
 	use Exception;
 	use Throwable;
+	use App\Services\ControlSettings;
 	use App\APIs\EmonAPI;
 	use App\Models\ActivityLog;
 	use App\Models\EmonFeedMap;
@@ -33,7 +34,7 @@
 
 				$now = CarbonImmutable::now();
 				$endTime = $now->subMinutes(5);
-				$startTime = $endTime->subHours(config("emon.emonSyncPeriodHours"));
+				$startTime = $endTime->subHours(ControlSettings::get('emon.emonSyncPeriodHours'));
 				$startTimeMilliseconds = $startTime->format("Uv");
 				$endTimeMilliseconds = $endTime->format("Uv");
 
