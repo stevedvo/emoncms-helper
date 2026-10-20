@@ -1083,13 +1083,33 @@
 
 			if (true)
 			{
-				// if using load compensation and UFH is less than 19.5 then let htgMode be at least on
-				// else if UFH is less than 20.0 then let htgMode be at least intermittent
+				// Keep the UFH comfort thresholds as minimums; preheat during boost windows outside peak import.
 				if (static::$loadCompensationOn !== false && $allowLoadCompensation === true)
 				{
-					if (!is_null(static::getRoomTemperature("UFH_temperature", false)))
+					$ufhTemperature = static::getRoomTemperature("UFH_temperature", false);
+
+					if (!is_null($ufhTemperature))
 					{
-						if (static::$roomTemperature["UFH_temperature"] <= ControlSettings::get('nibe.ufhTempOn'))
+						$ufhPreheatAdjust = $boostActive && !$peakImport ? ControlSettings::get('nibe.ufhBoostTempAdjust') : 0;
+						$ufhTempOn = ControlSettings::get('nibe.ufhTempOn') + $ufhPreheatAdjust;
+						$ufhTempIntermittent = ControlSettings::get('nibe.ufhTempIntermittent') + $ufhPreheatAdjust;
+						$ufhBoostTempShortfall = ControlSettings::get('nibe.ufhBoostTempShortfall');
+						// Avoid floating-point noise turning an exact shortfall boundary into a boost request.
+						$ufhTemperatureShortfall = round($ufhTempIntermittent - $ufhTemperature, 6);
+
+						if ($ufhTemperatureShortfall > $ufhBoostTempShortfall)
+						{
+							$htgMode = static::htgModeAtLeastBoost($htgMode);
+
+							ActivityLog::create(
+							[
+								'controller' => __CLASS__,
+								'method'     => __FUNCTION__,
+								'level'      => "info",
+								'message'    => 'UFH_temperature shortfall '.$ufhTemperatureShortfall.' > '.$ufhBoostTempShortfall.' (target '.$ufhTempIntermittent.', temperature '.$ufhTemperature.', preheat +'.$ufhPreheatAdjust.'): $htgMode = '.$htgMode,
+							]);
+						}
+						elseif ($ufhTemperature <= $ufhTempOn)
 						{
 							$htgMode = static::htgModeAtLeastOn($htgMode);
 
@@ -1098,10 +1118,10 @@
 								'controller' => __CLASS__,
 								'method'     => __FUNCTION__,
 								'level'      => "info",
-								'message'    => 'UFH_temperature <= '.ControlSettings::get('nibe.ufhTempOn').': $htgMode = '.$htgMode,
+								'message'    => 'UFH_temperature <= '.$ufhTempOn.' (temperature '.$ufhTemperature.', preheat +'.$ufhPreheatAdjust.'): $htgMode = '.$htgMode,
 							]);
 						}
-						elseif (static::$roomTemperature["UFH_temperature"] <= ControlSettings::get('nibe.ufhTempIntermittent'))
+						elseif ($ufhTemperature <= $ufhTempIntermittent)
 						{
 							$htgMode = static::htgModeAtLeastIntermittent($htgMode);
 
@@ -1110,7 +1130,7 @@
 								'controller' => __CLASS__,
 								'method'     => __FUNCTION__,
 								'level'      => "info",
-								'message'    => 'UFH_temperature <= '.ControlSettings::get('nibe.ufhTempIntermittent').': $htgMode = '.$htgMode,
+								'message'    => 'UFH_temperature <= '.$ufhTempIntermittent.' (temperature '.$ufhTemperature.', preheat +'.$ufhPreheatAdjust.'): $htgMode = '.$htgMode,
 							]);
 						}
 					}

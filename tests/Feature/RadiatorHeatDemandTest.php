@@ -107,7 +107,7 @@ class RadiatorHeatDemandTest extends TestCase
             'Rad only' => [20.5, 20.5, 10, false, false, null, 'on', true, 30],
             'Rad exactly off threshold' => [21.5, 20.5, 10, false, false, null, 'intermittent', true, 30],
             'Rad above off threshold' => [21.6, 20.5, 10, false, false, null, 'off', false, 16],
-            'boost promotion must not create Rad demand' => [24, 19.8, 10, true, false, null, 'intermittent', false, 16],
+            'UFH boost must not create Rad demand' => [24, 19.8, 10, true, false, null, 'boost', false, 16],
             'boost adjusted Rad threshold' => [22.4, 20.5, 10, true, false, null, 'boost', true, 30],
             'peak adjusted Rad threshold' => [20, 19.8, 10, false, true, null, 'intermittent', false, 16],
             'peak threshold equality' => [19.5, 20.5, 10, false, true, null, 'intermittent', true, 30],
@@ -142,7 +142,7 @@ class RadiatorHeatDemandTest extends TestCase
     public function test_disallowed_boost_promotion_preserves_existing_room_band_adjustments(): void
     {
         config()->set('nibe.allowBoosts', false);
-        ControlledNibeController::prepare(22.4, 20.5, true);
+        ControlledNibeController::prepare(22.4, 21.5, true);
         $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(30, 10, 10));
         $this->assertTrue(RadiatorHeatDemand::current());
         $this->assertHiveTarget(30, 30);
@@ -161,6 +161,158 @@ class RadiatorHeatDemandTest extends TestCase
         Setting::create(['key' => 'control.nibe.ufhTempIntermittent', 'value' => '21']);
         $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
         $this->assertFalse(RadiatorHeatDemand::current());
+    }
+
+    #[DataProvider('ufhPreheatScenarios')]
+    public function test_ufh_preheats_only_outside_peak_and_keeps_its_normal_protection(float $ufh, bool $boost, bool $peak, string $expectedMode) : void
+    {
+        // Isolate the UFH thresholds from the separate, optional boost mode promotion.
+        config()->set('nibe.allowBoosts', false);
+        ControlledNibeController::prepare(26, $ufh, $boost, $peak);
+        $this->assertSame($expectedMode, ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertFalse(RadiatorHeatDemand::current());
+        $this->assertHiveTarget(30, 16);
+    }
+
+    public static function ufhPreheatScenarios() : array
+    {
+        return [
+            'normal above protection' => [20.1, false, false, 'off'],
+            'normal intermittent boundary' => [20, false, false, 'intermittent'],
+            'normal on boundary' => [19.5, false, false, 'on'],
+            'preheat above normal threshold' => [20.1, true, false, 'on'],
+            'preheat on boundary' => [20.5, true, false, 'on'],
+            'preheat intermittent band' => [20.6, true, false, 'intermittent'],
+            'preheat intermittent boundary' => [21, true, false, 'intermittent'],
+            'preheat sufficiently warm' => [21.1, true, false, 'off'],
+            'peak does not preheat' => [20.1, true, true, 'off'],
+            'peak keeps early start' => [20, true, true, 'intermittent'],
+            'peak keeps continuous protection' => [19.5, true, true, 'on'],
+            'peak without boost keeps early start' => [19.8, false, true, 'intermittent'],
+        ];
+    }
+
+    public function test_ufh_preheat_margin_is_live_and_can_be_disabled() : void
+    {
+        config()->set('nibe.allowBoosts', false);
+        ControlledNibeController::prepare(26, 20.8, true);
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $margin = Setting::create(['key' => 'control.nibe.ufhBoostTempAdjust', 'value' => '0']);
+        $this->assertSame('off', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $margin->update(['value' => '2']);
+        $this->assertSame('boost', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertFalse(RadiatorHeatDemand::current());
+    }
+
+    #[DataProvider('ufhBoostScenarios')]
+    public function test_ufh_shortfall_requests_at_least_boost_without_creating_radiator_demand(float $ufh, bool $preheat, bool $peak, string $expectedMode) : void
+    {
+        config()->set('nibe.allowBoosts', false);
+        ControlledNibeController::prepare(26, $ufh, $preheat, $peak);
+        $this->assertSame($expectedMode, ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertFalse(RadiatorHeatDemand::current());
+        $this->assertHiveTarget(30, 16);
+    }
+
+    public static function ufhBoostScenarios() : array
+    {
+        return [
+            'normal below boost shortfall' => [19.1, false, false, 'on'],
+            'normal exact shortfall is not more than X' => [19, false, false, 'on'],
+            'normal over boost shortfall' => [18.9, false, false, 'boost'],
+            'preheat below boost shortfall' => [20.1, true, false, 'on'],
+            'preheat exact shortfall is not more than X' => [20, true, false, 'on'],
+            'preheat over boost shortfall' => [19.9, true, false, 'boost'],
+            'peak suppresses the preheat boost threshold' => [19.9, true, true, 'intermittent'],
+            'peak exact normal shortfall' => [19, true, true, 'on'],
+            'peak retains boost for a large comfort shortfall' => [18.9, true, true, 'boost'],
+            'large UFH shortfall does not request extraBoost' => [16, false, false, 'boost'],
+        ];
+    }
+
+    public function test_ufh_boost_shortfall_setting_is_live_and_logged() : void
+    {
+        config()->set('nibe.allowBoosts', false);
+        ControlledNibeController::prepare(26, 19.3);
+        $this->assertSame('on', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $shortfall = Setting::create(['key' => 'control.nibe.ufhBoostTempShortfall', 'value' => '0.5']);
+        $this->assertSame('boost', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $message = ActivityLog::where('message', 'like', 'UFH_temperature shortfall%')->latest('id')->first()->message;
+        $this->assertStringContainsString('shortfall 0.7 > 0.5', $message);
+        $this->assertStringContainsString('target 20, temperature 19.3, preheat +0', $message);
+        $shortfall->update(['value' => '2']);
+        $this->assertSame('on', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+    }
+
+    public function test_fractional_ufh_boost_boundary_uses_the_configured_target_and_margin() : void
+    {
+        config()->set('nibe.allowBoosts', false);
+        Setting::create(['key' => 'control.nibe.ufhTempIntermittent', 'value' => '20.2']);
+        Setting::create(['key' => 'control.nibe.ufhBoostTempAdjust', 'value' => '0.3']);
+        Setting::create(['key' => 'control.nibe.ufhBoostTempShortfall', 'value' => '1.1']);
+        ControlledNibeController::prepare(26, 19.4, true);
+        $this->assertSame('on', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        ControlledNibeController::prepare(26, 19.3, true);
+        $this->assertSame('boost', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+    }
+
+    public function test_ufh_boost_preserves_higher_demand_and_obeys_the_defrost_cap() : void
+    {
+        config()->set('nibe.allowBoosts', false);
+        ControlledNibeController::prepare(18, 18.9);
+        $this->assertSame('extraBoost', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        ControlledNibeController::prepare(26, 18.9, false, false, true);
+        $this->assertSame('on', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertFalse(RadiatorHeatDemand::current());
+        $this->assertHiveTarget(30, 16);
+    }
+
+    public function test_ufh_preheat_uses_configured_base_thresholds_and_logs_the_adjustment() : void
+    {
+        config()->set('nibe.allowBoosts', false);
+        Setting::create(['key' => 'control.nibe.ufhTempOn', 'value' => '20']);
+        Setting::create(['key' => 'control.nibe.ufhTempIntermittent', 'value' => '20.5']);
+        Setting::create(['key' => 'control.nibe.ufhBoostTempAdjust', 'value' => '0.5']);
+        ControlledNibeController::prepare(26, 20.7, true);
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $message = ActivityLog::where('message', 'like', 'UFH_temperature%')->latest('id')->first()->message;
+        $this->assertStringContainsString('UFH_temperature <= 21', $message);
+        $this->assertStringContainsString('temperature 20.7, preheat +0.5', $message);
+    }
+
+    public function test_forecasts_do_not_shift_the_ufh_thresholds_outside_boost_windows() : void
+    {
+        config()->set('nibe.allowBoosts', false);
+        ControlledNibeController::prepare(26, 19.8, false, true);
+        $this->setForecast(14);
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertFalse(RadiatorHeatDemand::current());
+
+        Setting::where('key', 'weather_data')->delete();
+        $this->setForecast(2);
+        ControlledNibeController::prepare(26, 20.1);
+        $this->assertSame('off', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+    }
+
+    public function test_missing_ufh_or_disabled_compensation_skips_preheating() : void
+    {
+        config()->set('nibe.allowBoosts', false);
+        ControlledNibeController::prepare(26, null, true);
+        $this->assertSame('off', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertSame(0, ActivityLog::where('message', 'like', 'UFH_temperature%')->count());
+
+        config()->set('nibe.loadCompensationOn', false);
+        ControlledNibeController::prepare(26, 20.1, true);
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertSame(0, ActivityLog::where('message', 'like', 'UFH_temperature%')->count());
+    }
+
+    public function test_cooling_still_overrides_ufh_preheating() : void
+    {
+        ControlledNibeController::prepare(26, 19.8, true);
+        $this->assertSame('cooling', ControlledNibeController::calculateHeatingMode(60, 25, 25));
+        $this->assertFalse(RadiatorHeatDemand::current());
+        $this->assertHiveTarget(60, 30);
     }
 
     public function test_missing_room_data_replaces_a_previous_off_decision_with_unknown(): void
@@ -295,7 +447,7 @@ class ControlledNibeController extends NibeController
     private static bool $peak;
     private static bool $defrost;
 
-    public static function prepare(?float $rad, float $ufh, bool $boost = false, bool $peak = false, bool $defrost = false): void
+    public static function prepare(?float $rad, ?float $ufh, bool $boost = false, bool $peak = false, bool $defrost = false): void
     {
         foreach (['loadCompensationOn', 'loadCompTempOff', 'loadCompTempIntermittent', 'loadCompTempOn', 'loadCompTempLevel1'] as $property) {
             static::${$property} = null;

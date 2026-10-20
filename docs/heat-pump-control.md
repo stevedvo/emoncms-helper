@@ -126,15 +126,31 @@ This happens after the room bands, so a boost window can affect both the thresho
 
 If the calculated mode is `off` but priority is `30` (already heating), change to `intermittent`. This avoids deliberately shortening the current heating cycle. It is not an unconditional minimum runtime.
 
-### 6. Protect a cool UFH zone
+### 6. Protect a cool UFH zone and preheat during boost windows
 
-When radiator-based load compensation is allowed, read `UFH_temperature` using the configured room-sensor history (default 180 minutes). With the default editable UFH thresholds:
+When radiator-based load compensation is allowed, read `UFH_temperature` using the configured room-sensor history (default 180 minutes). The normal UFH thresholds remain minimum comfort protection, including during expensive periods. With the default editable UFH thresholds:
 
-- At or below **19.5°C**, ensure at least `on`.
+- Below **19°C** (more than 1°C below the normal 20°C target), ensure at least `boost`.
+- Otherwise, at or below **19.5°C**, ensure at least `on`.
 - Otherwise, at or below **20°C**, ensure at least `intermittent`.
 - Above 20°C, leave the mode alone.
 
-The thresholds are now `nibe.ufhTempOn` and `nibe.ufhTempIntermittent` in the Settings page. This read uses `updateSettings = false`; it neither falls back to saved UFH temperature nor changes `allowLoadCompensation`. Missing UFH data skips this step. Log messages use the current configured thresholds.
+When `boostActive` is true and `peakImport` is false, add `nibe.ufhBoostTempAdjust` (default **1°C**) to both thresholds. This requests heat earlier during the existing boost windows so the annexe can store heat ahead of less favourable periods:
+
+| Period | Ensure at least `boost` | Otherwise ensure at least `on` | Otherwise ensure at least `intermittent` |
+| --- | --- | --- | --- |
+| Normal or peak, with defaults | UFH < 19°C | UFH <= 19.5°C | UFH <= 20°C |
+| Boost outside peak, with a 1°C preheat margin | UFH < 20°C | UFH <= 20.5°C | UFH <= 21°C |
+
+The UFH target for the shortfall calculation is `nibe.ufhTempIntermittent` (the **allow heating at** setting, default 20°C), plus any active preheat margin. When `target - measured temperature > nibe.ufhBoostTempShortfall` (default **1°C**), ensure at least `boost` before testing the existing on/intermittent bands. The comparison is strict: a 1°C shortfall with X = 1°C does not trigger this rule. The calculated shortfall is rounded to six decimal places to avoid floating-point noise at exact boundaries. The rule applies both within and outside boost windows, including during peak periods; only the preheat margin is suppressed during peak periods. It never requests `extraBoost` on its own and never lowers a higher mode already requested elsewhere.
+
+All four parameters are editable under **Room temperatures** in Settings and are read on every calculation. The preheat margin accepts 0–3°C; setting it to zero removes the extra preheat allowance in every window. **UFH: boost shortfall** accepts 0.1–5°C. Neither setting disables the separate scheduled mode promotion in step 4. Like radiator room-band demand, UFH preheating and shortfall-based boost operate even when `allowBoosts` is false, because that flag controls step 4's scheduled promotion rather than room-temperature demand.
+
+UFH does **not** copy the radiator's negative peak/warm-forecast adjustments or its cold-forecast temperature additions. Neither a peak period nor a warm forecast lowers the UFH early-start protection. A peak period always suppresses the extra UFH preheat margin, even if a boost window overlaps it. This does not veto a higher mode requested by another rule, such as radiator demand, scheduled mode promotion, cycle preservation or the cold-forecast peak minimum.
+
+Preheating uses the existing boost-window decision, including its weather/schedule handling: a warm forecast that makes `isBoostActive()` return false also disables UFH preheating. These windows are the app's existing timing signals, not a new live-price comparison. The aim is to reduce the likelihood of needing peak-period heating; the comfort thresholds still permit it when needed, and no room-temperature outcome is guaranteed by the software alone.
+
+This read uses `updateSettings = false`; it neither falls back to saved UFH temperature nor changes `allowLoadCompensation`. Missing UFH data skips this step. UFH raises the overall mode to at least `intermittent`, `on` or `boost`, preserving higher radiator/boost demand and the independent radiator valve decision. Log messages report the measured UFH temperature, effective threshold and preheat margin; shortfall-based boost also records the target, shortfall and configured X. Later defrost/cooling rules retain their existing precedence.
 
 ### 7. Apply the remaining peak-period rule
 
@@ -259,6 +275,8 @@ These use defaults, valid room data, no defrost cap unless stated, and average o
 | Same boost example, but defrost reduction true | ExtraBoost is capped after the comfort/boost rules. | `on` |
 | Peak window, Rad 20.5°C, UFH 20.3°C, no cold forecast or boost | A = -2; off threshold becomes 19.5°C; idle pump stays off. | `off` |
 | Same peak example, UFH 19.4°C | UFH floor overrides the off decision. | `on` |
+| Boost window outside peak, Rad 24°C, UFH 20.4°C, default 1°C UFH margin | Radiators remain off; scheduled promotion allows intermittent; UFH preheat threshold of 20.5°C raises the mode to on. Hive retains its radiator-off target. | `on` |
+| Same preheat example, UFH 19.9°C, default X = 1°C | The UFH target is 21°C; a 1.1°C shortfall requests boost, without radiator demand. | `boost` |
 | Warm forecast, Rad 20.8°C, UFH above 20°C, idle | Start nudged off; A = -1; off threshold is 20.5°C; boosts suppressed. | `off` |
 | Any heating decision, average outdoor temperature 24.1°C | Last rule selects cooling. | `cooling` |
 

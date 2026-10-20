@@ -49,6 +49,8 @@ The selected mode is a request made through temperature settings. The helper doe
 
 Radiator demand is recorded separately from the overall mode. During heating, Hive requests its on temperature only when the radiator temperature warrants intermittent heating or higher, using the same adjusted room thresholds. UFH-only demand can therefore run the heat pump while Hive keeps the radiator zone at its off target. Missing or stale decisions fall back to the existing priority-based behaviour; cooling is unchanged.
 
+UFH keeps its normal comfort thresholds during peak periods. During boost windows outside peak import, a configurable preheat margin raises both UFH thresholds (by 1°C by default) to bring heat into the annexe earlier. The margin is editable in Settings and follows the existing boost-window/forecast decision. UFH can also request at least `boost` when its shortfall from the allow-heating threshold plus active preheat margin exceeds a configurable X (default 1°C). These UFH rules do not create radiator demand, and the later defrost/cooling rules retain precedence.
+
 ## Where to look in the source
 
 | Location | Responsibility |
@@ -85,4 +87,4 @@ The existing tests can be run with:
 php vendor/bin/phpunit
 ```
 
-All **92 tests / 387 assertions** pass. Coverage includes live settings, validation, access protection, dashboard behaviour, searchable logs, private saved searches, zone-demand decisions, Hive targets, reports and framework examples, using isolated test databases and mocked external calls. These tests do not operate the physical equipment.
+All **126 tests / 493 assertions** pass. Coverage includes live settings, validation, access protection, dashboard behaviour, searchable logs, private saved searches, zone-demand decisions, UFH preheating, shortfall-based boost and peak comfort protection, Hive targets, reports and framework examples, using isolated test databases and mocked external calls. These tests do not operate the physical equipment.
