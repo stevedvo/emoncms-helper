@@ -2,7 +2,7 @@
 
 [Project overview](../README.md) · [Control logic](heat-pump-control.md) · [Configuration and operation](configuration-and-operation.md)
 
-The control panel has two pages: **Overview** at `/`, and **Settings** at `/settings`. Both require sign-in. No public registration or default password is supplied.
+The control panel has **Overview** at `/`, **Settings** at `/settings`, **Activity Logs** at `/logs/activity`, and **API Logs** at `/logs/api`. All require sign-in. No public registration or default password is supplied.
 
 ## First use
 
@@ -15,7 +15,11 @@ php artisan app:create-user
 
 The first command imports missing operating parameters from the application's effective configuration. It never overwrites an existing database parameter. The second asks for a name, email address and password; password entry is hidden and requires confirmation and at least 12 characters. Existing accounts are not replaced. Users already in the Laravel `users` table can sign in without creating another account. All manually provisioned accounts are trusted control-panel operators; there is no separate read-only role.
 
-Open the application's normal URL and sign in. A web server must serve the `public/` directory. The panel uses local CSS/JavaScript files and needs no Vite build, npm install, or external asset service. A new installation still needs the ordinary Laravel/database setup and migrations described in the operations guide. No additional database migration is needed for the control panel: it uses the existing `settings`, `users`, catalogue, reading and log tables.
+Open the application's normal URL and sign in. A web server must serve the `public/` directory. The panel uses local CSS/JavaScript files and needs no Vite build, npm install, or external asset service. A new installation still needs the ordinary Laravel/database setup and migrations described in the operations guide. The log browser adds a `saved_log_searches` table; existing log tables are unchanged. On an existing installation, apply its migration before opening the log pages:
+
+```text
+php artisan migrate --path=database/migrations/2026_10_20_000000_create_saved_log_searches_table.php
+```
 
 The Settings page also imports any missing operating parameters when first opened. This supports existing installations and newly added parameter definitions without replacing values already saved. Importing preserves the current effective operating values; it does not send any command to the heat pump, Hive or Home Assistant.
 
@@ -77,6 +81,18 @@ The browser separately fetches `/dashboard/feeds` immediately and every minute w
 
 Room-feed freshness uses the configured room-sensor history; other feed samples older than five minutes are marked for attention. Missing values remain missing, including when the legitimate numeric value is zero. If Emon fails, the stored NIBE page remains available, the connection message explains the problem, and any previously displayed Emon values are labelled as last displayed values. Refresh/retry does not claim those values are current. The read adapter is separate from the existing integration wrapper and does not add dashboard reads to `api_logs`.
 
+## Browsing logs and saving searches
+
+Open **Activity Logs** or **API Logs** in the sidebar. Activity entries can be filtered by controller, method, level and message. API entries instead expose their stored method, endpoint and payload; their ignored/processed/pending status is displayed alongside expandable payload text. Log content is displayed as escaped text, including HTML appearing in a payload or message.
+
+Each condition has a field, a match operator and text. Choose **contains**, **does not contain**, **equals**, or **does not equal**. Use **Add filter** to combine up to 20 conditions, including multiple conditions on the same field. All non-empty conditions must match (AND). For example, select `message contains UFH` and `message does not contain fallback` to inspect UFH decisions while excluding fallback entries. Text matching ignores case; `%`, `_`, `!` and controller namespace backslashes are literal characters. Empty database fields count as empty text, so they match a negative condition unless excluded by another condition. Blank filter inputs are ignored; `0` remains a valid search term.
+
+Optional **From date** and **Through date** include whole UK calendar days, including daylight-saving transitions. Results show the newest inserted entries first, with 25, 50 or 100 entries per page and UK timestamps. Pagination preserves the applied filters. Use **Clear filters** to return to all entries. Searches read stored records without polling integrations or issuing equipment commands; ordinary log-retention rules still apply. Broad text searches over large log histories may take longer; date limits can narrow the work.
+
+After running a search, enter a name and choose **Save applied search**. This saves the filters currently used for the displayed results, including the date range and page size. Editing filter inputs alone does not change the saved criteria: run the search first. Saving under an existing name updates that search for the same log type. Clicking a saved name reloads its criteria and runs them against the current log records, starting at the first page. The date range is saved as specific calendar dates rather than a moving time window.
+
+Saved searches belong to the signed-in account, are stored in the database, and remain available after signing out or restarting the browser/scheduler. Activity and API searches have separate lists. **Delete** removes only the named saved search; log entries remain unchanged. One account cannot load, replace or delete another account's searches.
+
 ## Source and verification
 
 | Source | Responsibility |
@@ -84,6 +100,9 @@ Room-feed freshness uses the configured room-sensor history; other feed samples 
 | `config/control-parameters.php`, `app/Services/ControlSettings.php` | Allowed parameters, typed reads, initial import, revision check and audited writes. |
 | `app/Http/Requests/UpdateControlSettingsRequest.php` | Field and relationship validation. |
 | `app/Http/Controllers/SettingsController.php` | Settings page and save flow. |
+| `app/Http/Controllers/LogBrowserController.php`, `app/Http/Requests/LogSearchRequest.php`, `app/Services/LogSearch.php` | Validated log filters, pagination and private saved-search actions. |
+| `app/Models/SavedLogSearch.php`, `database/migrations/2026_10_20_000000_create_saved_log_searches_table.php` | Persistent named criteria, scoped to account and log type. |
+| `resources/views/logs/`, `public/js/log-search.js` | Log pages, repeatable filters and saved-search forms. |
 | `app/Http/Controllers/SessionController.php` | Session sign-in/out; login is rate limited to six attempts per minute per IP. |
 | `app/Http/Controllers/DashboardController.php`, `app/Services/LocalEmonFeeds.php` | Stored NIBE/state overview and bounded live Emon reads. |
 | `resources/views/layouts/control-panel.blade.php`, `resources/views/dashboard.blade.php`, `resources/views/settings.blade.php`, `resources/views/login.blade.php` | Responsive pages and accessible, labelled forms. |
@@ -91,3 +110,5 @@ Room-feed freshness uses the configured room-sensor history; other feed samples 
 | `app/Console/Commands/ImportControlSettings.php`, `app/Console/Commands/CreateControlPanelUser.php` | Initial import and manual account provisioning. |
 
 The test suite uses isolated in-memory SQLite connections and mocked outbound requests. It covers import preservation, typed/live control reads, cache refresh, login/logout/throttling, unauthenticated requests, CSRF protection, validation with no partial writes, stale-form rejection, secret exclusion, dashboard empty/readings states, zero-valued Emon data and service failures. Browser checks used a separate demonstration database and a local fake Emon service; no live heating commands were sent.
+
+Log-browser tests additionally cover combined/repeated conditions, negative matches against empty fields, literal wildcard characters, case-insensitive text matching, escaped log content, date boundaries across a UK clock change, pagination, invalid-input recovery, saved-search persistence and ownership, and CSRF protection. Browser checks use separate demonstration records; read-only query checks also run against the local MySQL connection.

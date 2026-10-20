@@ -18,6 +18,8 @@
 		<nav aria-label="Main navigation">
 			<a class="nav-item {{ request()->routeIs('dashboard') ? 'active' : '' }}" href="{{ route('dashboard') }}" @if(request()->routeIs('dashboard')) aria-current="page" @endif><span aria-hidden="true">◫</span> Overview</a>
 			<a class="nav-item {{ request()->routeIs('settings*') ? 'active' : '' }}" href="{{ route('settings') }}" @if(request()->routeIs('settings*')) aria-current="page" @endif><span aria-hidden="true">⚙</span> Settings</a>
+			<a class="nav-item {{ request()->routeIs('logs.*') && request()->route('type') === 'activity' ? 'active' : '' }}" href="{{ route('logs.index', ['type' => 'activity']) }}" @if(request()->route('type') === 'activity') aria-current="page" @endif><span aria-hidden="true">≡</span> Activity Logs</a>
+			<a class="nav-item {{ request()->routeIs('logs.*') && request()->route('type') === 'api' ? 'active' : '' }}" href="{{ route('logs.index', ['type' => 'api']) }}" @if(request()->route('type') === 'api') aria-current="page" @endif><span aria-hidden="true">⇄</span> API Logs</a>
 		</nav>
 		<div class="sidebar-bottom">
 			<div class="small-label">SIGNED IN AS</div>

@@ -10,7 +10,7 @@ This is a Laravel 10 / PHP application driven primarily by scheduled commands. I
 
 | Guide | Contents |
 | --- | --- |
-| [Control panel and live settings](docs/control-panel.md) | First sign-in, importing existing values, live parameter editing, validation, authentication, and dashboard behaviour. |
+| [Control panel and live settings](docs/control-panel.md) | First sign-in, importing existing values, live parameter editing, dashboard, searchable logs and saved searches. |
 | [Heat pump control](docs/heat-pump-control.md) | Exact decision order, room-temperature bands, boosts, peak periods, defrost reduction, degree-minute calculations, cooling, and worked examples. |
 | [Integrations and data](docs/integrations-and-data.md) | NIBE polling, Emoncms feeds, weather payloads, tariff schedules, Hive, hot water, database tables, and logging. |
 | [Configuration and operation](docs/configuration-and-operation.md) | Environment variables and defaults, initial data requirements, command schedule, time zones, and troubleshooting. |
@@ -63,7 +63,7 @@ Radiator demand is recorded separately from the overall mode. During heating, Hi
 | `app/Models/`, `database/migrations/` | Stored readings, mappings, settings, and logs. |
 | `app/Services/ActivityLogSummarizer.php`, `app/Mail/`, `resources/views/emails/` | Administrator reports and notification formatting. |
 | `app/Services/ControlSettings.php`, `config/control-parameters.php` | Editable operating-parameter catalogue, typed live reads, import and audited saves. |
-| `routes/web.php`, `resources/views/`, `public/css/control-panel.css`, `public/js/control-panel.js` | Authenticated dashboard/settings pages, login, responsive styling and Emon refresh. |
+| `routes/web.php`, `resources/views/`, `public/css/control-panel.css`, `public/js/` | Authenticated dashboard, settings and log pages, saved searches, login, responsive styling and Emon refresh. |
 | `routes/api.php` | Existing weather-ingestion endpoint and Sanctum user endpoint. |
 
 ## Getting started
@@ -85,4 +85,4 @@ The existing tests can be run with:
 php vendor/bin/phpunit
 ```
 
-After the control-panel change, all **68 tests / 279 assertions** passed. Coverage includes live settings, validation, access protection, dashboard behaviour, zone-demand decisions, Hive targets, reports and framework examples, using isolated test databases and mocked external calls. These tests do not operate the physical equipment.
+All **92 tests / 387 assertions** pass. Coverage includes live settings, validation, access protection, dashboard behaviour, searchable logs, private saved searches, zone-demand decisions, Hive targets, reports and framework examples, using isolated test databases and mocked external calls. These tests do not operate the physical equipment.
