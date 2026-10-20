@@ -15,8 +15,9 @@ Use `public/css/control-panel.css`, `public/js/control-panel.js`, and
 - Separate logical groups with blank lines. Preserve the breathing room around
   control-flow blocks and before returns where the surrounding code uses it.
 - Preserve intentional horizontal alignment and compact expressions. Do not force
-  long calls, conditions, array entries, or HTML onto multiple lines to satisfy an
-  arbitrary line-length limit.
+  long calls, conditions, array entries, or HTML attribute lists onto multiple
+  lines to satisfy an arbitrary line-length limit. Expand nested Blade markup
+  according to the Blade rules below, regardless of line length.
 - Match the file being edited where existing conventions vary. Older code,
   framework scaffolding, and tests are not all formatted identically. Do not
   reformat unrelated code or run a formatter across the repository. In particular,
@@ -78,7 +79,7 @@ const refresh = () =>
 };
 ```
 
-## PHP and Blade
+## PHP
 
 - In the app's indented PHP style, keep `<?php` at column one and use one base tab
   for the namespace, imports, class declaration, or top-level config code. Add a
@@ -106,5 +107,38 @@ const refresh = () =>
 
 - Indent fluent method continuations one further tab and preserve local blank lines.
 - Follow nearby string quoting rather than changing existing quotes gratuitously.
-- Preserve Blade's tab indentation and existing compact HTML/directive layout;
-  do not expand whole templates as a side effect of a small edit.
+
+## Blade views
+
+- Use tabs for indentation and make the nesting visible. Put each structural HTML
+  element on its own line; never pack multiple nested or sibling `<div>` elements
+  into one line.
+- For containers with child elements, put the opening tag, indented children, and
+  closing tag on separate lines. Apply this to sections, forms, navigation, lists,
+  tables and other structural markup as well as divs.
+- A simple text-only element can stay on one line, such as
+  `<div class="eyebrow">KEEP THE USEFUL ONES</div>`. Keep inline text, units and
+  punctuation together where introducing whitespace would change their display.
+- Put block Blade directives such as `@if`, `@else`, `@endif`, `@foreach`,
+  `@endforeach`, `@forelse`, `@empty`, and `@endforelse` on separate lines. Indent
+  their contents one further tab and align branches and closing directives with
+  their opening directive. Expand `@section` and `@push` blocks the same way.
+- Put standalone directives such as `@csrf` and `@method` on their own lines.
+  Attribute directives such as `@checked`, `@selected`, and conditional attributes
+  remain inside their HTML opening tag.
+- Do not wrap long attribute lists merely to satisfy a line-length limit. Preserve
+  expressions and attributes while expanding the surrounding markup.
+- Preserve whitespace-sensitive content, especially `<pre>` and `<textarea>`
+  values; do not add indentation or newlines inside those values.
+
+```blade
+<div class="section-heading">
+	<div>
+		<div class="eyebrow">KEEP THE USEFUL ONES</div>
+		<h2 id="saved-heading">Saved searches</h2>
+	</div>
+	@if($selected)
+		<span class="pill neutral">Loaded: {{ $selected->name }}</span>
+	@endif
+</div>
+```
