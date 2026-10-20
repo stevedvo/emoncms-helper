@@ -242,6 +242,110 @@ class ControlPanelTest extends TestCase
 		$this->getJson('/dashboard/feeds')->assertOk()->assertJsonPath('feeds.0.room', null);
 	}
 
+	public function test_dashboard_omits_nibe_exports_but_keeps_independent_sensor_readings() : void
+	{
+		$this->actingAs(User::factory()->create());
+		DB::table('nibe_parameters')->insert(['parameterId' => 40004, 'title' => 'outdoor temp.', 'unit' => '°C']);
+		DB::table('nibe_to_emon_feed_maps')->insert([
+			['parameterId' => 40004, 'title' => 'outdoor temp.', 'localFeedId' => null, 'localName' => 'outdoor history'],
+			['parameterId' => 40067, 'title' => 'avg. outdoor temp', 'localFeedId' => 201, 'localName' => 'renamed export'],
+		]);
+		DB::table('emon_feed_maps')->insert([
+			['localFeedId' => 17, 'localName' => 'Rad_temperature', 'remoteFeedId' => 117, 'remoteName' => 'Rad_temperature'],
+			['localFeedId' => 206, 'localName' => 'heatmeter_FlowT', 'remoteFeedId' => 206, 'remoteName' => 'heatmeter_FlowT'],
+		]);
+		Http::fake(['emon.test/*' => Http::response([
+			['id' => 201, 'name' => 'renamed reading', 'tag' => 'Custom tag', 'value' => 10],
+			['id' => 202, 'name' => 'heating', 'tag' => 'NIBE', 'value' => 1],
+			['id' => 203, 'name' => 'nibe_priority', 'value' => 30],
+			['id' => 204, 'name' => 'outdoor temp.', 'value' => 10],
+			['id' => 205, 'name' => 'outdoor temp.', 'tag' => 'Garden sensor', 'value' => 10],
+			['id' => 206, 'name' => 'outdoor temp.', 'value' => 10],
+			['id' => 207, 'name' => 'outdoor history', 'value' => 10],
+			['id' => 17, 'name' => 'temperature', 'tag' => 'Room sensor', 'value' => 21.4],
+		])]);
+		$feeds = collect($this->getJson('/dashboard/feeds')->assertOk()->json('feeds'));
+		$this->assertEqualsCanonicalizing([17, 205, 206], $feeds->pluck('id')->all());
+		$this->assertSame('rad', $feeds->firstWhere('id', 17)['room']);
+	}
+
+	public function test_room_measurements_are_grouped_with_siblings_under_their_parent_device() : void
+	{
+		$this->actingAs(User::factory()->create());
+		DB::table('emon_feed_maps')->insert([
+			['localFeedId' => 17, 'localName' => 'Rad_temperature', 'remoteFeedId' => 117, 'remoteName' => 'Rad_temperature'],
+			['localFeedId' => 18, 'localName' => 'Rad_humidity', 'remoteFeedId' => 118, 'remoteName' => 'Rad_humidity'],
+			['localFeedId' => 14, 'localName' => 'UFH_temperature', 'remoteFeedId' => 114, 'remoteName' => 'UFH_temperature'],
+			['localFeedId' => 15, 'localName' => 'UFH_humidity', 'remoteFeedId' => 115, 'remoteName' => 'UFH_humidity'],
+		]);
+		Http::fake(['emon.test/*' => Http::response([
+			['id' => 300, 'name' => 'temperature forecast', 'tag' => 'emonth_annexe', 'value' => 20.1],
+			['id' => 14, 'name' => 'temperature', 'tag' => 'emonth_annexe', 'value' => 19.8],
+			['id' => 17, 'name' => 'temperature', 'tag' => 'emonth_main', 'value' => 21.4],
+			['id' => 15, 'name' => 'humidity', 'tag' => 'emonth_annexe', 'value' => 65],
+			['id' => 18, 'name' => 'humidity', 'tag' => 'emonth_main', 'value' => 55],
+		])]);
+		$feeds = collect($this->getJson('/dashboard/feeds')->assertOk()->json('feeds'));
+		$this->assertSame([18, 17, 15, 14, 300], $feeds->pluck('id')->all());
+		$this->assertSame(['Radiator zone · Main building', 'UFH zone · Annexe'], $feeds->pluck('device')->unique()->values()->all());
+		$this->assertNull($feeds->firstWhere('id', 18)['room']);
+		$this->assertSame('rad', $feeds->firstWhere('id', 17)['room']);
+		$this->assertSame('ufh', $feeds->firstWhere('id', 14)['room']);
+	}
+
+	public function test_device_tags_and_mapping_fallbacks_group_feeds_without_guessing_an_unknown_parent() : void
+	{
+		$this->actingAs(User::factory()->create());
+		DB::table('emon_feed_maps')->insert([
+			['localFeedId' => 1, 'localName' => 'heatmeter_Energy', 'remoteFeedId' => 1, 'remoteName' => 'heatmeter_Energy'],
+			['localFeedId' => 7, 'localName' => 'total_Power', 'remoteFeedId' => 7, 'remoteName' => 'total_Power'],
+			['localFeedId' => 18, 'localName' => 'Rad_humidity', 'remoteFeedId' => 118, 'remoteName' => 'Rad_humidity'],
+		]);
+		Http::fake(['emon.test/*' => Http::response([
+			['id' => 1, 'name' => 'energy', 'tag' => 'Shared meter', 'value' => 10],
+			['id' => 7, 'name' => 'power', 'tag' => 'Shared meter', 'value' => 0],
+			['id' => 18, 'name' => 'humidity', 'value' => 55],
+			['id' => 99, 'name' => 'temperature', 'value' => null],
+			['id' => 100, 'name' => 'power', 'tag' => 'Device 2', 'value' => 20],
+			['id' => 101, 'name' => 'power', 'tag' => 'Device 10', 'value' => 30],
+		])]);
+		$feeds = collect($this->getJson('/dashboard/feeds')->assertOk()->json('feeds'))->keyBy('id');
+		$this->assertSame('Shared meter', $feeds[1]['device']);
+		$this->assertSame('Shared meter', $feeds[7]['device']);
+		$this->assertEquals(0, $feeds[7]['value']);
+		$this->assertSame('Radiator zone · Main building', $feeds[18]['device']);
+		$this->assertSame('Other feeds', $feeds[99]['device']);
+		$this->assertNull($feeds[99]['value']);
+		$this->assertLessThan($feeds->keys()->search(101), $feeds->keys()->search(100));
+	}
+
+	public function test_shared_tags_do_not_assign_an_unmapped_feed_to_an_arbitrary_room() : void
+	{
+		$this->actingAs(User::factory()->create());
+		DB::table('emon_feed_maps')->insert([
+			['localFeedId' => 17, 'localName' => 'Rad_temperature', 'remoteFeedId' => 117, 'remoteName' => 'Rad_temperature'],
+			['localFeedId' => 14, 'localName' => 'UFH_temperature', 'remoteFeedId' => 114, 'remoteName' => 'UFH_temperature'],
+		]);
+		Http::fake(['emon.test/*' => Http::response([
+			['id' => 17, 'name' => 'temperature', 'tag' => 'Shared sensors', 'value' => 21.4],
+			['id' => 14, 'name' => 'temperature', 'tag' => 'Shared sensors', 'value' => 19.8],
+			['id' => 99, 'name' => 'humidity', 'tag' => 'Shared sensors', 'value' => 60],
+		])]);
+		$feeds = collect($this->getJson('/dashboard/feeds')->assertOk()->json('feeds'))->keyBy('id');
+		$this->assertSame('Radiator zone · Main building', $feeds[17]['device']);
+		$this->assertSame('UFH zone · Annexe', $feeds[14]['device']);
+		$this->assertSame('Shared sensors', $feeds[99]['device']);
+	}
+
+	public function test_a_response_containing_only_nibe_exports_has_no_additional_feeds() : void
+	{
+		$this->actingAs(User::factory()->create());
+		Http::fake(['emon.test/*' => Http::response([
+			['id' => 200, 'name' => 'temperature', 'tag' => 'nibe', 'value' => 10],
+		])]);
+		$this->getJson('/dashboard/feeds')->assertOk()->assertJsonPath('feeds', []);
+	}
+
 	public function test_emon_failure_has_a_clear_message_without_disclosing_service_details(): void
 	{
 		$this->actingAs(User::factory()->create());

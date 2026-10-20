@@ -81,9 +81,13 @@ Changed parameters are logged with operator ID, label and old/new values; secret
 
 ## Overview data
 
-The overview shows NIBE priority, selected helper mode, radiator-demand status, automatic-control enablement, Rad/UFH temperature cards, outdoor temperature, degree minutes, latest stored NIBE points, all returned local Emon feeds, warning/error counts, and recent settings edits.
+The overview shows NIBE priority, selected helper mode, radiator-demand status, automatic-control enablement, Rad/UFH temperature cards, outdoor temperature, degree minutes, latest stored NIBE points, additional local Emon feeds grouped by device, warning/error counts, and recent settings edits.
 
 The Rad/UFH cards initially contain placeholders and are filled by the browser's Emon refresh. Room feeds are identified by `emon_feed_maps.localFeedId` for the `Rad_temperature` and `UFH_temperature` aliases, matching the control loop's mappings. Emon's actual display names can differ or both be `temperature`. Those raw names remain visible in the feed table. If a room has no mapping, an exact canonical name is accepted as a fallback; once mapped, an unrelated feed with a matching name cannot replace it. A mapped feed missing from the response leaves its card explicitly unavailable.
+
+The Emon list omits NIBE exports identified by their local NIBE feed mapping, NIBE device tag or `nibe_`-style name prefix. Untagged, unmapped feeds matching known NIBE parameter/export names are also omitted; independently mapped sensors and other tagged devices are preserved even when their parameter names coincide. This affects only the dashboard response, never Emon feed storage, uploads or chart history.
+
+Remaining entries are sorted by parent device and then feed name, with a device heading in the table. Rad/UFH mappings give friendly **Radiator zone · Main building** and **UFH zone · Annexe** headings for temperature, humidity, battery and sibling feeds sharing a tag unique to that room (including a temperature forecast). Other devices use their Emon tag. When tags are absent, known mapping prefixes provide room, heat-meter or electricity-meter groups; unidentified parents appear under **Other feeds**. Identically named measurements on different devices remain separate entries. Empty results show **No additional Emon feeds to show.**
 
 NIBE readings come from the helper's database, selecting the last inserted row per parameter and joining catalogue labels/units. The page does not trigger a myUplink poll. It shows **source sample times** in Europe/London; opening the page does not make an old sample current. Reload the overview to refresh the stored NIBE/state sections.
 

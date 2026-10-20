@@ -88,8 +88,24 @@
 				document.getElementById(`${room}-age`).textContent = 'No feed returned';
 			}
 
+			let previousDevice = null;
+
 			for (const feed of data.feeds)
 			{
+				if (feed.device !== previousDevice)
+				{
+					const group = document.createElement('tr');
+					group.className = 'feed-device-row';
+					const label = document.createElement('td');
+					label.colSpan = 4;
+					const heading = document.createElement('h3');
+					heading.textContent = feed.device;
+					label.append(heading);
+					group.append(label);
+					rows.append(group);
+					previousDevice = feed.device;
+				}
+
 				const row = document.createElement('tr');
 				const freshness = cell('', 'align-right');
 				const badge = document.createElement('span');
@@ -111,7 +127,7 @@
 
 			if (!data.feeds.length)
 			{
-				const row = document.createElement('tr'); const empty = cell('No local Emon feeds were returned.', 'empty-state'); empty.colSpan = 4; row.append(empty); rows.append(row);
+				const row = document.createElement('tr'); const empty = cell('No additional Emon feeds to show.', 'empty-state'); empty.colSpan = 4; row.append(empty); rows.append(row);
 			}
 
 			message.hidden = true;

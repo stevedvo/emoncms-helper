@@ -41,5 +41,11 @@ trait ControlPanelDatabase
 			$table->integer('parameterId')->primary(); $table->string('title');
 			$table->string('designation')->default(''); $table->string('unit')->default('');
 		});
+		Schema::create('nibe_to_emon_feed_maps', function (Blueprint $table)
+		{
+			$table->integer('parameterId')->primary(); $table->string('title');
+			$table->integer('localFeedId')->nullable(); $table->string('localName')->nullable();
+			$table->integer('remoteFeedId')->nullable(); $table->string('remoteName')->nullable();
+		});
 	}
 }

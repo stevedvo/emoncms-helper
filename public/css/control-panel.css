@@ -653,6 +653,23 @@ tbody tr:last-child td
 	color: #a0a997;
 }
 
+.feed-device-row td
+{
+	background: var(--pale);
+	border-top: 1px solid var(--line);
+	border-bottom: 1px solid var(--line);
+	padding-top: 12px;
+	padding-bottom: 12px;
+}
+
+.feed-device-row h3
+{
+	color: var(--ink);
+	font-size: 12px;
+	font-weight: 650;
+	margin: 0;
+}
+
 .reading-name
 {
 	font-weight: 550;

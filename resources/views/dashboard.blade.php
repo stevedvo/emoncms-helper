@@ -155,6 +155,7 @@
 			<div>
 				<div class="eyebrow">FROM YOUR ENERGY MONITOR</div>
 				<h2>Emon feeds</h2>
+				<p class="field-help">Additional readings grouped by device. Heat-pump readings are shown in NIBE readings above.</p>
 			</div>
 			<div class="feed-actions">
 				<span class="source-note" id="emon-status" role="status">Connecting to local Emon…</span>

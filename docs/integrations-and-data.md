@@ -61,6 +61,8 @@ Named readings resolve through `emon_feed_maps.localName` or `remoteName`. `getL
 
 The dashboard resolves its Rad/UFH cards using the same local feed-ID mappings rather than assuming the Emon display name matches the mapping alias. Its response marks each identified feed with `room: rad` or `room: ufh`, which also selects the room-specific sample-age limit. Original feed names remain unchanged in the feed table.
 
+Dashboard feed responses exclude NIBE exports using explicit local NIBE feed IDs, NIBE tags/name prefixes, and known NIBE names for otherwise unmapped/untagged feeds. Each retained entry has a `device` label derived from its parent tag or mapping, and entries are sorted by device/name. Room mappings also identify sibling feeds sharing a tag unique to one room, so humidity, battery and temperature forecast can be grouped with the right room sensor. These display rules do not alter any feeds, mappings, sync operations or stored history.
+
 `getForecastRoomTemperatureData()` reads the last 60 minutes of local `UFH_temperature`, drops nulls, fits a least-squares straight line against time, and projects **two hours beyond the final sample**. A single point produces zero slope. It returns:
 
 | Field | Meaning |
