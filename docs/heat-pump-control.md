@@ -173,6 +173,8 @@ Preheating uses the existing boost-window decision, including its weather/schedu
 
 This read uses `updateSettings = false`; it neither falls back to saved UFH temperature nor changes `allowLoadCompensation`. Missing UFH data skips this step. UFH raises the overall mode to at least `intermittent`, `on` or `boost`, preserving higher radiator/boost demand and the independent radiator valve decision. Log messages report the measured UFH temperature, effective threshold and preheat margin; shortfall-based boost also records the target, shortfall and configured X. Later defrost/cooling rules retain their existing precedence.
 
+When a valid UFH temperature is above the effective allow-heating threshold, an information-level message containing `no independent demand` records the temperature, preheat margin and unchanged mode at this stage. This means UFH is not requesting heat independently; it does not mean the ASHP is off, since other rules may already have requested heating. The later peak, defrost and cooling checks can still change the mode.
+
 ### 7. Apply the remaining peak-period rule
 
 During the peak window, if the low-six forecast average is below `dmTargetBoostTemp`, ensure at least `intermittent`. The other peak branches only log: their downward mode nudges are commented out. The active peak reduction mainly comes from the -2°C room-band adjustment in step 3.

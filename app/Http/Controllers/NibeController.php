@@ -1134,6 +1134,16 @@
 								'message'    => 'UFH_temperature <= '.$ufhTempIntermittent.' (temperature '.$ufhTemperature.', preheat +'.$ufhPreheatAdjust.'): $htgMode = '.$htgMode,
 							]);
 						}
+						else
+						{
+							ActivityLog::create(
+							[
+								'controller' => __CLASS__,
+								'method'     => __FUNCTION__,
+								'level'      => "info",
+								'message'    => 'UFH_temperature '.$ufhTemperature.', preheat +'.$ufhPreheatAdjust.', no independent demand: $htgMode = '.$htgMode,
+							]);
+						}
 					}
 				}
 			}
