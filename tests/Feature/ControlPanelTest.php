@@ -68,6 +68,7 @@ class ControlPanelTest extends TestCase
 		Setting::create(['key' => 'weather_data', 'value' => 'private-weather-state']);
 		$this->get('/settings')->assertOk()->assertSee('value="-225"', false)
 			->assertSee('UFH: allow heating at')->assertSee('No scheduler restart needed.')
+			->assertSee('Radiator demand hysteresis (each side)')
 			->assertDontSee('secret-not-for-the-page')->assertDontSee('private-bearer-token')->assertDontSee('private-weather-state');
 		$this->assertSame(count(ControlSettings::definitions()), Setting::where('key', 'like', 'control.%')->count());
 		$this->assertSame(-225, ControlSettings::get('nibe.dmTarget'));
@@ -121,6 +122,8 @@ class ControlPanelTest extends TestCase
 			'zero offset factor' => [['nibe__offsetFactor' => 0]],
 			'invalid boolean' => [['nibe__dmOverride' => 'maybe']],
 			'fractional integer' => [['hive__targetOnTemp' => 29.5]],
+			'negative radiator hysteresis' => [['hive__radiatorHysteresis' => -0.1]],
+			'excessive radiator hysteresis' => [['hive__radiatorHysteresis' => 2.1]],
 			'unordered room bands' => [['nibe__loadCompTempOff' => 18]],
 			'unordered UFH bands' => [['nibe__ufhTempOn' => 21]],
             'negative UFH preheat margin' => [['nibe__ufhBoostTempAdjust' => -0.1]],

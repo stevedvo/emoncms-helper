@@ -928,8 +928,9 @@
 					$sumAdjustments = $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust + $highForecastRoomTempAdjust;
 					$adjustmentsString = '('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.')+('.$highForecastRoomTempAdjust.')';
 
-					// Capture zone demand before boost/cycle preservation and UFH can raise the overall mode.
-					$radiatorHeatRequired = static::getRoomTemperature("Rad_temperature") <= static::$loadCompTempOff + $sumAdjustments;
+					// Retain radiator demand through the hysteresis band before later rules can raise the overall mode.
+					$radiatorThreshold = static::$loadCompTempOff + $sumAdjustments;
+					$radiatorHeatRequired = RadiatorHeatDemand::calculate(static::getRoomTemperature("Rad_temperature"), $radiatorThreshold);
 
 					if (!$radiatorHeatRequired)
 					{
@@ -940,7 +941,7 @@
 							'controller' => __CLASS__,
 							'method'     => __FUNCTION__,
 							'level'      => "info",
-							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").' > '.static::$loadCompTempOff.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
+							'message'    => 'Rad zone '.static::getRoomTemperature("Rad_temperature").'; no radiator demand after hysteresis around '.static::$loadCompTempOff.'+'.$adjustmentsString.': $htgMode = '.$htgMode,
 						]);
 					}
 					elseif (static::getRoomTemperature("Rad_temperature") > static::$loadCompTempIntermittent + $sumAdjustments)

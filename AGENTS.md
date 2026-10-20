@@ -92,15 +92,18 @@ const refresh = () =>
   `function()` and `function() use (...)` for empty-argument closures.
 - Keep PHP concatenation tight, for example `'prefix'.$value.'suffix'`. Match
   nearby cast spacing; the indented app code commonly uses `(float)$value`.
-- Use short arrays `[]`. Preserve aligned `=>` columns and grouped entries on
-  one line where already used. For multiline array arguments, follow the existing
-  pattern with `[` on the next line, aligned with the call:
+- Use short arrays `[]`. In multiline associative arrays, put each key-value pair
+  on its own line and use spaces to align every `=>` in the array vertically.
+  Do not group multiple pairs on one line, even where nearby code does so.
+  For multiline array arguments, use `[` on the next line, aligned with the call:
 
 ```php
 <?php
 	ActivityLog::create(
 	[
-		'controller' => self::class, 'method' => 'save', 'level' => 'info',
+		'controller' => self::class,
+		'method'     => 'save',
+		'level'      => 'info',
 		'message'    => 'Changed setting '.$key,
 	]);
 ```

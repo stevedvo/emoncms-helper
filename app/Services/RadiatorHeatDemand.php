@@ -18,6 +18,35 @@
 			], JSON_THROW_ON_ERROR)]);
 		}
 
+		public static function calculate(float $temperature, float $threshold) : bool
+		{
+			$reason = null;
+			$previous = self::storedDemand($reason);
+			$margin = ControlSettings::get('hive.radiatorHysteresis');
+			$onThreshold = round($threshold - $margin, 6);
+			$offThreshold = round($threshold + $margin, 6);
+
+			// Initialise at the original threshold when no recent decision can be retained.
+			if ($previous === null || $margin == 0)
+			{
+				$required = $temperature <= $threshold;
+			}
+			else
+			{
+				$required = $previous ? $temperature < $offThreshold : $temperature <= $onThreshold;
+			}
+
+			ActivityLog::create(
+			[
+				'controller' => __CLASS__,
+				'method'     => __FUNCTION__,
+				'level'      => 'info',
+				'message'    => 'Radiator demand: temperature '.$temperature.'; adjusted threshold '.$threshold.'; hysteresis +/-'.$margin.'; on at '.$onThreshold.'; off at '.$offThreshold.'; previous '.json_encode($previous).'; required '.json_encode($required).($previous === null ? '; initial decision: '.$reason : '').'.',
+			]);
+
+			return $required;
+		}
+
 		/**
 		 * Null means Hive should retain its existing priority-based behaviour.
 		 */
@@ -31,29 +60,11 @@
 			}
 			else
 			{
-				$stored = Setting::firstWhere('key', self::SETTING_KEY)?->value;
-				$decision = is_string($stored) ? json_decode($stored, true) : null;
+				$required = self::storedDemand($reason);
 
-				if (!is_array($decision) || !is_int($decision['calculatedAt'] ?? null))
+				if ($required !== null)
 				{
-					$reason = 'decision is missing or invalid';
-				}
-				else
-				{
-					$ageSeconds = CarbonImmutable::now()->getTimestamp() - $decision['calculatedAt'];
-
-					if ($ageSeconds < 0 || $ageSeconds > ControlSettings::get('hive.radiatorDemandMaxAgeMinutes') * 60)
-					{
-						$reason = 'decision is stale or dated in the future';
-					}
-					elseif (!is_bool($decision['required'] ?? null))
-					{
-						$reason = 'radiator temperature demand is unavailable';
-					}
-					else
-					{
-						return $decision['required'];
-					}
+					return $required;
 				}
 			}
 
@@ -64,6 +75,36 @@
 				'level'      => 'warning',
 				'message'    => 'Radiator heat demand: '.$reason.'; using priority-based Hive control.',
 			]);
+
+			return null;
+		}
+
+		private static function storedDemand(?string &$reason) : ?bool
+		{
+			$stored = Setting::firstWhere('key', self::SETTING_KEY)?->value;
+			$decision = is_string($stored) ? json_decode($stored, true) : null;
+
+			if (!is_array($decision) || !is_int($decision['calculatedAt'] ?? null))
+			{
+				$reason = 'decision is missing or invalid';
+
+				return null;
+			}
+
+			$ageSeconds = CarbonImmutable::now()->getTimestamp() - $decision['calculatedAt'];
+
+			if ($ageSeconds < 0 || $ageSeconds > ControlSettings::get('hive.radiatorDemandMaxAgeMinutes') * 60)
+			{
+				$reason = 'decision is stale or dated in the future';
+			}
+			elseif (!is_bool($decision['required'] ?? null))
+			{
+				$reason = 'radiator temperature demand is unavailable';
+			}
+			else
+			{
+				return $decision['required'];
+			}
 
 			return null;
 		}

@@ -4,6 +4,15 @@
 
 This guide describes the active code in [NibeController.php](../app/Http/Controllers/NibeController.php). All defaults are the checked-in values, not a claim about the live installation. Operating values are now read through `ControlSettings::get()` from the database and can be edited on the authenticated [Settings page](control-panel.md).
 
+## Installation context
+
+The owner clarified the following installation details on **20 October 2026**:
+
+- The UFH wall thermostat is set to **23°C**, so at the usual room temperatures it is effectively always calling for heat and holding the UFH zone valve open. It has no Internet connection and locally controls only whether that valve is open or closed. It can still close the valve when its own setpoint is satisfied. The helper's UFH thresholds and preheat target govern the requested ASHP heating mode; they do not adjust this thermostat or directly operate its valve. The helper does not receive the valve's position.
+- The NIBE has an owner-configured compressor curve. Observed behaviour is that degree minutes below approximately **-300** cause a higher compressor stage, typically about **+30Hz** above the speed otherwise selected from the curve. Below approximately **-420**, a further stage adds roughly another **30Hz**. The owner is less certain of the second threshold; both are installation observations, not verified universal NIBE specifications.
+
+These compressor stages explain the intent of the checked-in DM targets: normal `on` targets **-180**, `boost` targets **-360** to encourage the first higher stage, and `extraBoost` targets **-450** to encourage the next. The helper steers DM through flow-temperature settings rather than writing DM or frequency directly, and NIBE retains control of the actual compressor response. A UFH shortfall requesting `boost` therefore participates in the same deliberate compressor-staging strategy as radiator demand.
+
 ## The control loop
 
 `nibe:getData` calls `getNibeData()` every minute. It obtains all myUplink device points, stores recognised readings, and sends new or previously unsuccessful readings to Emoncms. When the current minute is divisible by five, it also runs these operations, in order:
@@ -104,9 +113,21 @@ The radiator temperature is tested against these bands in descending order:
 | 19 + A < T <= 20 + A | Ensure at least `boost`. |
 | T <= 19 + A | Set `extraBoost`. |
 
-Equality falls into the colder, more demanding band. A positive adjustment requests warmer rooms; a negative adjustment permits cooler rooms. There is no separate thermostat deadband or mode-persistence timer in this calculation.
+Equality falls into the colder, more demanding band. A positive adjustment requests warmer rooms; a negative adjustment permits cooler rooms. The intensity bands have no separate deadband or mode-persistence timer. The radiator demand on/off decision uses the hysteresis below before these intensity bands are applied.
 
-At this stage, the controller separately captures whether `T <= loadCompTempOff + A`: true means the radiator zone warrants at least intermittent heating, false means it is warm enough to remain off. Later boost promotion, cycle preservation, UFH demand, and peak minimum-mode rules can raise the overall heat-pump mode without changing this radiator decision. If the room bands cannot be evaluated, radiator demand is null (unknown).
+Let `C = loadCompTempOff + A` and `H = hive.radiatorHysteresis` (default **0.5°C each side**). A fresh previous radiator-demand decision is read from the settings table:
+
+| Previous radiator demand | New decision |
+| --- | --- |
+| Off | Switch on at `T <= C - H`; otherwise remain off. |
+| On | Switch off at `T >= C + H`; otherwise remain on. |
+| Missing, unknown, invalid, stale or future-dated | Initialise using the original comparison `T <= C`. |
+
+For an adjusted threshold of **19.5°C**, an established off decision remains off until **19.0°C**, and an established on decision remains on until **20.0°C**. Between these boundaries, keep the previous decision. This is a 1°C total band. Zero margin restores the original `T <= C` comparison, including equality. Fractional switching boundaries are rounded to six decimal places. The current peak, boost and forecast adjustments move the centre of the band on each calculation.
+
+If this retained radiator decision is false, the radiator stage selects `off`. If true, the existing intermittent/on/boost/extraBoost intensity comparisons apply, with at least intermittent even above `C` while demand is retained. This keeps the ASHP's radiator demand consistent with its valve demand: a radiator whose valve is held off cannot alone start a heating cycle. Later boost promotion, cycle preservation, UFH demand, and peak minimum-mode rules can raise the overall heat-pump mode without changing the radiator decision. If the room bands cannot be evaluated, radiator demand is null (unknown).
+
+The decision and calculation time are saved at the end of each calculation, so hysteresis persists between scheduler invocations. The existing decision-age limit applies to the previous state (default ten minutes, inclusive); after a longer gap the next valid temperature initialises a new decision. Activity logs show the temperature, adjusted centre, margin, switching boundaries, previous state and result. The margin is editable under **Settings → Hive** and applies at the next control calculation without a scheduler restart.
 
 ### 4. Promote the mode during an allowed boost
 

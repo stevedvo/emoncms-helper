@@ -41,6 +41,7 @@ class RadiatorHeatDemandTest extends TestCase
         config()->set('weather.useForecast', false);
         config()->set('hive.targetOnTemp', 30);
         config()->set('hive.targetOffTemp', 16);
+        config()->set('hive.radiatorHysteresis', 0.5);
         config()->set('hive.radiatorDemandMaxAgeMinutes', 10);
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-18 02:00:00 UTC'));
 
@@ -132,11 +133,105 @@ class RadiatorHeatDemandTest extends TestCase
 
     public function test_radiators_can_join_and_leave_a_running_ufh_heating_cycle(): void
     {
-        foreach ([[22, 16], [21.5, 30], [22.1, 16]] as [$rad, $target]) {
+        foreach ([[22, 16, 'intermittent'], [21.5, 16, 'intermittent'], [21, 30, 'on'], [21.6, 30, 'intermittent'], [22, 16, 'intermittent']] as [$rad, $target, $mode]) {
             ControlledNibeController::prepare($rad, 19.8);
-            $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(30, 10, 10));
+            $this->assertSame($mode, ControlledNibeController::calculateHeatingMode(30, 10, 10));
             $this->assertHiveTarget(30, $target);
+            CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(5));
         }
+    }
+
+    public function test_peak_adjusted_radiator_demand_holds_its_state_between_both_boundaries() : void
+    {
+        foreach ([[19.6, false], [19.5, false], [19.1, false], [19, true], [19.5, true], [19.6, true], [19.9, true], [20, false], [19.6, false]] as [$rad, $required])
+        {
+            ControlledNibeController::prepare($rad, 19.8, false, true);
+            ControlledNibeController::calculateHeatingMode(30, 10, 10);
+            $this->assertSame($required, RadiatorHeatDemand::current(), 'Radiator temperature '.$rad);
+            $this->assertHiveTarget(30, $required ? 30 : 16);
+            CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(5));
+        }
+
+        $message = ActivityLog::where('controller', RadiatorHeatDemand::class)->where('method', 'calculate')->latest('id')->first()->message;
+        $this->assertStringContainsString('adjusted threshold 19.5; hysteresis +/-0.5; on at 19; off at 20', $message);
+        $this->assertStringContainsString('previous false; required false', $message);
+    }
+
+    public function test_hysteresis_follows_changes_to_the_adjusted_radiator_threshold() : void
+    {
+        ControlledNibeController::prepare(21.2, 19.8);
+        ControlledNibeController::calculateHeatingMode(30, 10, 10);
+        $this->assertTrue(RadiatorHeatDemand::current());
+
+        ControlledNibeController::prepare(21.2, 19.8, false, true);
+        ControlledNibeController::calculateHeatingMode(30, 10, 10);
+        $this->assertFalse(RadiatorHeatDemand::current());
+
+        ControlledNibeController::prepare(21.2, 19.8, true);
+        ControlledNibeController::calculateHeatingMode(30, 10, 10);
+        $this->assertTrue(RadiatorHeatDemand::current());
+    }
+
+    public function test_radiator_mode_demand_and_valve_demand_use_the_same_hysteresis() : void
+    {
+        RadiatorHeatDemand::record(false);
+        foreach ([[21.2, 'off', false], [21, 'on', true], [21.6, 'intermittent', true], [22, 'off', false]] as [$rad, $mode, $required])
+        {
+            ControlledNibeController::prepare($rad, 20.5);
+            $this->assertSame($mode, ControlledNibeController::calculateHeatingMode(10, 10, 10));
+            $this->assertSame($required, RadiatorHeatDemand::current());
+        }
+    }
+
+    public function test_hysteresis_margin_is_live_and_zero_restores_the_original_comparison() : void
+    {
+        RadiatorHeatDemand::record(false);
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.2, 19.5));
+        $margin = Setting::create(['key' => 'control.hive.radiatorHysteresis', 'value' => '0.2']);
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.2, 19.5));
+        RadiatorHeatDemand::record(true);
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.6, 19.5));
+
+        $margin->update(['value' => '0']);
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.6, 19.5));
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5));
+        RadiatorHeatDemand::record(false);
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5));
+    }
+
+    public function test_fractional_hysteresis_boundaries_are_inclusive() : void
+    {
+        Setting::create(['key' => 'control.hive.radiatorHysteresis', 'value' => '0.1']);
+        RadiatorHeatDemand::record(false);
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.2, 19.3));
+        RadiatorHeatDemand::record(true);
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.4, 19.3));
+    }
+
+    #[DataProvider('invalidDecisions')]
+    public function test_hysteresis_initialises_at_the_original_threshold_without_a_valid_decision(?string $stored) : void
+    {
+        if ($stored !== null)
+        {
+            Setting::create(['key' => RadiatorHeatDemand::SETTING_KEY, 'value' => $stored]);
+        }
+
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5));
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.6, 19.5));
+        $this->assertSame(0, ActivityLog::where('level', 'warning')->count());
+    }
+
+    public function test_hysteresis_discards_stale_and_future_decisions() : void
+    {
+        RadiatorHeatDemand::record(false);
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(10));
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.5, 19.5));
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5));
+
+        RadiatorHeatDemand::record(true);
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->subSecond());
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.6, 19.5));
     }
 
     public function test_disallowed_boost_promotion_preserves_existing_room_band_adjustments(): void
