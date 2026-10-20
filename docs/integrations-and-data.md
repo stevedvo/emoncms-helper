@@ -59,6 +59,8 @@ Input success requires a decoded response array containing `success` equal to th
 
 Named readings resolve through `emon_feed_maps.localName` or `remoteName`. `getLatestEmonData()` searches a requested number of minutes ending at the current minute boundary, chooses the last non-null reading, and rounds to one decimal place. The main control loop uses editable `nibe.roomTemperatureLookbackMinutes` (default 180) for Rad/UFH data, so with defaults a returned reading can be nearly three hours old. There is no additional age check on the selected pair. The [dashboard](control-panel.md) separately reads the local feed list with a bounded read-only request; it does not trigger a control calculation.
 
+The dashboard resolves its Rad/UFH cards using the same local feed-ID mappings rather than assuming the Emon display name matches the mapping alias. Its response marks each identified feed with `room: rad` or `room: ufh`, which also selects the room-specific sample-age limit. Original feed names remain unchanged in the feed table.
+
 `getForecastRoomTemperatureData()` reads the last 60 minutes of local `UFH_temperature`, drops nulls, fits a least-squares straight line against time, and projects **two hours beyond the final sample**. A single point produces zero slope. It returns:
 
 | Field | Meaning |

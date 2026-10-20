@@ -83,6 +83,8 @@ Changed parameters are logged with operator ID, label and old/new values; secret
 
 The overview shows NIBE priority, selected helper mode, radiator-demand status, automatic-control enablement, Rad/UFH temperature cards, outdoor temperature, degree minutes, latest stored NIBE points, all returned local Emon feeds, warning/error counts, and recent settings edits.
 
+The Rad/UFH cards initially contain placeholders and are filled by the browser's Emon refresh. Room feeds are identified by `emon_feed_maps.localFeedId` for the `Rad_temperature` and `UFH_temperature` aliases, matching the control loop's mappings. Emon's actual display names can differ or both be `temperature`. Those raw names remain visible in the feed table. If a room has no mapping, an exact canonical name is accepted as a fallback; once mapped, an unrelated feed with a matching name cannot replace it. A mapped feed missing from the response leaves its card explicitly unavailable.
+
 NIBE readings come from the helper's database, selecting the last inserted row per parameter and joining catalogue labels/units. The page does not trigger a myUplink poll. It shows **source sample times** in Europe/London; opening the page does not make an old sample current. Reload the overview to refresh the stored NIBE/state sections.
 
 The browser separately fetches `/dashboard/feeds` immediately and every minute while visible. That authenticated endpoint reads local Emon `/feed/list.json` with the configured read key. The request has a two-second connection timeout and four-second total timeout. It does not call the heat-pump or thermostat write paths. No key or raw service exception is returned to the browser.

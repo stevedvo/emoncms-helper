@@ -23,6 +23,11 @@ trait ControlPanelDatabase
 		Schema::create('settings', function (Blueprint $table) {
 			$table->id(); $table->timestamps(); $table->string('key'); $table->text('value');
 		});
+		Schema::create('emon_feed_maps', function (Blueprint $table)
+		{
+			$table->integer('localFeedId'); $table->string('localName');
+			$table->integer('remoteFeedId'); $table->string('remoteName');
+		});
 		Schema::create('activity_logs', function (Blueprint $table) {
 			$table->id(); $table->timestamps(); $table->string('controller');
 			$table->string('method'); $table->string('level'); $table->text('message');

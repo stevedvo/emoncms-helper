@@ -182,10 +182,64 @@ class ControlPanelTest extends TestCase
 		$response = $this->getJson('/dashboard/feeds')->assertOk()->assertHeader('Cache-Control', 'no-store, private');
 		$feeds = collect($response->json('feeds'))->keyBy('name');
 		$this->assertEquals(0, $feeds['total_Power']['value']);
+		$this->assertNull($feeds['total_Power']['room']);
+		$this->assertSame('rad', $feeds['Rad_temperature']['room']);
+		$this->assertSame('ufh', $feeds['UFH_temperature']['room']);
 		$this->assertFalse($feeds['Rad_temperature']['stale']);
 		$this->assertTrue($feeds['UFH_temperature']['stale']);
 		$response->assertDontSee('must-not-be-returned')->assertDontSee('private-read-key');
 		Http::assertSent(fn ($request) => $request->method() === 'GET' && str_contains($request->url(), '/feed/list.json'));
+	}
+
+	public function test_dashboard_room_feeds_use_mapped_ids_when_display_names_are_shared() : void
+	{
+		$this->actingAs(User::factory()->create());
+		DB::table('emon_feed_maps')->insert([
+			['localFeedId' => 17, 'localName' => 'Rad_temperature', 'remoteFeedId' => 117, 'remoteName' => 'Rad_temperature'],
+			['localFeedId' => 14, 'localName' => 'UFH_temperature', 'remoteFeedId' => 114, 'remoteName' => 'UFH_temperature'],
+		]);
+		Http::fake(['emon.test/*' => Http::response([
+			['id' => '17', 'name' => 'temperature', 'tag' => 'Main building', 'value' => '21.4', 'time' => now()->subHours(2)->timestamp],
+			['id' => '14', 'name' => 'temperature', 'tag' => 'Annexe', 'value' => '0', 'time' => now()->subHours(2)->timestamp],
+		])]);
+		$response = $this->getJson('/dashboard/feeds')->assertOk();
+		$feeds = collect($response->json('feeds'))->keyBy('id');
+		$this->assertSame('rad', $feeds[17]['room']);
+		$this->assertSame('ufh', $feeds[14]['room']);
+		$this->assertSame('temperature', $feeds[17]['name']);
+		$this->assertEquals(21.4, $feeds[17]['value']);
+		$this->assertEquals(0, $feeds[14]['value']);
+		$this->assertFalse($feeds[17]['stale']);
+		$this->assertFalse($feeds[14]['stale']);
+	}
+
+	public function test_mapped_room_ids_take_precedence_over_unrelated_matching_names() : void
+	{
+		$this->actingAs(User::factory()->create());
+		DB::table('emon_feed_maps')->insert([
+			['localFeedId' => 17, 'localName' => 'Rad_temperature', 'remoteFeedId' => 117, 'remoteName' => 'Rad_temperature'],
+			['localFeedId' => 14, 'localName' => 'UFH_temperature', 'remoteFeedId' => 114, 'remoteName' => 'UFH_temperature'],
+		]);
+		Http::fake(['emon.test/*' => Http::response([
+			['id' => 17, 'name' => 'UFH_temperature', 'value' => 21.4, 'time' => now()->timestamp],
+			['id' => 14, 'name' => 'Rad_temperature', 'value' => 19.8, 'time' => now()->timestamp],
+			['id' => 99, 'name' => 'Rad_temperature', 'value' => 30, 'time' => now()->subHours(2)->timestamp],
+		])]);
+		$feeds = collect($this->getJson('/dashboard/feeds')->assertOk()->json('feeds'))->keyBy('id');
+		$this->assertSame('rad', $feeds[17]['room']);
+		$this->assertSame('ufh', $feeds[14]['room']);
+		$this->assertNull($feeds[99]['room']);
+		$this->assertTrue($feeds[99]['stale']);
+	}
+
+	public function test_missing_mapped_room_feed_is_not_replaced_by_a_name_match() : void
+	{
+		$this->actingAs(User::factory()->create());
+		DB::table('emon_feed_maps')->insert(['localFeedId' => 17, 'localName' => 'Rad_temperature', 'remoteFeedId' => 117, 'remoteName' => 'Rad_temperature']);
+		Http::fake(['emon.test/*' => Http::response([
+			['id' => 99, 'name' => 'Rad_temperature', 'value' => 30, 'time' => now()->timestamp],
+		])]);
+		$this->getJson('/dashboard/feeds')->assertOk()->assertJsonPath('feeds.0.room', null);
 	}
 
 	public function test_emon_failure_has_a_clear_message_without_disclosing_service_details(): void

@@ -98,7 +98,7 @@
 				freshness.append(badge);
 				row.append(cell(feed.name, 'reading-name'), cell(`${number(feed.value)} ${feed.unit}`, 'numeric'), cell(time(feed.timestamp), 'muted'), freshness);
 				rows.append(row);
-				const room = feed.name === 'Rad_temperature' ? 'rad' : feed.name === 'UFH_temperature' ? 'ufh' : null;
+				const room = feed.room === 'rad' || feed.room === 'ufh' ? feed.room : null;
 
 				if (room)
 				{
