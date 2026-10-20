@@ -136,11 +136,13 @@ Only period starts from now inclusive to now +24 hours exclusive are considered.
 
 `saveCheapestPeriods()` stores JSON in `settings.agile_schedule` with keys `cheapest_3_hours`, `cheapest_6_hours`, and `cosy`. The cheapest schedules each have overnight/daytime entries. Every entry contains `average_cost`, `start`, and `end`, with start/end as integer Unix seconds.
 
-Control timing offsets are hard-coded: **start 15 minutes early and finish 100 minutes early**. For a selected three-hour tariff window, this produces 95 minutes of boost eligibility; for six hours it produces 275 minutes. The cost remains the average of the full selected tariff window.
+Control timing offsets are editable in **Settings → Weather and boosts** as **Boost window: start offset** (`octopus.offsetToOn`, default -15 minutes) and **Boost window: end offset** (`octopus.offsetToOff`, default -100 minutes). Both apply to the cheapest-three-hour, cheapest-six-hour and Cosy schedules. Negative values move a boundary earlier; positive values move it later. The defaults still start 15 minutes early and finish 100 minutes early: a selected three-hour tariff window gives 95 minutes of boost eligibility, and six hours gives 275 minutes. The cost remains the average of the full selected tariff window.
+
+Both offsets accept whole minutes from -180 to +180. The Settings form rejects combinations that leave the shortest nominal window (the two-hour evening Cosy window) with zero or negative duration. `saveCheapestPeriods()` reads the database values on every generation. Saving an offset does not rewrite the existing `agile_schedule`; changes take effect at the next successful tariff refresh/schedule generation, normally the daily evening refresh, without a scheduler restart.
 
 Cosy windows are generated separately from fixed **Europe/London** times, using the next occurrence of each start:
 
-| Nominal window | Stored control window after offsets |
+| Nominal window | Stored control window with default offsets |
 | --- | --- |
 | 04:00–07:00 | 03:45–05:20 |
 | 13:00–16:00 | 12:45–14:20 |

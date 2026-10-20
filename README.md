@@ -87,4 +87,4 @@ The existing tests can be run with:
 php vendor/bin/phpunit
 ```
 
-All **126 tests / 493 assertions** pass. Coverage includes live settings, validation, access protection, dashboard behaviour, searchable logs, private saved searches, zone-demand decisions, UFH preheating, shortfall-based boost and peak comfort protection, Hive targets, reports and framework examples, using isolated test databases and mocked external calls. These tests do not operate the physical equipment.
+All **134 tests / 559 assertions** pass. Coverage includes live settings, validation, access protection, dashboard behaviour, searchable logs, private saved searches, zone-demand decisions, UFH preheating, shortfall-based boost and peak comfort protection, configurable boost-window offsets, Hive targets, reports and framework examples, using isolated test databases and mocked external calls. These tests do not operate the physical equipment.

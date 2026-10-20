@@ -71,6 +71,12 @@
 				$order('nibe.loadCompTempIntermittent', 'nibe.loadCompTempOn', 'The intermittent threshold must be at least the on threshold.');
 				$order('nibe.loadCompTempOn', 'nibe.loadCompTempLevel1', 'The on threshold must be at least the boost threshold.');
 				$order('nibe.ufhTempIntermittent', 'nibe.ufhTempOn', 'The UFH intermittent threshold must be at least its continuous-heating threshold.');
+
+				if ($candidate['octopus.offsetToOn'] - $candidate['octopus.offsetToOff'] >= 120)
+				{
+					$validator->errors()->add('values.octopus__offsetToOff', 'The start and end offsets must leave a positive duration for the shortest two-hour boost window.');
+				}
+
 				$order('nibe.offsetMaximum', 'nibe.offsetMinimum', 'The maximum offset must be at least the minimum offset.');
 
 				foreach (['nibe.offsetMaxInt', 'nibe.cheapModeOffsetMax'] as $key)

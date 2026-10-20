@@ -115,7 +115,7 @@ The myUplink token and function URLs are fixed in `config/nibe.php` to `https://
 
 The UFH thresholds are now editable as `nibe.ufhTempOn` (default 19.5°C) and `nibe.ufhTempIntermittent` (default 20°C), and room-sensor history as `nibe.roomTemperatureLookbackMinutes` (default 180). Log retention is editable under `logs.infoRetentionDays`, `warningRetentionDays`, `errorRetentionDays` and `apiRetentionDays` (defaults 30/60/90/90).
 
-The remaining hard-coded constants include peak offsets 80/25 minutes, boost schedule offsets -15/-100 minutes, extraBoost's +90, room-band adjustments, the 60-minute evaporator window, minimum-flow baseline/cap 10/60°C, two-hour UFH extrapolation, and hot-water schedule/time/temperature rules.
+Boost schedule offsets are editable as `octopus.offsetToOn` and `octopus.offsetToOff` (defaults -15/-100 minutes) under **Weather and boosts**. They apply when the schedule is next generated. The remaining hard-coded constants include peak offsets 80/25 minutes, extraBoost's +90, room-band adjustments, the 60-minute evaporator window, minimum-flow baseline/cap 10/60°C, two-hour UFH extrapolation, and hot-water schedule/time/temperature rules.
 
 ## Other integration configuration
 

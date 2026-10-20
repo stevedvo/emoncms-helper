@@ -42,11 +42,13 @@ Values are JSON scalars, so booleans are stored as `true`/`false`, integers as n
 
 Until a parameter has been imported, its effective Laravel configuration value is the compatibility fallback, followed by the catalogue's default for newly introduced settings. After import, the database takes precedence. Editing its old `.env` variable no longer changes that operating parameter. Existing environment entries may be retained as bootstrap fallbacks, or removed after confirming the import; secrets and service connection details should stay in environment configuration.
 
-The catalogue currently has 44 entries: existing NIBE, Hive, weather and Emon operating settings, plus the two UFH comfort thresholds, UFH preheat margin and boost shortfall, room-sensor history and four log-retention periods. Under **Room temperatures**, **UFH: cheaper-window preheat margin** adds 1°C by default to both UFH thresholds during boost windows outside peak import. Normal thresholds are never lowered. Set the margin to zero to disable that extra preheat allowance; the separate scheduled mode promotion remains unchanged.
+The catalogue currently has 46 entries: existing NIBE, Hive, weather and Emon operating settings, plus the two UFH comfort thresholds, UFH preheat margin and boost shortfall, boost-window start/end offsets, room-sensor history and four log-retention periods. Under **Room temperatures**, **UFH: cheaper-window preheat margin** adds 1°C by default to both UFH thresholds during boost windows outside peak import. Normal thresholds are never lowered. Set the margin to zero to disable that extra preheat allowance; the separate scheduled mode promotion remains unchanged.
 
 **UFH: boost shortfall** sets X (default 1°C, allowed range 0.1–5°C). UFH requests at least `boost` when its measured temperature is **more than X°C below the allow-heating threshold plus the active preheat margin**. With defaults this means below 19°C normally, or below 20°C during preheating. Exactly X°C shortfall leaves the normal on/intermittent checks in control. Shortfall-based boost can apply during peak periods against the normal target, and does not depend on the scheduled boost-promotion switch. The defrost cap and cooling override still take precedence. Both settings are read live, so no scheduler restart is needed. See [UFH control](heat-pump-control.md#6-protect-a-cool-ufh-zone-and-preheat-during-boost-windows) for timing and forecast details.
 
-The two inactive legacy NIBE parameters remain clearly labelled as unused. Not every hard-coded algorithm constant or schedule has been made editable: boost/peak timing offsets, radiator room-band adjustment amounts, hot-water rules, and other remaining constants retain their existing implementation.
+Under **Weather and boosts**, **Boost window: start offset** defaults to -15 minutes and **Boost window: end offset** to -100 minutes. Negative values move a boundary earlier; positive values move it later. They apply to all three-hour, six-hour and Cosy boost windows when the schedule is next generated, normally at the next successful evening tariff refresh. Saving these parameters does not rewrite a schedule already stored. Whole-minute values from -180 to +180 are allowed, provided the shortest two-hour window retains a positive duration.
+
+The two inactive legacy NIBE parameters remain clearly labelled as unused. Not every hard-coded algorithm constant or schedule has been made editable: peak-window timing offsets, radiator room-band adjustment amounts, hot-water rules, and other remaining constants retain their existing implementation.
 
 ## When changes take effect
 
@@ -58,6 +60,7 @@ Consequently:
 - Hive reads its operating values on the next minute invocation.
 - Emon comparison history applies at the next comparison.
 - Retention periods apply at the next cleanup.
+- Boost-window offsets apply when the tariff/boost schedule is next generated, rather than at the next heating calculation.
 
 No scheduler restart or configuration-cache rebuild is needed for **subsequent operating-setting edits**. Deploying new PHP code or changing credentials, connection configuration or command schedules still follows the installation's normal deployment process. The change does not reschedule tasks or force an immediate heating cycle. A calculation already in progress can overlap a save and may read settings on either side of that commit; the next complete calculation sees the new values.
 
@@ -70,6 +73,7 @@ The form submits to authenticated, CSRF-protected `PUT /settings`. Server valida
 - Minimum/maximum offsets and inclusion of special-mode limits.
 - Normal, off and boost DM target ordering.
 - Outdoor thresholds, dew-point bounds and Hive target ordering.
+- Whole-minute boost-window offsets that leave a positive duration for the shortest window.
 
 Edits are saved in one database transaction. A validation error saves nothing. A revision token detects a form based on older parameter values, so one browser session cannot silently overwrite another session's edits. On a stale-form error, reload the page before editing again. An invalid form retains its entered values for correction, but retains its old revision as well.
 

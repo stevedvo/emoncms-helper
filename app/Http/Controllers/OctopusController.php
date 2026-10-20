@@ -7,6 +7,7 @@
 	use App\Mail\AgileRates;
 	use App\Models\ActivityLog;
 	use App\Models\Setting;
+	use App\Services\ControlSettings;
 	use Carbon\Carbon;
 	use Carbon\CarbonImmutable;
 	use Illuminate\Support\Facades\Log;
@@ -279,8 +280,8 @@
 
 		private static function saveCheapestPeriods(array $cheapestPeriods) : void
 		{
-			$offsetToOn = -15;
-			$offsetToOff = -100;
+			$offsetToOn = ControlSettings::get('octopus.offsetToOn');
+			$offsetToOff = ControlSettings::get('octopus.offsetToOff');
 
 			$schedule =
 			[
