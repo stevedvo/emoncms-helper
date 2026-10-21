@@ -107,7 +107,7 @@ The following table retains the legacy environment-variable mapping and checked-
 | `NIBE_DEFROST_EVAPORATOR_MAXIMUM` | `defrostEvaporatorMax` | -15 | Evaporator-minimum threshold; severe trigger is another 5°C lower. |
 | `NIBE_DM_TARGET_OFF_TEMP` | `dmTargetOffTemp` | 12 | Current-outdoor cutoff in forecast-disabled boost selection. Does not directly select off in current normal flow. |
 | `NIBE_DM_TARGET_BOOST_TEMP` | `dmTargetBoostTemp` | 3 | Low-forecast +2°C band adjustment and peak minimum-mode rule. |
-| `NIBE_RUN_LEVEL_1_TEMP` | `runLevel1Temp` | 12 | Warm-high forecast suppression and boost-selection comparisons. |
+| `NIBE_RUN_LEVEL_1_TEMP` | `runLevel1Temp` | 12 | Warm-high forecast reduction of initial mode and radiator bands; no warm-forecast veto on Cosy eligibility. Also used in forecast-disabled boost selection. |
 | `NIBE_RUN_LEVEL_2_TEMP` | `runLevel2Temp` | 9 | Boost-selection comparisons; forecast-enabled branches currently still choose Cosy. |
 | `NIBE_TEMP_FREQ_MIN` | `tempFreqMin` | 6 | Boost-selection comparisons; forecast-enabled branches currently still choose Cosy. |
 
@@ -182,7 +182,7 @@ Common symptoms:
 | No priority/Hive updates | Catalogue contains `49994`; a stored reading exists; inspect age and errors. |
 | Hive stays off while NIBE is heating | Check the radiator-demand decision and adjusted Rad threshold. A fresh false decision keeps Hive at its off target while the UFH or other mode rules can keep the heat pump running. |
 | Hive turns on despite a warm Rad zone | Check fallback warnings, demand age and field types, `NIBE_DM_OVERRIDE`, `NIBE_LOAD_COMPENSATION_ON`, and whether adjusted thresholds currently request radiator heating. |
-| Boost missing | Forecast retrieval, high-six warm suppression, schedule dates/types, strict start/end boundaries, and explicit promotion flag. |
+| Boost missing | Forecast retrieval, schedule dates/types, strict start/end boundaries, and explicit promotion flag. A warm high-six forecast no longer vetoes Cosy windows when forecasts are enabled. |
 | Boost occurs with boosts disallowed | Room-band +1°C adjustment still uses `boostActive`; room demand alone can also select boost modes. |
 | No load compensation | Local feed mappings, usable Rad data within the 180-minute query, saved fallback, and exact `true` string. |
 | Excessively low demand during boost | Defrost cap, dynamic offset limits, cheap mode, and current minimum-flow setting. |

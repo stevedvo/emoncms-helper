@@ -79,7 +79,7 @@ A **warm forecast** means the high-six average is strictly greater than `runLeve
 
 ### 2. Determine the boost window and peak window
 
-`isBoostActive()` evaluates the stored `agile_schedule`. With forecasts enabled, all currently active outdoor-temperature branches choose `cosy`; a warm forecast suppresses boosting entirely. Without forecasts, outdoor temperatures choose between the stored cheapest-three-hour, cheapest-six-hour, or continuous boost cases. See [boost schedule selection](#boost-schedule-selection).
+`isBoostActive()` evaluates the stored `agile_schedule`. With forecasts enabled, all currently active outdoor-temperature branches choose `cosy`, including when the high-six forecast average exceeds `runLevel1Temp`. A warm forecast no longer vetoes the stored Cosy windows. Without forecasts, outdoor temperatures choose between the stored cheapest-three-hour, cheapest-six-hour, or continuous boost cases. See [boost schedule selection](#boost-schedule-selection).
 
 `isPeakImport()` uses **14:40 through 18:35 inclusive, Europe/London**, calculated as 16:00 minus 80 minutes to 19:00 minus 25 minutes. This is a fixed clock window, not a lookup of the day's actual prices.
 
@@ -95,13 +95,13 @@ Every band boundary is shifted by the same adjustment `A`:
 | --- | ---: |
 | In the peak window | -2°C |
 | Warm forecast | -1°C |
-| Boost window active, provided there is no warm forecast | +1°C |
+| Boost window active, including during a warm forecast | +1°C |
 | Low-six forecast average < `dmTargetBoostTemp` (default 3°C), provided there is no warm forecast | +2°C |
 | Otherwise low-six forecast average < hard-coded 3°C, provided there is no warm forecast | +1°C |
 
 With the defaults, the +1°C cold-forecast branch cannot be reached: both cold comparisons use 3°C, so the +2°C branch wins. Changing `dmTargetBoostTemp` below 3°C makes a +1°C band possible.
 
-The boost-window +1°C adjustment is based on `boostActive` even if `allowBoosts` is false. That flag controls the later explicit mode promotion, not the room-band adjustment.
+The boost-window +1°C adjustment is based on `boostActive` even if `allowBoosts` is false. That flag controls the later explicit mode promotion, not the room-band adjustment. During a warm forecast, the +1°C boost adjustment and -1°C warm adjustment cancel; outside the boost window, the -1°C warm adjustment remains. For a base radiator off threshold of 21.5°C, with no peak adjustment, the adjusted centre is therefore 21.5°C inside a warm-forecast boost window and 20.5°C outside it, before hysteresis is applied. Positive cold-forecast adjustments still require there to be no warm forecast.
 
 The radiator temperature is tested against these bands in descending order:
 
@@ -169,7 +169,7 @@ All four parameters are editable under **Room temperatures** in Settings and are
 
 UFH does **not** copy the radiator's negative peak/warm-forecast adjustments or its cold-forecast temperature additions. Neither a peak period nor a warm forecast lowers the UFH early-start protection. A peak period always suppresses the extra UFH preheat margin, even if a boost window overlaps it. This does not veto a higher mode requested by another rule, such as radiator demand, scheduled mode promotion, cycle preservation or the cold-forecast peak minimum.
 
-Preheating uses the existing boost-window decision, including its weather/schedule handling: a warm forecast that makes `isBoostActive()` return false also disables UFH preheating. These windows are the app's existing timing signals, not a new live-price comparison. The aim is to reduce the likelihood of needing peak-period heating; the comfort thresholds still permit it when needed, and no room-temperature outcome is guaranteed by the software alone.
+Preheating uses the existing boost-window decision, including its weather/schedule handling. With forecasts enabled, a warm forecast retains Cosy eligibility, so UFH can still receive its preheat margin inside a valid stored Cosy window outside peak import. A usable weighted forecast and stored schedule are still required. These windows are the app's existing timing signals, not a new live-price comparison. The aim is to reduce the likelihood of needing peak-period heating; the normal comfort thresholds can still request heating outside boost windows, and no room-temperature outcome is guaranteed by the software alone.
 
 This read uses `updateSettings = false`; it neither falls back to saved UFH temperature nor changes `allowLoadCompensation`. Missing UFH data skips this step. UFH raises the overall mode to at least `intermittent`, `on` or `boost`, preserving higher radiator/boost demand and the independent radiator valve decision. Log messages report the measured UFH temperature, effective threshold and preheat margin; shortfall-based boost also records the target, shortfall and configured X. Later defrost/cooling rules retain their existing precedence.
 
@@ -203,10 +203,10 @@ With forecasts enabled:
 1. Read and decode `settings.agile_schedule`.
 2. Require a non-null weighted forecast temperature; otherwise log an error and return false.
 3. Choose `cosy` in every active outdoor-temperature branch.
-4. Return false if the high-six forecast average exceeds `runLevel1Temp`.
+4. Retain `cosy` when the high-six forecast average exceeds `runLevel1Temp`; this no longer causes an early false return.
 5. Return true only strictly inside one of the stored Cosy start/end pairs.
 
-The dormant `constant` schedule branch is unreachable from the current forecast-enabled assignments. Exact schedule start and end instants are excluded. Persisted schedule dates matter; these are timestamped windows, not a daily repeating clock rule.
+The dormant `constant` schedule branch is unreachable from the current forecast-enabled assignments. Exact schedule start and end instants are excluded. Persisted schedule dates matter; these are timestamped windows, not a daily repeating clock rule. Warm-day eligibility enables the radiator +1°C room-band adjustment and, outside peak import, the UFH preheat margin. Explicit mode promotion still requires `allowBoosts`; when enabled, it can promote `off` to `intermittent` even if neither room independently requests heat.
 
 With forecasts disabled, the following defaults describe the active branches. “3h” and “6h” mean membership in the corresponding stored schedule, whose actual control windows are shortened by offsets. The code performs comparisons in the order shown; changing threshold order can change the table's interpretation.
 
@@ -286,7 +286,7 @@ Only accumulated changes are PATCHed to myUplink: heating offset `47011`, minimu
 
 ## Worked mode examples
 
-These use defaults, valid room data, no defrost cap unless stated, and average outdoor temperature below the cooling threshold.
+These use defaults, valid room data, no previous radiator-demand decision, no defrost cap unless stated, and average outdoor temperature below the cooling threshold.
 
 | Situation | Decision sequence | Final mode |
 | --- | --- | --- |
@@ -300,7 +300,8 @@ These use defaults, valid room data, no defrost cap unless stated, and average o
 | Same peak example, UFH 19.4°C | UFH floor overrides the off decision. | `on` |
 | Boost window outside peak, Rad 24°C, UFH 20.4°C, default 1°C UFH margin | Radiators remain off; scheduled promotion allows intermittent; UFH preheat threshold of 20.5°C raises the mode to on. Hive retains its radiator-off target. | `on` |
 | Same preheat example, UFH 19.9°C, default X = 1°C | The UFH target is 21°C; a 1.1°C shortfall requests boost, without radiator demand. | `boost` |
-| Warm forecast, Rad 20.8°C, UFH above 20°C, idle | Start nudged off; A = -1; off threshold is 20.5°C; boosts suppressed. | `off` |
+| Warm forecast, outside boost windows, Rad 20.8°C, UFH above 20°C, idle | Start nudged off; A = -1; off threshold is 20.5°C; no active boost window. | `off` |
+| Warm forecast, inside a Cosy window outside peak, allowed boosts, Rad 20.8°C, UFH above 21°C | Warm -1 and boost +1 cancel; A = 0; radiator room band requests on; explicit promotion raises it to boost. UFH has no independent demand. | `boost` |
 | Any heating decision, average outdoor temperature 24.1°C | Last rule selects cooling. | `cooling` |
 
 The examples demonstrate code paths rather than results from a physical heat-pump test. `RadiatorHeatDemandTest` exercises the production mode calculation with controlled sensor/window inputs and verifies the resulting persisted radiator demand and Hive targets, including UFH-only demand and threshold adjustments.

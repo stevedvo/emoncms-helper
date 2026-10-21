@@ -50,6 +50,8 @@ Under **Hive**, **Radiator demand hysteresis (each side)** defaults to 0.5°C, w
 
 Under **Weather and boosts**, **Boost window: start offset** defaults to -15 minutes and **Boost window: end offset** to -100 minutes. Negative values move a boundary earlier; positive values move it later. They apply to all three-hour, six-hour and Cosy boost windows when the schedule is next generated, normally at the next successful evening tariff refresh. Saving these parameters does not rewrite a schedule already stored. Whole-minute values from -180 to +180 are allowed, provided the shortest two-hour window retains a positive duration.
 
+**Warm forecast threshold** still lowers the initial mode and shifts radiator bands down by 1°C when the high-six forecast average exceeds it. With forecasts enabled, it no longer disables Cosy windows: UFH preheating remains available outside peak import, and the radiator +1°C boost adjustment still applies in active windows, cancelling that -1°C shift. **Allow scheduled boost promotion** separately controls direct mode promotion; turning it off does not disable these room-temperature adjustments.
+
 The two inactive legacy NIBE parameters remain clearly labelled as unused. Not every hard-coded algorithm constant or schedule has been made editable: peak-window timing offsets, radiator room-band adjustment amounts, hot-water rules, and other remaining constants retain their existing implementation.
 
 ## When changes take effect

@@ -910,7 +910,7 @@
 					// if high temps are expected then don't add positive adjustments
 					if ($highForecastRoomTempAdjust === 0)
 					{
-						$boostRoomTempAdjust = $boostActive ? 1 : 0;
+						// $boostRoomTempAdjust = $boostActive ? 1 : 0;
 
 						if (!is_null($nextDayLowTemperatureAverage))
 						{
@@ -924,6 +924,9 @@
 							}
 						}
 					}
+
+					// Oct-26: actually let's add this positive adjustment during cheaper periods
+					$boostRoomTempAdjust = $boostActive ? 1 : 0;
 
 					$sumAdjustments = $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust + $highForecastRoomTempAdjust;
 					$adjustmentsString = '('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.')+('.$highForecastRoomTempAdjust.')';
@@ -1440,15 +1443,20 @@
 							// boosting here will change htgMode from 'off' to 'intermittent' but we don't need even that
 							*/
 
+							/* Oct-26: UFH can now independently call for heat, and without as much solar gain does need some heat to prevent overnight temperatures
+							// dropping too much, so let's still try to time the heating to match cheaper periods
+							*/
+							$scheduleWindow = "cosy";
+
 							ActivityLog::create(
 							[
 								'controller' => __CLASS__,
 								'method'     => __FUNCTION__,
 								'level'      => "info",
-								'message'    => '$nextDayHighTemperatureAverage > '.ControlSettings::get('nibe.runLevel1Temp').': not boosting',
+								'message'    => '$nextDayHighTemperatureAverage > '.ControlSettings::get('nibe.runLevel1Temp').': schedule is "Cosy"',
 							]);
 
-							return false;
+							// return false;
 						}
 
 						if ($nextDayHighTemperatureAverage > ControlSettings::get('nibe.runLevel2Temp'))

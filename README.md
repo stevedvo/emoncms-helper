@@ -43,7 +43,7 @@ flowchart TD
     Compare --> Backlog[(Record differences; upload is unfinished)]
 ```
 
-The controller combines indoor comfort with forecast conditions and time windows. Room-temperature thresholds move upward during boost windows and cold forecasts, and downward during the afternoon peak or a warm forecast. It then preserves an existing heating cycle, protects a cool UFH zone, applies a defrost-related cap, and finally checks for cooling.
+The controller combines indoor comfort with forecast conditions and time windows. Room-temperature thresholds move upward during boost windows and cold forecasts, and downward during the afternoon peak or a warm forecast. With forecasts enabled, Cosy windows remain eligible even on warmer forecast days, allowing UFH preheating and the radiator +1°C boost adjustment. The radiator's warm-forecast -1°C adjustment still applies, so those two adjustments cancel during a warm-forecast boost window. The controller then preserves an existing heating cycle, protects a cool UFH zone, applies a defrost-related cap, and finally checks for cooling.
 
 The selected mode is a request made through temperature settings. The helper does not directly set compressor frequency, write the degree-minute value, or issue a compressor start/stop command. NIBE's own controls determine the physical response. `intermittent` permits more cycling by limiting the heating offset; `on` uses the same degree-minute target with more scope to maintain demand.
 

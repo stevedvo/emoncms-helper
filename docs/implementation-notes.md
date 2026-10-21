@@ -11,7 +11,7 @@ These observations explain the checked-in implementation, including radiator dem
 | `intermittent` and `on` share a DM target. | `NibeController::calculateTargetDm`, `dmOverride` | Their difference is the allowed offset/minimum-flow response, not a different target. |
 | Mode calculation starts again at intermittent. | `calculateHeatingMode` | The saved mode is an output record, not state used to initialise the next decision. |
 | All forecast-enabled temperature branches currently choose Cosy. | `isBoostActive` | The apparent outside-temperature schedule ladder does not currently change the selected schedule in this branch. |
-| A warm high-six forecast suppresses boosts. | `isBoostActive` | Cold nights do not automatically override expected daytime warmth. |
+| A warm high-six forecast retains Cosy eligibility. | `isBoostActive`, `calculateHeatingMode` | UFH preheating remains available outside peak import; the radiator +1°C boost adjustment cancels its warm-forecast -1°C adjustment during active windows. Explicit promotion still requires `allowBoosts`. |
 | Boost permission gates explicit promotion only. | `calculateHeatingMode` | A boost window can still shift room bands +1°C with `allowBoosts = false`. Room demand can independently select boost/extraBoost. |
 | Peak downward nudges are commented out. | `calculateHeatingMode` | Peak reduction mainly comes from the -2°C room-band shift; the remaining cold-forecast peak rule can impose a minimum intermittent mode. |
 | Default cold comparisons both use 3°C. | `calculateHeatingMode`, `config/nibe.php` | The +2°C room adjustment wins below 3°C; the +1°C cold adjustment is unreachable with defaults. |
