@@ -58,7 +58,7 @@
 				<div>
 					<label for="log-per-page">Entries per page</label>
 					<select id="log-per-page" name="per_page">
-						@foreach([25, 50, 100] as $size)
+						@foreach($pageSizes as $size)
 							<option value="{{ $size }}" @selected((int)old('per_page', $criteria['per_page']) === $size)>{{ $size }}</option>
 						@endforeach
 					</select>
@@ -120,7 +120,7 @@
 		<div class="section-heading">
 			<div>
 				<div class="eyebrow">MATCHING ENTRIES</div>
-				<h2 id="results-heading">{{ $logs->isEmpty() ? 'No entries found' : 'Showing '.$logs->firstItem().'–'.$logs->lastItem() }}</h2>
+				<h2 id="results-heading">{{ $logs->isEmpty() ? 'No entries found' : 'Showing '.$logs->firstItem().'–'.$logs->lastItem().' of '.number_format($logs->total()) }}</h2>
 			</div>
 			<span class="small-label">TIMES SHOWN IN UK TIME</span>
 		</div>
@@ -189,14 +189,33 @@
 				</table>
 			</div>
 		@endif
-		<nav class="log-pagination" aria-label="Log pages">
-			@if($logs->previousPageUrl())
-				<a class="button secondary" rel="prev" href="{{ $logs->previousPageUrl() }}">← Newer entries</a>
-			@endif
-			@if($logs->nextPageUrl())
-				<a class="button secondary" rel="next" href="{{ $logs->nextPageUrl() }}">Older entries →</a>
-			@endif
-		</nav>
+		@if($logs->hasPages())
+			<nav class="log-pagination" aria-label="Log pages">
+				@if($logs->previousPageUrl())
+					<a class="button secondary" rel="prev" href="{{ $logs->previousPageUrl() }}">← Newer entries</a>
+				@endif
+				@if($logs->nextPageUrl())
+					<a class="button secondary" rel="next" href="{{ $logs->nextPageUrl() }}">Older entries →</a>
+				@endif
+				<form method="get" action="{{ route('logs.index', ['type' => $type]) }}#results-heading" class="log-page-jump">
+					@foreach($criteria['filters'] as $index => $filter)
+						@foreach($filter as $key => $value)
+							<input type="hidden" name="filters[{{ $index }}][{{ $key }}]" value="{{ $value }}">
+						@endforeach
+					@endforeach
+					<input type="hidden" name="from" value="{{ $criteria['from'] }}">
+					<input type="hidden" name="to" value="{{ $criteria['to'] }}">
+					<input type="hidden" name="per_page" value="{{ $criteria['per_page'] }}">
+					@if($selected)
+						<input type="hidden" name="saved_search" value="{{ $selected->id }}">
+					@endif
+					<label for="log-page">Page</label>
+					<input id="log-page" type="number" name="page" min="1" max="{{ $logs->lastPage() }}" value="{{ $logs->currentPage() }}" required aria-describedby="log-page-count">
+					<span id="log-page-count">of {{ number_format($logs->lastPage()) }}</span>
+					<button class="button secondary" type="submit">Go to page</button>
+				</form>
+			</nav>
+		@endif
 	</section>
 	<template id="log-filter-template">
 		@include('logs.filter', ['index' => '__INDEX__', 'filter' => []])

@@ -8,6 +8,8 @@
 
 	class LogSearch
 	{
+		public const PAGE_SIZES = [100, 250, 500, 1000];
+
 		public const OPERATORS = ['contains' => 'contains', 'not_contains' => 'does not contain', 'equals' => 'equals', 'not_equals' => 'does not equal'];
 
 		public static function fields(string $type) : array
@@ -19,7 +21,13 @@
 		{
 			$filters = array_values(array_filter($input['filters'] ?? [], fn ($filter) => isset($filter['value']) && $filter['value'] !== ''));
 
-			return ['filters' => $filters, 'from' => $input['from'] ?? null, 'to' => $input['to'] ?? null, 'per_page' => (int)($input['per_page'] ?? 50)];
+			return
+			[
+				'filters'  => $filters,
+				'from'     => $input['from'] ?? null,
+				'to'       => $input['to'] ?? null,
+				'per_page' => (int)($input['per_page'] ?? 250),
+			];
 		}
 
 		public static function query(string $type, array $criteria) : Builder

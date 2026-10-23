@@ -11,7 +11,7 @@
 
 	class LogBrowserController extends Controller
 	{
-		public function index(LogSearchRequest $request, string $type) : View
+		public function index(LogSearchRequest $request, string $type) : View|RedirectResponse
 		{
 			$input = $request->validated();
 			$selected = null;
@@ -20,18 +20,39 @@
 			if (isset($input['saved_search']))
 			{
 				$selected = (clone $searches)->findOrFail($input['saved_search']);
+				$perPage = $input['per_page'] ?? null;
 				// Apply the same validation to stored criteria as to a fresh search.
 				$input = Validator::make($selected->criteria, $request->rules())->validate();
+
+				if ($perPage !== null)
+				{
+					$input['per_page'] = $perPage;
+				}
 			}
 
 			$criteria = LogSearch::criteria($input);
-			$logs = LogSearch::query($type, $criteria)->simplePaginate($criteria['per_page'])->appends($criteria);
+			$logs = LogSearch::query($type, $criteria)->paginate($criteria['per_page'])->appends($criteria)->fragment('results-heading');
+
+			if ($selected)
+			{
+				$logs->appends(['saved_search' => $selected->id]);
+			}
+
+			if ($logs->currentPage() > $logs->lastPage())
+			{
+				return redirect()->to($logs->url($logs->lastPage()));
+			}
 
 			return view('logs.index',
 			[
-				'type' => $type, 'fields' => LogSearch::fields($type), 'operators' => LogSearch::OPERATORS,
-				'criteria' => $criteria, 'logs' => $logs, 'selected' => $selected,
-				'searches' => $searches->orderBy('name')->get(),
+				'type'      => $type,
+				'fields'    => LogSearch::fields($type),
+				'operators' => LogSearch::OPERATORS,
+				'criteria'  => $criteria,
+				'logs'      => $logs,
+				'selected'  => $selected,
+				'pageSizes' => in_array($criteria['per_page'], LogSearch::PAGE_SIZES, true) ? LogSearch::PAGE_SIZES : [$criteria['per_page'], ...LogSearch::PAGE_SIZES],
+				'searches'  => $searches->orderBy('name')->get(),
 			]);
 		}
 

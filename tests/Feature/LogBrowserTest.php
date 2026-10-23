@@ -142,6 +142,117 @@
 				->assertOk()->assertViewHas('logs', fn ($logs) => $logs->pluck('id')->all() === [$end->id, $start->id]);
 		}
 
+		#[DataProvider('logTypes')]
+		public function test_both_log_screens_default_to_250_and_offer_the_requested_sizes(string $type) : void
+		{
+			$this->actingAs(User::factory()->create());
+			$this->seedLogs($type, 301);
+			$this->get('/logs/'.$type)->assertOk()
+				->assertViewHas('logs', fn ($logs) => $logs->count() === 250 && $logs->total() === 301 && $logs->lastPage() === 2)
+				->assertViewHas('pageSizes', [100, 250, 500, 1000])
+				->assertSee('<option value="250" selected>', false)
+				->assertSee('Showing 1–250 of 301')
+				->assertSee('Go to page');
+		}
+
+		#[DataProvider('logPageSizes')]
+		public function test_all_requested_sizes_paginate_both_types_of_log(string $type, int $size) : void
+		{
+			$this->actingAs(User::factory()->create());
+			$this->seedLogs($type, 1001);
+			$this->search($type, ['per_page' => $size])->assertOk()
+				->assertViewHas('logs', fn ($logs) => $logs->count() === $size && $logs->perPage() === $size && $logs->total() === 1001 && $logs->lastPage() === (int)ceil(1001 / $size))
+				->assertSee('<option value="'.$size.'" selected>', false);
+		}
+
+		#[DataProvider('logTypes')]
+		public function test_page_jumps_keep_filters_dates_size_and_newest_first_order(string $type) : void
+		{
+			$this->actingAs(User::factory()->create());
+			$this->seedLogs($type, 525, 'Keep');
+			$this->seedLogs($type, 1, 'Excluded');
+			$criteria =
+			[
+				'filters'  => [$this->filter($type === 'activity' ? 'message' : 'endpoint', 'contains', 'Keep')],
+				'from'     => '2026-10-23',
+				'to'       => '2026-10-23',
+				'per_page' => 100,
+			];
+			$response = $this->search($type, $criteria + ['page' => 4])->assertOk()
+				->assertSee('name="page" min="1" max="6" value="4"', false)
+				->assertSee('name="per_page" value="100"', false)
+				->assertSee('name="from" value="2026-10-23"', false)
+				->assertSee('name="filters[0][value]" value="Keep"', false);
+			$logs = $response->viewData('logs');
+			$this->assertSame(525, $logs->total());
+			$this->assertSame(range(225, 126), $logs->pluck('id')->all());
+			parse_str(parse_url($logs->nextPageUrl(), PHP_URL_QUERY), $query);
+			$this->assertSame($criteria['filters'], $query['filters']);
+			$this->assertSame('2026-10-23', $query['from']);
+			$this->assertSame('2026-10-23', $query['to']);
+			$this->assertSame('100', $query['per_page']);
+			$this->assertSame('5', $query['page']);
+			$this->assertSame('results-heading', parse_url($logs->nextPageUrl(), PHP_URL_FRAGMENT));
+			$this->search($type, $criteria + ['page' => 6])->assertOk()->assertViewHas('logs', fn ($logs) => $logs->count() === 25 && !$logs->hasMorePages());
+			$this->search($type, array_replace($criteria, ['per_page' => 500]))->assertOk()->assertViewHas('logs', fn ($logs) => $logs->currentPage() === 1 && $logs->count() === 500);
+		}
+
+		#[DataProvider('logTypes')]
+		public function test_saved_search_pagination_keeps_its_name_and_allows_a_temporary_size_override(string $type) : void
+		{
+			$this->actingAs(User::factory()->create());
+			$this->seedLogs($type, 525, 'Keep');
+			$this->seedLogs($type, 1, 'Excluded');
+			$this->post('/logs/'.$type.'/searches',
+			[
+				'name'     => 'Keep these logs',
+				'filters'  => [$this->filter($type === 'activity' ? 'message' : 'endpoint', 'contains', 'Keep')],
+				'per_page' => 250,
+			])->assertSessionHasNoErrors()->assertRedirect();
+			$saved = SavedLogSearch::sole();
+			$response = $this->search($type, ['saved_search' => $saved->id, 'per_page' => 100, 'page' => 3])->assertOk()
+				->assertSee('Loaded: Keep these logs')
+				->assertSee('name="saved_search" value="'.$saved->id.'"', false);
+			$logs = $response->viewData('logs');
+			$this->assertSame(100, $logs->perPage());
+			$this->assertSame(3, $logs->currentPage());
+			$this->assertSame(525, $logs->total());
+			$this->assertSame(250, $saved->fresh()->criteria['per_page']);
+			$this->get($logs->nextPageUrl())->assertOk()->assertSee('Loaded: Keep these logs')
+				->assertViewHas('logs', fn ($logs) => $logs->currentPage() === 4 && $logs->perPage() === 100);
+		}
+
+		#[DataProvider('logTypes')]
+		public function test_pages_beyond_the_end_return_to_the_last_available_page(string $type) : void
+		{
+			$this->actingAs(User::factory()->create());
+			$this->seedLogs($type, 301);
+			$response = $this->search($type, ['per_page' => 100, 'page' => 99])->assertRedirect();
+			parse_str(parse_url($response->headers->get('Location'), PHP_URL_QUERY), $query);
+			$this->assertSame('4', $query['page']);
+			$this->assertSame('100', $query['per_page']);
+			$this->get($response->headers->get('Location'))->assertOk()
+				->assertViewHas('logs', fn ($logs) => $logs->currentPage() === 4 && $logs->count() === 1);
+		}
+
+		public function test_empty_results_still_render_and_an_old_page_returns_to_page_one() : void
+		{
+			$this->actingAs(User::factory()->create());
+			$this->get('/logs/activity')->assertOk()->assertSee('No entries found')->assertDontSee('Go to page');
+			$response = $this->search('activity', ['page' => 99])->assertRedirect();
+			$this->get($response->headers->get('Location'))->assertOk()->assertSee('No entries found');
+		}
+
+		public static function logTypes() : array
+		{
+			return [['activity'], ['api']];
+		}
+
+		public static function logPageSizes() : array
+		{
+			return [['activity', 100], ['activity', 250], ['activity', 500], ['activity', 1000], ['api', 100], ['api', 250], ['api', 500], ['api', 1000]];
+		}
+
 		public function test_named_search_can_be_saved_reloaded_and_updated_across_sessions() : void
 		{
 			$user = User::factory()->create();
@@ -156,6 +267,7 @@
 			$this->app['session']->flush();
 			$this->actingAs($user);
 			$this->search('activity', ['saved_search' => $saved->id])->assertOk()->assertSee('Loaded: UFH decisions')->assertViewHas('logs', fn ($logs) => $logs->pluck('id')->all() === [$match->id]);
+			$this->search('activity', ['saved_search' => $saved->id])->assertOk()->assertSee('<option value="25" selected>', false);
 			$this->post('/logs/activity/searches', ['name' => 'UFH decisions', 'filters' => [$this->filter('level', 'equals', 'warning')]])->assertSessionHasNoErrors();
 			$this->assertSame(1, SavedLogSearch::count());
 			$this->assertSame('level', $saved->fresh()->criteria['filters'][0]['field']);
@@ -201,6 +313,8 @@
 				'bad date' => [['from' => 'not-a-date']],
 				'reversed dates' => [['from' => '2026-10-21', 'to' => '2026-10-20']],
 				'unbounded page' => [['per_page' => 100000]],
+				'unsupported page size' => [['per_page' => 101]],
+				'fractional page size' => [['per_page' => 250.5]],
 				'bad page' => [['page' => -1]],
 			];
 		}
@@ -222,6 +336,35 @@
 			$this->get('/logs/activity')->assertOk()->assertSee('Please check your search.');
 			$this->search('activity', ['from' => '2026-10-21', 'to' => '2026-10-20'])->assertRedirect('/logs/activity')->assertSessionHasErrors();
 			$this->get('/logs/activity')->assertOk();
+		}
+
+		private function seedLogs(string $type, int $count, string $message = 'Entry') : void
+		{
+			$rows = [];
+
+			foreach (range(1, $count) as $number)
+			{
+				$row = $type === 'activity' ?
+				[
+					'controller' => 'App\\Http\\Controllers\\NibeController',
+					'method'     => 'calculateHeatingMode',
+					'level'      => 'info',
+					'message'    => $message.' '.$number,
+				] :
+				[
+					'method'   => 'GET',
+					'endpoint' => '/'.$message.'/'.$number,
+					'payload'  => null,
+				];
+				$rows[] = $row + ['created_at' => '2026-10-23 12:00:00', 'updated_at' => '2026-10-23 12:00:00'];
+			}
+
+			$model = $type === 'activity' ? ActivityLog::class : ApiLog::class;
+
+			foreach (array_chunk($rows, 200) as $chunk)
+			{
+				$model::insert($chunk);
+			}
 		}
 
 		private function activity(?string $message, array $attributes = []) : ActivityLog

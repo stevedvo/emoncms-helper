@@ -22,7 +22,8 @@
 				'filters.*.value'    => ['nullable', 'string', 'max:1000'],
 				'from'               => ['nullable', 'date_format:Y-m-d'],
 				'to'                 => ['nullable', 'date_format:Y-m-d', $this->filled('from') ? 'after_or_equal:from' : 'sometimes'],
-				'per_page'           => ['sometimes', Rule::in([25, 50, 100])],
+				// Keep old bookmarks and saved searches using 25 or 50 entries usable.
+				'per_page'           => ['sometimes', Rule::in([25, 50, ...LogSearch::PAGE_SIZES])],
 				'page'               => ['sometimes', 'integer', 'min:1'],
 				'saved_search'       => ['sometimes', 'integer', 'min:1'],
 				'name'               => [$this->isMethod('post') ? 'required' : 'sometimes', 'string', 'max:100'],

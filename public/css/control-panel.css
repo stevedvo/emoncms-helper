@@ -1400,6 +1400,29 @@ tbody tr:last-child td
 	padding-top: 18px;
 }
 
+.log-pagination, .log-page-jump
+{
+	align-items: center;
+}
+
+.log-page-jump
+{
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin-left: auto;
+}
+
+.log-page-jump label
+{
+	margin: 0;
+}
+
+.log-page-jump input[type="number"]
+{
+	width: 90px;
+}
+
 @media(max-width: 1100px)
 {
 	.log-filter-row
@@ -1410,6 +1433,12 @@ tbody tr:last-child td
 
 @media(max-width: 620px)
 {
+	.log-page-jump
+	{
+		margin-left: 0;
+		width: 100%;
+	}
+
 	.sidebar nav
 	{
 		flex-wrap: wrap;

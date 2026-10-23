@@ -6,6 +6,8 @@ The heating levels in the code are `off`, `intermittent`, `on`, `boost`, and `ex
 
 This is a Laravel 10 / PHP application driven primarily by scheduled commands. Its authenticated web control panel provides an overview at `/` and editable operating settings at `/settings`. Credentials and connection details stay in environment configuration; operating parameters are stored separately in the existing settings table and read without a scheduler restart.
 
+Activity and API Logs offer 100, 250, 500 or 1000 entries per page, defaulting to 250, with a bottom page-number control for jumping directly to older results while retaining the applied search.
+
 ## Documentation
 
 | Guide | Contents |
@@ -91,4 +93,4 @@ The existing tests can be run with:
 php vendor/bin/phpunit
 ```
 
-All **202 tests / 922 assertions** pass. Coverage includes live settings, validation, access protection, dashboard behaviour, searchable logs, private saved searches, zone-demand decisions, radiator hysteresis, UFH preheating, shortfall-based boost and peak comfort protection, scheduled boost fallback with inactive room compensation, configurable boost and peak-window offsets, London summer/winter timing, Hive targets, reports and framework examples, using isolated test databases and mocked external calls. Warm-forecast expectations reflect the 22 October trial. These tests do not operate the physical equipment.
+All **221 tests / 1040 assertions** pass. Coverage includes live settings, validation, access protection, dashboard behaviour, searchable logs, selectable page sizes and direct page navigation, private saved searches, zone-demand decisions, radiator hysteresis, UFH preheating, shortfall-based boost and peak comfort protection, scheduled boost fallback with inactive room compensation, configurable boost and peak-window offsets, London summer/winter timing, Hive targets, reports and framework examples, using isolated test databases and mocked external calls. Warm-forecast expectations reflect the 22 October trial. These tests do not operate the physical equipment.
