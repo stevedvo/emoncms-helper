@@ -10,6 +10,10 @@ Source entry points: [NIBE](../app/Http/Controllers/NibeController.php), [Emoncm
 
 The adapter GETs and PATCHes `/v2/devices/{deviceId}/points`. For a PATCH, every requested parameter must appear in the response with value `modified`, or the adapter throws an exception. It does not subsequently read back and verify the physical device settings.
 
+`getParameterData()` checks for a successful HTTP status and a nonempty body, decodes JSON with explicit error handling, and requires a JSON list whose entries contain `parameterId`, `timestamp` and `value`. Valid readings, including zero values, are returned unchanged. A valid empty list `[]` retains its existing empty-data behaviour; an empty response body, JSON `null`, an error object, malformed JSON or a structurally incomplete point is rejected rather than returned as readings. All entries are checked before the list reaches the polling controller.
+
+Failures identify the response problem, HTTP status and body length in bytes without copying the response body or access token into the new diagnostic. `getNibeData()` records that error and stops the current poll before storing readings, syncing Emon or running the five-minute control work. Existing readings and control settings remain unchanged. There is no immediate retry or fabricated empty response: the next scheduled one-minute poll makes a fresh request. Existing HTTP and connection exceptions continue to propagate to the polling controller. The shared wrapper resolves its Guzzle client through Laravel's container so tests can replace the transport without contacting the equipment.
+
 `getNibeData()`:
 
 1. Deduplicates the response using concatenated parameter ID, timestamp, and value.
