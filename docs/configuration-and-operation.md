@@ -93,7 +93,7 @@ The following table retains the legacy environment-variable mapping and checked-
 | `NIBE_OFFSET_MAXIMUM_INTERMITTENT` | `offsetMaxInt` | 0 | Special upper-limit baseline for intermittent mode. |
 | `NIBE_CHEAP_MODE` | `cheapMode` | false | Apply restrictive offset/minimum-flow behaviour across modes; does not look up a price. |
 | `NIBE_CHEAP_MODE_OFFSET_MAXIMUM` | `cheapModeOffsetMax` | -4 | Cheap-mode upper-limit baseline. |
-| `NIBE_BOOSTS_ALLOWED` | `allowBoosts` | false | Enable explicit mode promotion during a boost window. Does not disable the room-band boost adjustment. |
+| `NIBE_BOOSTS_ALLOWED` | `allowBoosts` | false | Enable fallback mode promotion during a boost window only when room compensation is inactive (disabled or without usable Rad data). Active room control uses adjusted targets; this flag does not disable those adjustments. |
 | `NIBE_BOOSTS_MAX_COST` | `boostMaxCost` | 10 | Defined but unused in active decisions. |
 | `NIBE_LOAD_COMPENSATION_ON` | `loadCompensationOn` | true | Enable room-band/UFH logic when Rad data allows it; also UFH forecast publication. |
 | `NIBE_LOAD_COMP_TEMP_OFF` | `loadCompTempOff` | 21.5 | Base upper room threshold. |
@@ -182,7 +182,7 @@ Common symptoms:
 | No priority/Hive updates | Catalogue contains `49994`; a stored reading exists; inspect age and errors. |
 | Hive stays off while NIBE is heating | Check the radiator-demand decision and adjusted Rad threshold. A fresh false decision keeps Hive at its off target while the UFH or other mode rules can keep the heat pump running. |
 | Hive turns on despite a warm Rad zone | Check fallback warnings, demand age and field types, `NIBE_DM_OVERRIDE`, `NIBE_LOAD_COMPENSATION_ON`, and whether adjusted thresholds currently request radiator heating. |
-| Boost missing | Forecast retrieval, schedule dates/types, strict start/end boundaries, and explicit promotion flag. A warm high-six forecast no longer vetoes Cosy windows when forecasts are enabled. |
+| Boost missing | Forecast retrieval, schedule dates/types and strict start/end boundaries. Active room compensation uses adjusted room targets without a second scheduled promotion. Otherwise, check the fallback promotion flag. A warm high-six forecast no longer vetoes Cosy windows when forecasts are enabled. |
 | Boost occurs with boosts disallowed | Room-band +1°C adjustment still uses `boostActive`; room demand alone can also select boost modes. |
 | No load compensation | Local feed mappings, usable Rad data within the 180-minute query, saved fallback, and exact `true` string. |
 | Excessively low demand during boost | Defrost cap, dynamic offset limits, cheap mode, and current minimum-flow setting. |

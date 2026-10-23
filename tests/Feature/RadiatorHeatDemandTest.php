@@ -109,7 +109,7 @@ class RadiatorHeatDemandTest extends TestCase
             'Rad exactly off threshold' => [21.5, 20.5, 10, false, false, null, 'intermittent', true, 30],
             'Rad above off threshold' => [21.6, 20.5, 10, false, false, null, 'off', false, 16],
             'UFH boost must not create Rad demand' => [24, 19.8, 10, true, false, null, 'boost', false, 16],
-            'boost adjusted Rad threshold' => [22.4, 20.5, 10, true, false, null, 'boost', true, 30],
+            'boost adjusted Rad threshold with UFH preheat' => [22.4, 20.5, 10, true, false, null, 'on', true, 30],
             'peak adjusted Rad threshold' => [20, 19.8, 10, false, true, null, 'intermittent', false, 16],
             'peak threshold equality' => [19.5, 20.5, 10, false, true, null, 'intermittent', true, 30],
             'warm forecast keeps radiator demand' => [21, 19.8, 10, false, false, 14, 'on', true, 30],
@@ -266,6 +266,70 @@ class RadiatorHeatDemandTest extends TestCase
         RadiatorHeatDemand::record(true);
         CarbonImmutable::setTestNow(CarbonImmutable::now()->subSecond());
         $this->assertFalse(RadiatorHeatDemand::calculate(19.6, 19.5));
+    }
+
+    #[DataProvider('roomBoostScenarios')]
+    public function test_active_room_compensation_uses_adjusted_targets_without_an_extra_mode_promotion(float $rad, ?float $ufh, string $mode, bool $radiatorDemand) : void
+    {
+        foreach ([true, false] as $allowBoosts)
+        {
+            config()->set('nibe.allowBoosts', $allowBoosts);
+            ControlledNibeController::prepare($rad, $ufh, true);
+            $this->assertSame($mode, ControlledNibeController::calculateHeatingMode(10, 10, 10));
+            $this->assertSame($radiatorDemand, RadiatorHeatDemand::current());
+            $this->assertHiveTarget(30, $radiatorDemand ? 30 : 16);
+        }
+
+        $this->assertSame(0, ActivityLog::where('message', 'like', 'Boost is active:%')->count());
+    }
+
+    public static function roomBoostScenarios() : array
+    {
+        return [
+            'radiator intermittent is retained' => [22.4, 21.2, 'intermittent', true],
+            'radiator on is retained' => [21.5, 21.2, 'on', true],
+            'radiator boost is not promoted to extraBoost' => [20.5, 21.2, 'boost', true],
+            'strong radiator demand can still request extraBoost' => [19.5, 21.2, 'extraBoost', true],
+            'UFH preheat can request intermittent' => [26, 20.8, 'intermittent', false],
+            'UFH preheat can request on' => [26, 20.4, 'on', false],
+            'UFH shortfall can still request boost' => [26, 19.9, 'boost', false],
+            'warm rooms do not start an idle pump just because it is a boost window' => [26, 21.2, 'off', false],
+            'missing UFH alone does not disable radiator compensation' => [26, null, 'off', false],
+        ];
+    }
+
+    #[DataProvider('fallbackBoostScenarios')]
+    public function test_scheduled_promotion_remains_a_fallback_when_room_compensation_is_inactive(bool $enabled, ?float $rad, bool $allowed, bool $boost, ?float $forecast, string $mode, bool $promoted) : void
+    {
+        config()->set('nibe.loadCompensationOn', $enabled);
+        config()->set('nibe.allowBoosts', $allowed);
+
+        if ($forecast !== null)
+        {
+            $this->setForecast($forecast);
+        }
+
+        ControlledNibeController::prepare($rad, 19.8, $boost);
+        $this->assertSame($mode, ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $decision = json_decode(Setting::firstWhere('key', RadiatorHeatDemand::SETTING_KEY)->value, true);
+        $this->assertNull($decision['required']);
+        $this->assertSame($promoted ? 1 : 0, ActivityLog::where('message', 'like', 'Boost is active:%')->count());
+        $this->assertHiveTarget(30, 30);
+    }
+
+    public static function fallbackBoostScenarios() : array
+    {
+        return [
+            'disabled compensation promotes when allowed' => [false, 20.5, true, true, null, 'boost', true],
+            'missing radiator data promotes when allowed' => [true, null, true, true, null, 'boost', true],
+            'both disabled and missing can promote' => [false, null, true, true, null, 'boost', true],
+            'disabled compensation still needs permission' => [false, 20.5, false, true, null, 'intermittent', false],
+            'missing radiator data still needs permission' => [true, null, false, true, null, 'intermittent', false],
+            'disabled compensation still needs an active window' => [false, 20.5, true, false, null, 'intermittent', false],
+            'missing radiator data still needs an active window' => [true, null, true, false, null, 'intermittent', false],
+            'warm forecast off can be promoted to intermittent' => [true, null, true, true, 14, 'intermittent', true],
+            'warm forecast off remains off without permission' => [false, 20.5, false, true, 14, 'off', false],
+        ];
     }
 
     public function test_disallowed_boost_promotion_preserves_existing_room_band_adjustments(): void

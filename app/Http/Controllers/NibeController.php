@@ -897,8 +897,9 @@
 			// need to hit this method first to set the Setting to true/false
 			static::getRoomTemperature("Rad_temperature");
 			$allowLoadCompensation = Setting::firstWhere("key", "allowLoadCompensation")?->value === "true";
+			$loadCompensationActive = static::$loadCompensationOn !== false && $allowLoadCompensation;
 
-			if (static::$loadCompensationOn !== false && $allowLoadCompensation === true)
+			if ($loadCompensationActive)
 			{
 				if (!is_null(static::getRoomTemperature("Rad_temperature")))
 				{
@@ -1044,30 +1045,27 @@
 				}
 			}
 
-			// adjustment check 2: nudge $htgMode up a notch if we're in a boost period
-			if (true)
+			// adjustment check 2: use scheduled mode promotion only when room compensation is inactive.
+			if (!$loadCompensationActive && ControlSettings::get('nibe.allowBoosts') !== false && $boostActive)
 			{
-				if ((ControlSettings::get('nibe.allowBoosts') !== false) ? $boostActive : false)
+				// if already running at a low level then -> 'boost'
+				if ($htgMode == "on" || $htgMode == "intermittent")
 				{
-					// if already running at a low level then -> 'boost'
-					if ($htgMode == "on" || $htgMode == "intermittent")
-					{
-						$htgMode = "boost";
-					}
-					// else 'off' -> 'intermittent', 'boost' -> 'extraBoost'
-					else
-					{
-						$htgMode = static::nudgeHeatingModeUp($htgMode);
-					}
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => 'Boost is active: $htgMode = '.$htgMode,
-					]);
+					$htgMode = "boost";
 				}
+				// else 'off' -> 'intermittent', 'boost' -> 'extraBoost'
+				else
+				{
+					$htgMode = static::nudgeHeatingModeUp($htgMode);
+				}
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => 'Boost is active: $htgMode = '.$htgMode,
+				]);
 			}
 
 			if (true)
@@ -1090,7 +1088,7 @@
 			if (true)
 			{
 				// Keep the UFH comfort thresholds as minimums; preheat during boost windows outside peak import.
-				if (static::$loadCompensationOn !== false && $allowLoadCompensation === true)
+				if ($loadCompensationActive)
 				{
 					$ufhTemperature = static::getRoomTemperature("UFH_temperature", false);
 

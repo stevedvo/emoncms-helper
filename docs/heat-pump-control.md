@@ -107,7 +107,7 @@ Every band boundary is shifted by the same adjustment `A`:
 
 With the defaults, the +1°C cold-forecast branch cannot be reached: both cold comparisons use 3°C, so the +2°C branch wins. Changing `dmTargetBoostTemp` below 3°C makes a +1°C band possible.
 
-The boost-window +1°C adjustment is based on `boostActive` even if `allowBoosts` is false. That flag controls the later explicit mode promotion, not the room-band adjustment. During the current trial, a warm forecast contributes zero to the room-band adjustment, so the full +1°C boost adjustment applies. For a base radiator off threshold of 21.5°C, with no peak or cold-forecast adjustment, the adjusted centre is therefore 22.5°C inside a boost window and 21.5°C outside it, before hysteresis is applied.
+The boost-window +1°C adjustment is based on `boostActive` even if `allowBoosts` is false. That flag controls fallback scheduled mode promotion when room compensation is inactive; active room compensation selects intensity from the adjusted room targets without a second scheduled promotion. During the current trial, a warm forecast contributes zero to the room-band adjustment, so the full +1°C boost adjustment applies. For a base radiator off threshold of 21.5°C, with no peak or cold-forecast adjustment, the adjusted centre is therefore 22.5°C inside a boost window and 21.5°C outside it, before hysteresis is applied.
 
 The cold-forecast additions are guarded by `highForecastRoomTempAdjust === 0`. Since the trial sets that value to zero for both warm and cool high forecasts, this guard now always passes: a cold low-six average can raise the radiator bands even if the high-six average exceeds `runLevel1Temp`. This is a consequence of disabling the warm room-band adjustment.
 
@@ -135,13 +135,17 @@ Let `C = loadCompTempOff + A` and `H = hive.radiatorHysteresis` (default **0.5°
 
 For an adjusted threshold of **19.5°C**, an established off decision remains off until **19.0°C**, and an established on decision remains on until **20.0°C**. Between these boundaries, keep the previous decision. This is a 1°C total band. Zero margin restores the original `T <= C` comparison, including equality. Fractional switching boundaries are rounded to six decimal places. The current peak, boost and forecast adjustments move the centre of the band on each calculation.
 
-If this retained radiator decision is false, the radiator stage selects `off`. If true, the existing intermittent/on/boost/extraBoost intensity comparisons apply, with at least intermittent even above `C` while demand is retained. This keeps the ASHP's radiator demand consistent with its valve demand: a radiator whose valve is held off cannot alone start a heating cycle. Later boost promotion, cycle preservation, UFH demand, and peak minimum-mode rules can raise the overall heat-pump mode without changing the radiator decision. If the room bands cannot be evaluated, radiator demand is null (unknown).
+If this retained radiator decision is false, the radiator stage selects `off`. If true, the existing intermittent/on/boost/extraBoost intensity comparisons apply, with at least intermittent even above `C` while demand is retained. This keeps the ASHP's radiator demand consistent with its valve demand: a radiator whose valve is held off cannot alone start a heating cycle. Cycle preservation, UFH demand, and peak minimum-mode rules can raise the overall heat-pump mode without changing the radiator decision. If the room bands cannot be evaluated, radiator demand is null (unknown).
 
 The decision and calculation time are saved at the end of each calculation, so hysteresis persists between scheduler invocations. The existing decision-age limit applies to the previous state (default ten minutes, inclusive); after a longer gap the next valid temperature initialises a new decision. Activity logs show the temperature, adjusted centre, margin, switching boundaries, previous state and result. The margin is editable under **Settings → Hive** and applies at the next control calculation without a scheduler restart.
 
 ### 4. Promote the mode during an allowed boost
 
-When `allowBoosts !== false` and the boost window is active:
+As of **23 October 2026**, this step is a fallback for inactive room compensation. The controller calculates one `$loadCompensationActive` flag from the enabled `nibe.loadCompensationOn` setting and the successful-Rad-lookup `allowLoadCompensation` flag. The same flag gates the radiator and UFH room rules.
+
+With active room compensation, this step is skipped: the adjusted radiator targets, UFH preheat thresholds and UFH shortfall select the required mode, so a room-derived boost is not promoted a second time. A boost window alone does not start an idle pump when both rooms are satisfied. Strong radiator demand can still select `extraBoost`, and a UFH shortfall can still select `boost`.
+
+When room compensation is disabled or usable Rad data is unavailable, `allowBoosts !== false` and an active boost window permit the existing promotion:
 
 | Mode before promotion | Mode after promotion |
 | --- | --- |
@@ -151,7 +155,7 @@ When `allowBoosts !== false` and the boost window is active:
 | `boost` | `extraBoost` |
 | `extraBoost` | `extraBoost` |
 
-This happens after the room bands, so a boost window can affect both the thresholds and the resulting mode.
+This retains the pre-room-compensation behaviour when room control cannot be used. Merely enabling load compensation is not enough to suppress fallback promotion: the Rad lookup must also allow it. The fallback still respects the promotion setting and active-window check, and records the `Boost is active` log message when it runs.
 
 ### 5. Preserve a running heating cycle
 
@@ -175,9 +179,9 @@ When `boostActive` is true and `peakImport` is false, add `nibe.ufhBoostTempAdju
 
 The UFH target for the shortfall calculation is `nibe.ufhTempIntermittent` (the **allow heating at** setting, default 20°C), plus any active preheat margin. When `target - measured temperature > nibe.ufhBoostTempShortfall` (default **1°C**), ensure at least `boost` before testing the existing on/intermittent bands. The comparison is strict: a 1°C shortfall with X = 1°C does not trigger this rule. The calculated shortfall is rounded to six decimal places to avoid floating-point noise at exact boundaries. The rule applies both within and outside boost windows, including during peak periods; only the preheat margin is suppressed during peak periods. It never requests `extraBoost` on its own and never lowers a higher mode already requested elsewhere.
 
-All four parameters are editable under **Room temperatures** in Settings and are read on every calculation. The preheat margin accepts 0–3°C; setting it to zero removes the extra preheat allowance in every window. **UFH: boost shortfall** accepts 0.1–5°C. Neither setting disables the separate scheduled mode promotion in step 4. Like radiator room-band demand, UFH preheating and shortfall-based boost operate even when `allowBoosts` is false, because that flag controls step 4's scheduled promotion rather than room-temperature demand.
+All four parameters are editable under **Room temperatures** in Settings and are read on every calculation. The preheat margin accepts 0–3°C; setting it to zero removes the extra preheat allowance in every window. **UFH: boost shortfall** accepts 0.1–5°C. Like radiator room-band demand, UFH preheating and shortfall-based boost operate even when `allowBoosts` is false. That flag governs step 4's fallback scheduled promotion, which only runs when room compensation is inactive.
 
-UFH does **not** copy the radiator's negative peak adjustment or its cold-forecast temperature additions. The former warm-forecast radiator reduction is disabled during the current trial. Neither a peak period nor a warm forecast lowers the UFH early-start protection. A peak period always suppresses the extra UFH preheat margin, even if a boost window overlaps it. This does not veto a higher mode requested by another rule, such as radiator demand, scheduled mode promotion, cycle preservation or the cold-forecast peak minimum.
+UFH does **not** copy the radiator's negative peak adjustment or its cold-forecast temperature additions. The former warm-forecast radiator reduction is disabled during the current trial. Neither a peak period nor a warm forecast lowers the UFH early-start protection. A peak period always suppresses the extra UFH preheat margin, even if a boost window overlaps it. This does not veto a higher mode requested by another rule, such as radiator demand, cycle preservation or the cold-forecast peak minimum.
 
 Preheating uses the existing boost-window decision, including its weather/schedule handling. With forecasts enabled, a warm forecast retains Cosy eligibility, so UFH can still receive its preheat margin inside a valid stored Cosy window outside peak import. A usable weighted forecast and stored schedule are still required. These windows are the app's existing timing signals, not a new live-price comparison. The aim is to reduce the likelihood of needing peak-period heating; the normal comfort thresholds can still request heating outside boost windows, and no room-temperature outcome is guaranteed by the software alone.
 
@@ -216,7 +220,7 @@ With forecasts enabled:
 4. Retain `cosy` when the high-six forecast average exceeds `runLevel1Temp`; this no longer causes an early false return.
 5. Return true only strictly inside one of the stored Cosy start/end pairs.
 
-The dormant `constant` schedule branch is unreachable from the current forecast-enabled assignments. Exact schedule start and end instants are excluded. Persisted schedule dates matter; these are timestamped windows, not a daily repeating clock rule. Warm-day eligibility enables the radiator +1°C room-band adjustment and, outside peak import, the UFH preheat margin. Explicit mode promotion still requires `allowBoosts`; when enabled, it can promote `off` to `intermittent` even if neither room independently requests heat.
+The dormant `constant` schedule branch is unreachable from the current forecast-enabled assignments. Exact schedule start and end instants are excluded. Persisted schedule dates matter; these are timestamped windows, not a daily repeating clock rule. Warm-day eligibility enables the radiator +1°C room-band adjustment and, outside peak import, the UFH preheat margin. Direct scheduled mode promotion requires inactive room compensation as well as `allowBoosts`; with active room compensation the adjusted room targets determine demand.
 
 With forecasts disabled, the following defaults describe the active branches. “3h” and “6h” mean membership in the corresponding stored schedule, whose actual control windows are shortened by offsets. The code performs comparisons in the order shown; changing threshold order can change the table's interpretation.
 
@@ -304,14 +308,16 @@ These use defaults, valid room data, no previous radiator-demand decision, no co
 | Rad exactly 20°C, no adjustments | Equality enters the band above 19°C. | `boost` |
 | Rad 21.7°C, idle, UFH above 20°C, no adjustments | Room band sets off; no later rule raises it. | `off` |
 | Same 21.7°C, but already heating | Room band sets off; cycle preservation raises it. | `intermittent` |
-| Rad 20.5°C, inside boost window, allowed boosts, no cold/warm forecast | A = +1; room band requests boost; explicit boost promotion raises again. | `extraBoost` |
-| Same boost example, but defrost reduction true | ExtraBoost is capped after the comfort/boost rules. | `on` |
+| Rad 20.5°C, inside boost window, no cold/warm forecast | A = +1; room band requests boost; active room compensation skips scheduled promotion. | `boost` |
+| Same boost example, but defrost reduction true | Boost is capped after the comfort/boost rules. | `on` |
 | Peak window, Rad 20.5°C, UFH 20.3°C, no cold forecast or boost | A = -2; off threshold becomes 19.5°C; idle pump stays off. | `off` |
 | Same peak example, UFH 19.4°C | UFH floor overrides the off decision. | `on` |
-| Boost window outside peak, Rad 24°C, UFH 20.4°C, default 1°C UFH margin | Radiators remain off; scheduled promotion allows intermittent; UFH preheat threshold of 20.5°C raises the mode to on. Hive retains its radiator-off target. | `on` |
+| Boost window outside peak, Rad 24°C, UFH 20.4°C, default 1°C UFH margin | Radiators remain off; UFH preheat threshold of 20.5°C raises the mode to on. Hive retains its radiator-off target. | `on` |
 | Same preheat example, UFH 19.9°C, default X = 1°C | The UFH target is 21°C; a 1.1°C shortfall requests boost, without radiator demand. | `boost` |
 | Warm forecast, outside boost and peak windows, Rad 20.8°C, UFH above 20°C, idle | Start nudged off; warm room adjustment is disabled; A = 0; radiator room band raises the mode to on. | `on` |
-| Warm forecast, inside a Cosy window outside peak, allowed boosts, Rad 20.8°C, UFH above 21°C | Warm room adjustment is disabled; A = +1; radiator room band requests boost; explicit promotion raises it to extraBoost. UFH has no independent demand. | `extraBoost` |
+| Warm forecast, inside a Cosy window outside peak, Rad 20.8°C, UFH above 21°C | Warm room adjustment is disabled; A = +1; radiator room band requests boost; no second scheduled promotion. UFH has no independent demand. | `boost` |
+| Boost window, Rad 26°C, UFH 21.2°C, idle pump | Both adjusted room targets are satisfied; active compensation skips scheduled promotion. | `off` |
+| Boost window, room compensation disabled or Rad data unavailable, allowed boosts, no warm forecast | Initial intermittent mode is promoted by the fallback scheduled boost. | `boost` |
 | Any heating decision, average outdoor temperature 24.1°C | Last rule selects cooling. | `cooling` |
 
 The examples demonstrate code paths rather than results from a physical heat-pump test. `RadiatorHeatDemandTest` exercises the production mode calculation with controlled sensor/window inputs and verifies the resulting persisted radiator demand and Hive targets, including UFH-only demand and threshold adjustments.

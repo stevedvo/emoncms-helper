@@ -17,7 +17,7 @@
 	return [
 		'nibe.dmOverride'                     => $toggle('Heating', 'Automatic heating control', false, 'Allow the five-minute control calculation to adjust NIBE flow settings. This does not disable hot-water or Hive commands.'),
 		'nibe.loadCompensationOn'             => $toggle('Room temperatures', 'Use room temperatures', true, 'Use radiator temperature bands and the UFH minimum-temperature rules.'),
-		'nibe.allowBoosts'                    => $toggle('Heating', 'Allow scheduled boost promotion', false, 'Promote the heating mode during boost windows. Room-band boost adjustments still apply when this is off.'),
+		'nibe.allowBoosts'                    => $toggle('Heating', 'Allow scheduled boost promotion', false, 'Promote the mode in boost windows only when room compensation is inactive (disabled or without usable radiator data). Active room compensation uses radiator target adjustments and UFH preheating instead.'),
 		'nibe.cheapMode'                      => $toggle('Flow settings', 'Restrict flow settings (cheap mode)', false, 'Apply the restrictive offset limit across modes. This does not test the current electricity price.'),
 		'nibe.dmTarget'                       => $number('Heating', 'Normal degree-minute target', -180, -2000, 2000, 'DM', 'Target used by both intermittent and on modes.', true),
 		'nibe.dmTargetOff'                    => $number('Heating', 'Off degree-minute target', 30, -2000, 2000, 'DM', 'Target when heating is not required. Hot-water priority reduces this by 60.', true),
