@@ -4,7 +4,7 @@
 	use Throwable;
 	use App\Mail\ActivityLogReport;
 	use App\Models\ActivityLog;
-	use App\Services\ActivityLogSummarizer;
+	use App\Services\ActivityLogSummariser;
 	use Carbon\Carbon;
 	use Illuminate\Console\Command;
 	use Illuminate\Support\Facades\Mail;
@@ -28,10 +28,10 @@
 		/**
 		 * Execute the console command.
 		 *
-		 * @param ActivityLogSummarizer $activityLogSummarizer
+		 * @param ActivityLogSummariser $activityLogSummariser
 		 * @return void
 		 */
-		public function handle(ActivityLogSummarizer $activityLogSummarizer) : void
+		public function handle(ActivityLogSummariser $activityLogSummariser) : void
 		{
 			ActivityLog::create(
 			[
@@ -47,7 +47,7 @@
 			{
 				$fromDateTime = Carbon::now()->subDays(1);
 				$activityLogs = ActivityLog::where('level', "error")->where('created_at', ">", $fromDateTime->format("Y-m-d H:i:s"))->orderBy('created_at')->get();
-				$activityLogSummary = $activityLogSummarizer->summarize($activityLogs);
+				$activityLogSummary = $activityLogSummariser->summarise($activityLogs);
 
 				$activityLogReport = new ActivityLogReport("errors", $fromDateTime->format("c"), $activityLogSummary, $activityLogs->count());
 				Mail::to(config("app.admin_email"))->send($activityLogReport);

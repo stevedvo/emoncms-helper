@@ -2,12 +2,12 @@
 
 namespace Tests\Unit;
 
-use App\Services\ActivityLogSummarizer;
+use App\Services\ActivityLogSummariser;
 use Illuminate\Support\Collection;
 use PHPUnit\Framework\TestCase;
 use stdClass;
 
-class ActivityLogSummarizerTest extends TestCase
+class ActivityLogSummariserTest extends TestCase
 {
     /**
      * Verify variable timeout durations are grouped into one port category.
@@ -35,7 +35,7 @@ class ActivityLogSummarizerTest extends TestCase
             ),
         ]);
 
-        $summary = (new ActivityLogSummarizer())->summarize($logs);
+        $summary = (new ActivityLogSummariser())->summarise($logs);
 
         $this->assertCount(2, $summary);
         $this->assertSame("Port 443 errors", $summary[0]['type']);
@@ -62,7 +62,7 @@ class ActivityLogSummarizerTest extends TestCase
             $this->log("A different application error"),
         ]);
 
-        $summary = (new ActivityLogSummarizer())->summarize($logs);
+        $summary = (new ActivityLogSummariser())->summarise($logs);
 
         $this->assertCount(3, $summary);
         $this->assertSame("Connection reset errors", $summary[0]['type']);
@@ -81,7 +81,7 @@ class ActivityLogSummarizerTest extends TestCase
      */
     public function test_it_handles_empty_messages_and_missing_source_details(): void
     {
-        $summary = (new ActivityLogSummarizer())->summarize(new Collection([
+        $summary = (new ActivityLogSummariser())->summarise(new Collection([
             $this->log("", "2026-07-17 00:00:00", null, null),
             $this->log("   ", "2026-07-17 00:01:00", null, null),
         ]));
@@ -95,8 +95,45 @@ class ActivityLogSummarizerTest extends TestCase
         );
     }
 
+    public function test_it_groups_missing_local_feed_data_across_sensors_and_query_windows() : void
+    {
+        $controller = 'App\\Http\\Controllers\\EmonController';
+        $summary = (new ActivityLogSummariser())->summarise(new Collection([
+            $this->log('Unable to get latest data. $environment = local, $feedItem[$envFeedId] = 6, $startTimeMilliseconds = 1000, $endTimeMilliseconds = 2000', '2026-10-23 05:00:00', $controller, 'getLatestEmonData'),
+            $this->log('Unable to get latest data. $environment = local, $feedItem[$envFeedId] = 7, $startTimeMilliseconds = 2000, $endTimeMilliseconds = 3000', '2026-10-23 04:00:00', $controller, 'getLatestEmonData'),
+            $this->log('Caught error: Unable to get latest data. $environment = local, $feedItem[$envFeedId] = 6', '2026-10-23 05:30:00', $controller, 'anotherMethod'),
+        ]));
+
+        $this->assertCount(1, $summary);
+        $this->assertSame('Missing local feed data', $summary[0]['type']);
+        $this->assertSame(3, $summary[0]['count']);
+        $this->assertSame('2026-10-23 04:00:00', $summary[0]['first_seen']);
+        $this->assertSame('2026-10-23 05:30:00', $summary[0]['last_seen']);
+        $this->assertSame(
+            [['name' => 'EmonController::getLatestEmonData', 'count' => 2], ['name' => 'EmonController::anotherMethod', 'count' => 1]],
+            $summary[0]['sources']
+        );
+    }
+
+    public function test_missing_local_feed_group_does_not_merge_remote_or_unrelated_errors() : void
+    {
+        $remote = 'Unable to get latest data. $environment = remote, $feedItem[$envFeedId] = 106';
+        $unrelated = 'Unable to get latest data from another service';
+        $summary = (new ActivityLogSummariser())->summarise(new Collection([
+            $this->log('Unable to get latest data. $environment = local, $feedItem[$envFeedId] = 6'),
+            $this->log('UNABLE TO GET LATEST DATA.   $environment = LOCAL, $feedItem[$envFeedId] = 7'),
+            $this->log($remote),
+            $this->log($unrelated),
+        ]));
+
+        $this->assertCount(3, $summary);
+        $this->assertSame(2, $summary->firstWhere('type', 'Missing local feed data')['count']);
+        $this->assertSame(1, $summary->firstWhere('type', $remote)['count']);
+        $this->assertSame(1, $summary->firstWhere('type', $unrelated)['count']);
+    }
+
     /**
-     * Create a lightweight activity log object for summarizer tests.
+     * Create a lightweight activity log object for summariser tests.
      */
     private function log(
         string $message,

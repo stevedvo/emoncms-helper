@@ -69,7 +69,7 @@ UFH keeps its normal comfort thresholds during peak periods. During boost window
 | `app/APIs/` | HTTP adapters for the four external services and a shared Guzzle wrapper. |
 | `app/Console/Kernel.php`, `app/Console/Commands/` | Timings and command entry points. |
 | `app/Models/`, `database/migrations/` | Stored readings, mappings, settings, and logs. |
-| `app/Services/ActivityLogSummarizer.php`, `app/Mail/`, `resources/views/emails/` | Administrator reports and notification formatting. |
+| `app/Services/ActivityLogSummariser.php`, `app/Mail/`, `resources/views/emails/` | Administrator reports and notification formatting. |
 | `app/Services/ControlSettings.php`, `config/control-parameters.php` | Editable operating-parameter catalogue, typed live reads, import and audited saves. |
 | `routes/web.php`, `resources/views/`, `public/css/control-panel.css`, `public/js/` | Authenticated dashboard, settings and log pages, saved searches, login, responsive styling and Emon refresh. |
 | `routes/api.php` | Existing weather-ingestion endpoint and Sanctum user endpoint. |
@@ -93,4 +93,4 @@ The existing tests can be run with:
 php vendor/bin/phpunit
 ```
 
-All **306 tests / 1553 assertions** pass. Coverage includes cooling-offset limits after dew-point adjustments, NIBE response validation and failed-poll state preservation, Emon feed validation and recovery, zero readings and failed-feed comparison isolation, live settings, validation, access protection, dashboard behaviour, searchable logs, selectable page sizes and direct page navigation, private saved searches, zone-demand decisions, radiator hysteresis, UFH preheating, shortfall-based boost and peak comfort protection, scheduled boost fallback with inactive room compensation, configurable boost and peak-window offsets, London summer/winter timing, Hive targets, reports and framework examples, using isolated test databases and mocked external calls. Warm-forecast expectations reflect the 22 October trial. These tests do not operate the physical equipment.
+All **309 tests / 1572 assertions** pass. Coverage includes cooling-offset limits after dew-point adjustments, NIBE response validation and failed-poll state preservation, Emon feed validation and recovery, zero readings and failed-feed comparison isolation, live settings, validation, access protection, dashboard behaviour, searchable logs, selectable page sizes and direct page navigation, private saved searches, zone-demand decisions, radiator hysteresis, UFH preheating, shortfall-based boost and peak comfort protection, scheduled boost fallback with inactive room compensation, configurable boost and peak-window offsets, London summer/winter timing, Hive targets, reports with missing local feed grouping and framework examples, using isolated test databases and mocked external calls. Warm-forecast expectations reflect the 22 October trial. These tests do not operate the physical equipment.

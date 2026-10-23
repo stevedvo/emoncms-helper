@@ -4,12 +4,12 @@
 	use DateTimeInterface;
 	use Illuminate\Support\Collection;
 
-	class ActivityLogSummarizer
+	class ActivityLogSummariser
 	{
 		/**
 		 * Group activity logs into concise error types for the administrator report.
 		 */
-		public function summarize(Collection $activityLogs) : Collection
+		public function summarise(Collection $activityLogs) : Collection
 		{
 			return $activityLogs->groupBy(fn($log) => $this->groupKey((string) $log->message))->map(function(Collection $logs) : array
 			{
@@ -61,6 +61,11 @@
 			if (stripos($message, "Connection was reset") !== false)
 			{
 				return "Connection reset errors";
+			}
+
+			if (preg_match('/Unable to get latest data\.\s+\$environment\s*=\s*local\b/i', $message) === 1)
+			{
+				return "Missing local feed data";
 			}
 
 			if (preg_match('/cURL error\s+(\d+):/i', $message, $matches) === 1)

@@ -222,7 +222,9 @@ Migrations define structure only. `DatabaseSeeder` does not insert operational d
 
 Most command/controller errors are caught and stored in `activity_logs`. Command start/end markers do not guarantee all child operations succeeded, and caught failures often leave a successful command exit status.
 
-At 06:00 application time, `admin:emails` selects error-level activity logs newer than one day ago, groups them through `ActivityLogSummarizer`, and sends `Activity Log Report [errors]`. Grouping precedence is port number, DNS resolution, connection reset, cURL error number, then whitespace-normalised/case-insensitive exact message. Groups and source counts sort descending; first/last seen timestamps are included. Warnings are not included. An empty period still sends “Nothing to report”.
+At 06:00 application time, `admin:emails` selects error-level activity logs newer than one day ago, groups them through `ActivityLogSummariser::summarise()`, and sends `Activity Log Report [errors]`. Grouping precedence is port number, DNS resolution, connection reset, missing local feed data, cURL error number, then whitespace-normalised/case-insensitive exact message. Groups and source counts sort descending; first/last seen timestamps are included. Warnings are not included. An empty period still sends “Nothing to report”.
+
+Messages containing `Unable to get latest data. $environment = local` share the **Missing local feed data** category even when feed IDs and query timestamps differ. Matching ignores case and allows whitespace variations. Remote-feed failures and other messages retain their existing grouping. This category reports a lack of usable readings within the requested window, rather than diagnosing why a sensor stopped reporting; the control loop's default room-temperature lookback is 180 minutes.
 
 Other mail subjects are `Agile Rates` and `Nibe Offline?`. All use `app.admin_email` as recipient and `mail.from.address` as sender. Calls use synchronous `Mail::send()`; the Queueable traits do not make them queued jobs.
 
