@@ -63,7 +63,7 @@ Stored schedule start/end values are integers. `CarbonImmutable::parse()` accept
 
 The migrations create no unique index on `settings.key` or NIBE `(parameterId, timestamp)`. Application-level find/create logic is not a database uniqueness guarantee under overlapping runs. No overlap prevention is configured in the scheduler. Models for the catalogue/mapping tables retain default Eloquent ID/timestamp assumptions even where the corresponding schema omits those columns; their current read usage does not supply a ready-made write/import interface.
 
-The degree-minute formula divides by `minutesToDm` and `offsetFactor`. The Settings page now validates positive values, threshold ordering and compatible offset limits before saving. Direct database edits or imported legacy values bypass form validation and should be checked separately. The first minimum-flow preparation write is not clamped to the later escalation cap. Cooling's dew-point +1 override is not re-clamped, and its projected temperature uses hard-coded 2 rather than `offsetFactor`.
+The degree-minute formula divides by `minutesToDm` and `offsetFactor`. The Settings page now validates positive values, threshold ordering and compatible offset limits before saving. Direct database edits or imported legacy values bypass form validation and should be checked separately. The first minimum-flow preparation write is not clamped to the later escalation cap. Cooling re-clamps the final offset after its dew-point adjustment to respect both limits; its projected temperature still uses hard-coded 2 rather than `offsetFactor`.
 
 ## Integration and operational limits
 

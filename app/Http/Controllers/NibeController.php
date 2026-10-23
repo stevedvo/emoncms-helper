@@ -665,6 +665,9 @@
 						}
 					}
 
+					// Dewpoint adjustments must respect the same limits as the DM calculation.
+					$coolingOffsetNew = min(max($coolingOffsetNew, $minOffset), $maxOffset);
+
 					if ($coolingOffsetNew != $coolingOffsetCurrent)
 					{
 						$parameterData['48739'] = $coolingOffsetNew;

@@ -292,7 +292,9 @@ It then checks approximate dew point:
 - If calculated flow is already below dew point, request current cooling offset +1.
 - Otherwise, if `calculatedFlow + 2 * offsetChange` would be below dew point, hold the current offset.
 
-The projection uses hard-coded 2 rather than configurable `offsetFactor`. The dew-point branch uses a loose null comparison, so zero dew point is skipped. Its +1 override is not clamped again. This is an approximate check, not a complete condensation-control model.
+After the dew-point adjustment, the final cooling offset is clamped again to the effective minimum and maximum offsets before deciding whether to PATCH it. At the maximum, the +1 request therefore holds the offset at that limit rather than sending an invalid value such as 11.
+
+The projection uses hard-coded 2 rather than configurable `offsetFactor`. The dew-point branch uses a loose null comparison, so zero dew point is skipped. This is an approximate check, not a complete condensation-control model.
 
 While cooling, the heating offset moves one step toward zero only above `coolingStartTemp + 1` (default 25°C). Minimum heating flow temperature is not changed by the cooling branch.
 
