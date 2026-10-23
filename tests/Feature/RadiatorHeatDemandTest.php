@@ -112,8 +112,8 @@ class RadiatorHeatDemandTest extends TestCase
             'boost adjusted Rad threshold' => [22.4, 20.5, 10, true, false, null, 'boost', true, 30],
             'peak adjusted Rad threshold' => [20, 19.8, 10, false, true, null, 'intermittent', false, 16],
             'peak threshold equality' => [19.5, 20.5, 10, false, true, null, 'intermittent', true, 30],
-            'warm forecast and UFH demand' => [21, 19.8, 10, false, false, 14, 'intermittent', false, 16],
-            'warm forecast threshold equality' => [20.5, 20.5, 10, false, false, 14, 'intermittent', true, 30],
+            'warm forecast keeps radiator demand' => [21, 19.8, 10, false, false, 14, 'on', true, 30],
+            'warm forecast keeps base threshold equality' => [21.5, 20.5, 10, false, false, 14, 'intermittent', true, 30],
             'cold forecast threshold equality' => [23.5, 20.5, 10, false, false, 2, 'intermittent', true, 30],
             'cold peak minimum must not create Rad demand' => [22, 20.5, 10, false, true, 2, 'intermittent', false, 16],
         ];
@@ -170,6 +170,40 @@ class RadiatorHeatDemandTest extends TestCase
         ControlledNibeController::prepare(21.2, 19.8, true);
         ControlledNibeController::calculateHeatingMode(30, 10, 10);
         $this->assertTrue(RadiatorHeatDemand::current());
+    }
+
+    public function test_real_peak_window_keeps_the_radiator_target_until_1600() : void
+    {
+        config()->set('nibe.loadCompTempOff', 21);
+        config()->set('nibe.loadCompTempIntermittent', 20);
+        $start = CarbonImmutable::parse('2026-10-22 14:35:00 Europe/London');
+        CarbonImmutable::setTestNow($start);
+        RadiatorHeatDemand::record(true);
+
+        // Reproduce a warm radiator retaining demand until the actual peak begins.
+        foreach (range(0, 85, 5) as $minutes)
+        {
+            CarbonImmutable::setTestNow($start->addMinutes($minutes));
+            ScheduledPeakNibeController::prepare(21.2, 20.5);
+            $this->assertSame('intermittent', ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
+            $required = $minutes < 85;
+            $this->assertSame($required, RadiatorHeatDemand::current());
+            $this->assertHiveTarget(30, $required ? 30 : 16);
+        }
+    }
+
+    public function test_real_peak_window_allows_ufh_preheating_before_1600() : void
+    {
+        config()->set('nibe.allowBoosts', false);
+
+        foreach ([['14:40:00', 'intermittent'], ['15:59:59', 'intermittent'], ['16:00:00', 'off']] as [$time, $mode])
+        {
+            CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-22 '.$time.' Europe/London'));
+            ScheduledPeakNibeController::prepare(26, 20.8, true);
+            $this->assertSame($mode, ScheduledPeakNibeController::calculateHeatingMode(10, 10, 10));
+            $this->assertFalse(RadiatorHeatDemand::current());
+            $this->assertHiveTarget(30, 16);
+        }
     }
 
     public function test_radiator_mode_demand_and_valve_demand_use_the_same_hysteresis() : void
@@ -573,6 +607,14 @@ class ControlledNibeController extends NibeController
     public static function isReducingDefrosts(): bool
     {
         return self::$defrost;
+    }
+}
+
+class ScheduledPeakNibeController extends ControlledNibeController
+{
+    public static function isPeakImport(CarbonInterface $time) : bool
+    {
+        return NibeController::isPeakImport($time);
     }
 }
 

@@ -77,6 +77,11 @@
 					$validator->errors()->add('values.octopus__offsetToOff', 'The start and end offsets must leave a positive duration for the shortest two-hour boost window.');
 				}
 
+				if ($candidate['nibe.peakImportStartOffsetMinutes'] - $candidate['nibe.peakImportEndOffsetMinutes'] >= 180)
+				{
+					$validator->errors()->add('values.nibe__peakImportEndOffsetMinutes', 'The peak start and end offsets must leave a positive duration for the 16:00 to 19:00 peak window.');
+				}
+
 				$order('nibe.offsetMaximum', 'nibe.offsetMinimum', 'The maximum offset must be at least the minimum offset.');
 
 				foreach (['nibe.offsetMaxInt', 'nibe.cheapModeOffsetMax'] as $key)

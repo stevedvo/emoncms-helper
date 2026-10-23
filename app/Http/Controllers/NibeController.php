@@ -905,7 +905,9 @@
 					$defrostRoomTempAdjust = 0;
 					$boostRoomTempAdjust = 0;
 					$peakRoomTempAdjust = $peakImport ? -2 : 0;
-					$highForecastRoomTempAdjust = $highTemperatureForecast ? -1 : 0;
+					// $highForecastRoomTempAdjust = $highTemperatureForecast ? -1 : 0;
+					// Oct-26: not sure I like this arbitrary cut-off that changes the target by 1degC
+					$highForecastRoomTempAdjust = $highTemperatureForecast ? 0 : 0;
 
 					// if high temps are expected then don't add positive adjustments
 					if ($highForecastRoomTempAdjust === 0)
@@ -1723,13 +1725,14 @@
 		{
 			try
 			{
-				$offsetToOn = 25;
-				$offsetToOff = 80;
+				$startOffset = ControlSettings::get('nibe.peakImportStartOffsetMinutes');
+				$endOffset = ControlSettings::get('nibe.peakImportEndOffsetMinutes');
+				$localTime = $time->copy()->setTimezone("Europe/London");
 
-				$startPeak = $time->copy()->setTime(16, 0)->subMinutes($offsetToOff);
-				$endPeak   = $time->copy()->setTime(19, 0)->subMinutes($offsetToOn);
+				$startPeak = $localTime->copy()->setTime(16, 0)->addMinutes($startOffset);
+				$endPeak   = $localTime->copy()->setTime(19, 0)->addMinutes($endOffset);
 
-				return ($time->betweenIncluded($startPeak, $endPeak));
+				return ($localTime->betweenIncluded($startPeak, $endPeak));
 			}
 			catch (Throwable $e)
 			{

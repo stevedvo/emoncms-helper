@@ -61,7 +61,7 @@ Calling `php artisan nibe:getData` manually performs its real integrations, incl
 | --- | --- |
 | Daily cleanup and 06:00 administrator report | Application timezone, default UTC. The report is therefore 07:00 UK time during BST. |
 | Five-minute control gate | Minute number of application time. |
-| Peak-import window | Explicit Europe/London, 14:40–18:35 inclusive. |
+| Peak-import window | Explicit Europe/London, 16:00–18:35 inclusive by default; both boundaries have editable minute offsets. |
 | Rate-fetch cutoff/reset | Explicit Europe/London, 16:30. |
 | Cheapest/most-expensive rate search ranges | Application timezone, default UTC. |
 | Cosy schedule starts and hot-water checks | Explicit Europe/London. |
@@ -107,7 +107,7 @@ The following table retains the legacy environment-variable mapping and checked-
 | `NIBE_DEFROST_EVAPORATOR_MAXIMUM` | `defrostEvaporatorMax` | -15 | Evaporator-minimum threshold; severe trigger is another 5°C lower. |
 | `NIBE_DM_TARGET_OFF_TEMP` | `dmTargetOffTemp` | 12 | Current-outdoor cutoff in forecast-disabled boost selection. Does not directly select off in current normal flow. |
 | `NIBE_DM_TARGET_BOOST_TEMP` | `dmTargetBoostTemp` | 3 | Low-forecast +2°C band adjustment and peak minimum-mode rule. |
-| `NIBE_RUN_LEVEL_1_TEMP` | `runLevel1Temp` | 12 | Warm-high forecast reduction of initial mode and radiator bands; no warm-forecast veto on Cosy eligibility. Also used in forecast-disabled boost selection. |
+| `NIBE_RUN_LEVEL_1_TEMP` | `runLevel1Temp` | 12 | Warm-high forecast reduction of initial mode; the -1°C radiator-band reduction is disabled during the 22 October trial. No warm-forecast veto on Cosy eligibility. Also used in forecast-disabled boost selection. |
 | `NIBE_RUN_LEVEL_2_TEMP` | `runLevel2Temp` | 9 | Boost-selection comparisons; forecast-enabled branches currently still choose Cosy. |
 | `NIBE_TEMP_FREQ_MIN` | `tempFreqMin` | 6 | Boost-selection comparisons; forecast-enabled branches currently still choose Cosy. |
 
@@ -115,7 +115,7 @@ The myUplink token and function URLs are fixed in `config/nibe.php` to `https://
 
 The UFH thresholds are now editable as `nibe.ufhTempOn` (default 19.5°C) and `nibe.ufhTempIntermittent` (default 20°C), and room-sensor history as `nibe.roomTemperatureLookbackMinutes` (default 180). Log retention is editable under `logs.infoRetentionDays`, `warningRetentionDays`, `errorRetentionDays` and `apiRetentionDays` (defaults 30/60/90/90).
 
-Boost schedule offsets are editable as `octopus.offsetToOn` and `octopus.offsetToOff` (defaults -15/-100 minutes) under **Weather and boosts**. They apply when the schedule is next generated. The remaining hard-coded constants include peak offsets 80/25 minutes, extraBoost's +90, room-band adjustments, the 60-minute evaporator window, minimum-flow baseline/cap 10/60°C, two-hour UFH extrapolation, and hot-water schedule/time/temperature rules.
+Boost schedule offsets are editable as `octopus.offsetToOn` and `octopus.offsetToOff` (defaults -15/-100 minutes) under **Weather and boosts**. They apply when the schedule is next generated. Peak control offsets are separately editable as `nibe.peakImportStartOffsetMinutes` and `nibe.peakImportEndOffsetMinutes` (defaults 0/-25 minutes), added to 16:00/19:00 London time and read at each evaluation. These affect radiator peak reduction, UFH preheat suppression and the cold-forecast peak minimum; they do not rewrite the boost schedule. Negative offsets move boundaries earlier, positive later, and the Settings form requires a positive peak-window duration. The remaining hard-coded constants include the nominal peak clock times, extraBoost's +90, room-band adjustments, the 60-minute evaporator window, minimum-flow baseline/cap 10/60°C, two-hour UFH extrapolation, and hot-water schedule/time/temperature rules.
 
 ## Other integration configuration
 
