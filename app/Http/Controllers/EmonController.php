@@ -238,7 +238,7 @@
 
 		public static function getLatestEmonData(string $feedName, string $environment, int $minutes) : ?string
 		{
-			$latestValue = "";
+			$latestValue = null;
 			$dbColumn    = "";
 			$envFeedId   = "";
 
@@ -280,7 +280,7 @@
 				$feedData = EmonAPI::getFeedData($environment, $feedItem[$envFeedId], $startTimeMilliseconds, $endTimeMilliseconds);
 				$latestValue = ($pair = collect($feedData)->last(fn($pair) => !is_null($pair[1]))) ? round($pair[1], 1) : null;
 
-				if ($latestValue == null)
+				if ($latestValue === null)
 				{
 					throw new Exception ('Unable to get latest data. $environment = '.$environment.', $feedItem[$envFeedId] = '.$feedItem[$envFeedId].', $startTimeMilliseconds = '.$startTimeMilliseconds.', $endTimeMilliseconds = '.$endTimeMilliseconds);
 				}

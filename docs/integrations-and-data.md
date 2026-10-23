@@ -57,11 +57,17 @@ The two named environments are `local` (default `http://emonhp.local`) and `remo
 | Read feed data | GET `/feed/data.json`, feed ID, start/end in milliseconds, interval fixed at 10 seconds. |
 | Post inputs | POST `/input/post`, form fields `time` (Unix seconds), `node`, `fulljson`, `apikey`. |
 
+`getFeedData()` requires a successful HTTP status, a nonempty body and valid JSON containing a list of two-element timestamp/value pairs. Each timestamp must be numeric and finite; values may be scalar or null. The whole list is validated before returning it. A valid empty list `[]`, zero readings and null gaps within a feed are preserved. An empty body, top-level JSON `null`, an error object, malformed JSON or an invalid sample raises a descriptive exception instead of reaching callers as feed data.
+
+The new diagnostics identify the local/remote environment, feed ID, HTTP status and body length without copying the response body or read key. Existing HTTP and connection exceptions continue to propagate. There is no immediate retry; a later invocation makes a fresh request.
+
 Input success requires a decoded response array containing `success` equal to the string `true` under the code's loose comparison. The helper posts **inputs** for NIBE and forecast values; the Emoncms processing that turns those inputs into feeds is configured externally.
 
 ### Indoor temperature and trend
 
 Named readings resolve through `emon_feed_maps.localName` or `remoteName`. `getLatestEmonData()` searches a requested number of minutes ending at the current minute boundary, chooses the last non-null reading, and rounds to one decimal place. The main control loop uses editable `nibe.roomTemperatureLookbackMinutes` (default 180) for Rad/UFH data, so with defaults a returned reading can be nearly three hours old. There is no additional age check on the selected pair. The [dashboard](control-panel.md) separately reads the local feed list with a bounded read-only request; it does not trigger a control calculation.
+
+Zero is a valid latest reading and does not produce a missing-data error. A failed read, empty list or list containing only null gaps is logged and returns null, allowing the existing room-temperature fallback to apply.
 
 The dashboard resolves its Rad/UFH cards using the same local feed-ID mappings rather than assuming the Emon display name matches the mapping alias. Its response marks each identified feed with `room: rad` or `room: ufh`, which also selects the room-specific sample-age limit. Original feed names remain unchanged in the feed table.
 
@@ -86,6 +92,8 @@ Missing required fields produce null. `syncRoomTemperatureForecastWithEmon()` po
 Every 30 minutes, `emon:sync` calls `getEmonFeeds()` and then `postEmonFeeds()`.
 
 The comparison includes only local IDs **1–8 and 14–19**, with a mapping in `emon_feed_maps`. It compares a rolling period ending five minutes ago and starting `emonSyncPeriodHours` earlier (default three hours). Data timestamps are milliseconds. Equal timestamp/value pairs are skipped; local values missing or different remotely can be inserted into `feed_items` as `pending`, unless a row already exists for that local feed and timestamp.
+
+If either environment returns unusable feed data, the comparison logs the failure and skips that feed without adding backlog entries for it. Other feeds are still processed. In particular, a failed remote read is not treated as an empty remote history requiring every local sample to be queued.
 
 Handling depends on the mapping's exact `localName`:
 

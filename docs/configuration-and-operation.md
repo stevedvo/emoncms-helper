@@ -180,6 +180,7 @@ Common symptoms:
 | --- | --- |
 | No DM adjustments | `NIBE_DM_OVERRIDE`, all eleven required response points, timing gate, API/database errors, and whether calculated changes are zero. |
 | NIBE points response is empty, invalid JSON or not a list | Check the error's HTTP status and byte count. The bad poll is rejected before readings or control updates; the next scheduled poll tries again. A valid response must be a JSON list with parameter ID, timestamp and value fields. |
+| Emon feed response is empty, invalid JSON or has invalid samples | Check the diagnostic's environment, feed ID, HTTP status and byte count. Feed comparisons skip the affected feed without adding backlog entries and continue with other feeds. Latest-reading lookups log the failure and return null. A valid response is a JSON list of timestamp/value pairs; null gaps within that list are allowed. |
 | No priority/Hive updates | Catalogue contains `49994`; a stored reading exists; inspect age and errors. |
 | Hive stays off while NIBE is heating | Check the radiator-demand decision and adjusted Rad threshold. A fresh false decision keeps Hive at its off target while the UFH or other mode rules can keep the heat pump running. |
 | Hive turns on despite a warm Rad zone | Check fallback warnings, demand age and field types, `NIBE_DM_OVERRIDE`, `NIBE_LOAD_COMPENSATION_ON`, and whether adjusted thresholds currently request radiator heating. |
