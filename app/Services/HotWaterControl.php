@@ -173,6 +173,7 @@
 
 				$this->state['request'] = null;
 				$this->state['lastCompletedAt'] = $now->getTimestamp();
+				$this->state['lastCompletedPriorityAt'] = $priority['timestamp'];
 				$this->note('Recharge completed; economy mode confirmed.');
 
 				return;
@@ -209,7 +210,10 @@
 				return;
 			}
 
-			if ($now->getTimestamp() < $this->state['retryAfter'] || $now->getTimestamp() - $this->state['lastCompletedAt'] < 30 * 60)
+			// A new low charging reading after completion can be a late shower; do not delay its daytime top-up.
+			$freshAfternoonTopUp = $this->afternoonTopUp($now) && $charging['timestamp'] > ($this->state['lastCompletedPriorityAt'] ?? $this->state['lastCompletedAt']) && $charging['value'] < $this->afternoonThreshold($now);
+
+			if ($now->getTimestamp() < $this->state['retryAfter'] || ($now->getTimestamp() - $this->state['lastCompletedAt'] < 30 * 60 && !$freshAfternoonTopUp))
 			{
 				$this->setMode(0, $now);
 				$this->note('Waiting for the recharge recovery interval.');
@@ -250,7 +254,7 @@
 			$key = $period.':'.$date;
 
 			// A completed overnight recharge is never repeated, including after an early shower.
-			if (($this->state['completed'][$period] ?? null) === $date && ($overnight || !$urgent))
+			if ($overnight && ($this->state['completed']['overnight'] ?? null) === $date)
 			{
 				return [null, ucfirst($period).' recharge opportunity already completed.'];
 			}
@@ -260,7 +264,7 @@
 				return [$key, 'Urgent recharge below '.ControlSettings::get('nibe.hotWaterUrgentTemperature').'°C; peak check passed.'];
 			}
 
-			$threshold = $overnight ? ControlSettings::get('nibe.hotWaterOvernightTemperature') : ControlSettings::get($now->isSunday() ? 'nibe.hotWaterSundayTemperature' : 'nibe.hotWaterAfternoonTemperature');
+			$threshold = $overnight ? ControlSettings::get('nibe.hotWaterOvernightTemperature') : $this->afternoonThreshold($now);
 
 			if ($temperature >= $threshold)
 			{
@@ -270,6 +274,11 @@
 			if ($overnight)
 			{
 				return [$key, 'Overnight recharge below '.$threshold.'°C; hot water takes priority throughout 22:00–07:00.'];
+			}
+
+			if (($this->state['completed']['afternoon'] ?? null) === $date)
+			{
+				return $this->afternoonTopUp($now) ? [$key, 'Afternoon top-up below '.$threshold.'°C after an earlier recharge; peak check passed.'] : [null, 'Afternoon recharge already completed; additional normal top-ups close at 14:00.'];
 			}
 
 			if (!($minute >= 600 && $minute <= 840))
@@ -283,6 +292,16 @@
 			$allowed = $reserveHeating ? $minute >= 600 && $minute <= 720 : $minute >= 780 && $minute <= 840;
 
 			return $allowed ? [$key, $reserveHeating ? 'Recharging ahead of space heating'.($demand === null ? ' (heating demand unavailable).' : '.') : 'Using a cheap period because no space heating demand is expected.'] : [null, $reserveHeating ? 'Reserving cheap periods for space heating; waiting for the earlier hot water window.' : 'No space heating demand expected; waiting for a cheap hot water window.'];
+		}
+
+		private function afternoonTopUp(CarbonImmutable $now) : bool
+		{
+			return $now->hour >= 7 && $now->hour < 14 && ($this->state['completed']['afternoon'] ?? null) === $now->toDateString();
+		}
+
+		private function afternoonThreshold(CarbonImmutable $now) : float
+		{
+			return ControlSettings::get($now->isSunday() ? 'nibe.hotWaterSundayTemperature' : 'nibe.hotWaterAfternoonTemperature');
 		}
 
 		private function canStart(CarbonImmutable $now) : bool

@@ -492,11 +492,91 @@
 			$this->at('2026-10-24 11:00');
 			$this->poll(10, 44);
 			$this->at('2026-10-24 11:05');
-			$this->poll(10, 19);
+			$points = $this->points(10, 19);
+			$points[1]['timestamp'] = '2026-10-24T09:59:00Z';
+			$this->control->run($points, fn() => true);
 			$this->assertCount(2, $this->patches);
 			$this->at('2026-10-24 11:30');
 			$this->poll(10, 19);
 			$this->assertSame([47041 => 1], $this->patches[2]);
+		}
+
+		#[DataProvider('repeatAfternoonScenarios')]
+		public function test_repeat_afternoon_top_ups_use_the_day_threshold_and_peak_guard(string $date, string $time, float $temperature, ?bool $heating, int $duration, bool $expected) : void
+		{
+			config()->set('nibe.hotWaterDurationMinutes', $duration);
+			$this->at($date.' 10:00');
+			$this->poll(30, 32);
+			$this->at($date.' 10:05');
+			$this->poll(20, 32);
+			$this->at($date.' 12:00');
+			$this->poll(30, 44);
+			$this->at($date.' '.$time);
+			$this->poll(30, $temperature, $heating);
+			$this->assertSame($expected ? [[47041 => 1], [47041 => 0], [47041 => 1]] : [[47041 => 1], [47041 => 0]], $this->patches);
+			$this->assertSame($expected, $this->state()['request'] !== null);
+		}
+
+		public static function repeatAfternoonScenarios() : array
+		{
+			return
+			[
+				'heating at 12:35'         => ['2026-10-24', '12:35', 32, true, 120, true],
+				'no heating before 13:00'  => ['2026-10-24', '12:35', 32, false, 120, true],
+				'unknown heating demand'   => ['2026-10-24', '12:35', 32, null, 120, true],
+				'late shower at 13:55'     => ['2026-10-24', '13:55', 32, true, 120, true],
+				'normal repeats close 14' => ['2026-10-24', '14:00', 32, false, 120, false],
+				'after repeat cutoff'     => ['2026-10-24', '14:05', 32, true, 120, false],
+				'Sunday threshold'        => ['2026-10-25', '13:30', 36, true, 120, true],
+				'Sunday exact threshold'  => ['2026-10-25', '13:30', 37, true, 120, false],
+				'weekday exact threshold' => ['2026-10-24', '13:30', 33, true, 120, false],
+				'long run risks peak'     => ['2026-10-24', '13:05', 32, true, 180, false],
+				'long run fits peak'      => ['2026-10-24', '12:55', 32, true, 180, true],
+				'urgent cutoff unchanged' => ['2026-10-24', '14:00', 19, true, 120, true],
+			];
+		}
+
+		public function test_a_new_low_temperature_after_completion_bypasses_the_recovery_delay() : void
+		{
+			config()->set('nibe.hotWaterDurationMinutes', 120);
+			$this->at('2026-10-25 11:45');
+			$this->poll(30, 36);
+			$this->at('2026-10-25 11:50');
+			$this->poll(20, 36);
+			$this->at('2026-10-25 13:45');
+			$points = $this->points(30, 36);
+			// The controller finished at 13:40 and a shower lowered the temperature at 13:42,
+			// before the app observed completion at 13:45.
+			$points[0]['timestamp'] = '2026-10-25T13:40:00Z';
+			$points[1]['timestamp'] = '2026-10-25T13:42:00Z';
+			$this->control->run($points, fn() => true);
+			$this->at('2026-10-25 13:50');
+			$this->control->run($points, function()
+			{
+				throw new RuntimeException('Repeat afternoon top-ups must not depend on heating predictions.');
+			});
+			$this->assertSame([[47041 => 1], [47041 => 0], [47041 => 1]], $this->patches);
+			$this->assertSame(0, ActivityLog::where('level', 'error')->count());
+		}
+
+		public function test_multiple_afternoon_top_ups_can_complete_on_the_same_day() : void
+		{
+			config()->set('nibe.hotWaterDurationMinutes', 120);
+			$this->poll(30, 32);
+			$this->at('2026-10-24 10:05');
+			$this->poll(20, 32);
+			$this->at('2026-10-24 11:00');
+			$this->poll(30, 44);
+			$this->at('2026-10-24 11:10');
+			$this->poll(30, 32);
+			$this->at('2026-10-24 11:15');
+			$this->poll(20, 32);
+			$this->at('2026-10-24 12:30');
+			$this->poll(30, 44);
+			$this->at('2026-10-24 12:35');
+			$this->poll(30, 32);
+			$this->assertSame([[47041 => 1], [47041 => 0], [47041 => 1], [47041 => 0], [47041 => 1]], $this->patches);
+			$this->assertSame('afternoon:2026-10-24', $this->state()['request']['opportunity']);
 		}
 
 		public function test_shorter_duration_allows_a_later_afternoon_start_and_ignores_heating_peak_offsets() : void
