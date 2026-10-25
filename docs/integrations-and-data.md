@@ -192,7 +192,9 @@ There is no stored-priority age check, setpoint-change check, or read-back of Hi
 
 ## Hot water
 
-Every five minutes, independently of the DM-override switch, `checkHotWaterRequirement()` reads the current API point `40014` (hot-water charging temperature). On Monday–Saturday, between **09:30 and 14:00 Europe/London inclusive**, a value below 33°C and `hotWaterSet != 'true'` causes today's **schedule 2 comfort mode** to be set to normal (`1`), then sets the flag true.
+Every five minutes, independently of the DM-override switch, the polling controller selects one of two hot water paths. **App-managed hot water**, off by default under Settings → Hot water, uses parameter **47041** to select economy (`0`) or standard (`1`) directly, with controller schedules disabled manually. It tracks production priority, confirms writes, reserves cheap periods for space heating, and checks expected completion against the actual 16:00–19:00 tariff peak. See [App-managed hot water](hot-water-control.md) for settings, lifecycle, limitations, and manual changeover instructions.
+
+When the new control is off and any handover cleanup has finished, the original `checkHotWaterRequirement()` reads the current API point `40014` (hot-water charging temperature). On Monday–Saturday, between **09:30 and 14:00 Europe/London inclusive**, a value below 33°C and `hotWaterSet != 'true'` causes today's **schedule 2 comfort mode** to be set to normal (`1`), then sets the flag true.
 
 After **18:00**, if the flag is true, today's schedule 2 comfort mode is reset to economy (`0`) and the flag becomes false. At five-minute cadence the first normal reset opportunity is 18:05. Sundays return without changing either flag or schedule. This changes a day's schedule comfort mode; it does not directly start hot-water production or create the schedule's start/end times.
 

@@ -161,6 +161,58 @@
 			(new NibeAPI())->getParameterData();
 		}
 
+		#[DataProvider('hotWaterControlPaths')]
+		public function test_poll_routes_hot_water_to_exactly_one_control_path(bool $enabled, int $parameter) : void
+		{
+			CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-23 09:00:00 UTC'));
+			config()->set('nibe.hotWaterControl', $enabled);
+			config()->set('nibe.loadCompensationOn', false);
+			$points =
+			[
+				['parameterId' => 49994, 'timestamp' => '2026-10-23T09:00:00Z', 'value' => 30],
+				['parameterId' => 40014, 'timestamp' => '2026-10-23T09:00:00Z', 'value' => 32],
+			];
+			$this->responses->append(new Response(200, [], json_encode($points)), new Response(200, [], json_encode([$parameter => 'modified'])));
+			NibeController::getNibeData();
+			$this->assertCount(2, $this->requests);
+			$request = $this->requests[1]['request'];
+			$this->assertSame('PATCH', $request->getMethod());
+			$this->assertSame([$parameter => $enabled ? 1 : '1'], json_decode((string)$request->getBody(), true));
+			$this->assertSame($enabled ? 'hotWaterControl' : 'hotWaterSet', Setting::where('key', $enabled ? 'hotWaterControl' : 'hotWaterSet')->sole()->key);
+			$this->assertSame(0, ActivityLog::where('level', 'error')->count());
+		}
+
+		public static function hotWaterControlPaths() : array
+		{
+			return ['new direct control' => [true, 47041], 'original schedule control' => [false, 47655]];
+		}
+
+		public function test_live_poll_with_unchanged_priority_and_charging_can_request_hot_water() : void
+		{
+			CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-23 09:00:00 UTC'));
+			config()->set('nibe.hotWaterControl', true);
+			config()->set('nibe.loadCompensationOn', false);
+			$points =
+			[
+				['parameterId' => 49994, 'timestamp' => '2026-10-23T06:00:00Z', 'value' => 30],
+				['parameterId' => 40014, 'timestamp' => '2026-10-23T06:00:00Z', 'value' => 32],
+				['parameterId' => 40940, 'timestamp' => '2026-10-23T08:59:00Z', 'value' => -166],
+			];
+			$this->responses->append(new Response(200, [], json_encode($points)), new Response(200, [], '{"47041":"modified"}'));
+			NibeController::getNibeData();
+			$this->assertCount(2, $this->requests);
+			$this->assertSame([47041 => 1], json_decode((string)$this->requests[1]['request']->getBody(), true));
+			$this->assertSame(0, ActivityLog::where('level', 'error')->count());
+		}
+
+		public function test_comfort_write_requires_the_modified_acknowledgement() : void
+		{
+			$this->responses->append(new Response(200, [], '{"47041":"rejected"}'));
+			$this->expectException(\Exception::class);
+			$this->expectExceptionMessage('47041 not modified');
+			(new NibeAPI())->setParameterData([47041 => 0]);
+		}
+
 		public static function invalidResponses() : array
 		{
 			return [

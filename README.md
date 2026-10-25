@@ -14,6 +14,7 @@ Activity and API Logs offer 100, 250, 500 or 1000 entries per page, defaulting t
 | --- | --- |
 | [Control panel and live settings](docs/control-panel.md) | First sign-in, importing existing values, live parameter editing, dashboard, searchable logs and saved searches. |
 | [Heat pump control](docs/heat-pump-control.md) | Exact decision order, room-temperature bands, boosts, peak periods, defrost reduction, degree-minute calculations, cooling, and worked examples. |
+| [App-managed hot water](docs/hot-water-control.md) | Optional direct comfort-mode control, recharge windows, heating demand, peak avoidance, trial setup and return to scheduled control. |
 | [Integrations and data](docs/integrations-and-data.md) | NIBE polling, Emoncms feeds, weather payloads, tariff schedules, Hive, hot water, database tables, and logging. |
 | [Configuration and operation](docs/configuration-and-operation.md) | Environment variables and defaults, initial data requirements, command schedule, time zones, and troubleshooting. |
 | [Implementation notes](docs/implementation-notes.md) | Disabled experiments, incomplete features, and edge cases that matter when interpreting the code. |

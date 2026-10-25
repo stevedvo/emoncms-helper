@@ -26,15 +26,7 @@
 			$onThreshold = round($threshold - $margin, 6);
 			$offThreshold = round($threshold + $margin, 6);
 
-			// Initialise at the original threshold when no recent decision can be retained.
-			if ($previous === null || $margin == 0)
-			{
-				$required = $temperature <= $threshold;
-			}
-			else
-			{
-				$required = $previous ? $temperature < $offThreshold : $temperature <= $onThreshold;
-			}
+			$required = self::evaluate($temperature, $threshold, $previous);
 
 			ActivityLog::create(
 			[
@@ -45,6 +37,25 @@
 			]);
 
 			return $required;
+		}
+
+		public static function evaluate(float $temperature, float $threshold, ?bool $previous) : bool
+		{
+			$margin = ControlSettings::get('hive.radiatorHysteresis');
+
+			if ($previous === null || $margin == 0)
+			{
+				return $temperature <= $threshold;
+			}
+
+			return $previous ? $temperature < round($threshold + $margin, 6) : $temperature <= round($threshold - $margin, 6);
+		}
+
+		public static function previous() : ?bool
+		{
+			$reason = null;
+
+			return self::storedDemand($reason);
 		}
 
 		/**

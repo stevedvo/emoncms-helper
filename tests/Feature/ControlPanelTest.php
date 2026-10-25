@@ -85,6 +85,23 @@ class ControlPanelTest extends TestCase
 		$this->assertSame('keep-this-token', Setting::firstWhere('key', 'nibe_token_current')->value);
 	}
 
+	public function test_hot_water_settings_are_available_disabled_by_default_and_can_be_saved() : void
+	{
+		$this->actingAs(User::factory()->create());
+		$this->get('/settings')->assertOk()->assertSee('App-managed hot water')->assertSee('Disable both hot water schedules')->assertSee('Sunday afternoon recharge below');
+		$this->assertFalse(ControlSettings::get('nibe.hotWaterControl'));
+		$this->put('/settings', $this->payload(
+		[
+			'nibe__hotWaterControl'              => '1',
+			'nibe__hotWaterAfternoonTemperature' => '34',
+			'nibe__hotWaterDurationMinutes'      => '150',
+		]))->assertSessionHasNoErrors()->assertRedirect('/settings');
+		$this->assertTrue(ControlSettings::get('nibe.hotWaterControl'));
+		$this->assertSame(34.0, ControlSettings::get('nibe.hotWaterAfternoonTemperature'));
+		$this->assertSame(150, ControlSettings::get('nibe.hotWaterDurationMinutes'));
+		Http::assertNothingSent();
+	}
+
 	public function test_saved_values_are_typed_audited_and_used_without_restarting_the_process(): void
 	{
 		$user = User::factory()->create();
@@ -133,6 +150,9 @@ class ControlPanelTest extends TestCase
 			'start offset below range' => [['octopus__offsetToOn' => -181]],
 			'end offset above range' => [['octopus__offsetToOff' => 181]],
 			'fractional start offset' => [['octopus__offsetToOn' => -15.5]],
+			'urgent hot water exceeds normal threshold' => [['nibe__hotWaterUrgentTemperature' => 34]],
+			'fractional recharge minutes' => [['nibe__hotWaterDurationMinutes' => 120.5]],
+			'invalid controller reading age' => [['nibe__hotWaterDataMaxAgeMinutes' => 0]],
 			'empty shortest boost window' => [['octopus__offsetToOff' => -135]],
 			'reversed shortest boost window' => [['octopus__offsetToOff' => -136]],
 			'peak start offset below range' => [['nibe__peakImportStartOffsetMinutes' => -181]],

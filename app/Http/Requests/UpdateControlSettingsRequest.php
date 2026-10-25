@@ -71,6 +71,9 @@
 				$order('nibe.loadCompTempIntermittent', 'nibe.loadCompTempOn', 'The intermittent threshold must be at least the on threshold.');
 				$order('nibe.loadCompTempOn', 'nibe.loadCompTempLevel1', 'The on threshold must be at least the boost threshold.');
 				$order('nibe.ufhTempIntermittent', 'nibe.ufhTempOn', 'The UFH intermittent threshold must be at least its continuous-heating threshold.');
+				$order('nibe.hotWaterOvernightTemperature', 'nibe.hotWaterUrgentTemperature', 'The urgent hot water threshold must not exceed the overnight threshold.');
+				$order('nibe.hotWaterAfternoonTemperature', 'nibe.hotWaterUrgentTemperature', 'The urgent hot water threshold must not exceed the afternoon threshold.');
+				$order('nibe.hotWaterSundayTemperature', 'nibe.hotWaterUrgentTemperature', 'The urgent hot water threshold must not exceed the Sunday afternoon threshold.');
 
 				if ($candidate['octopus.offsetToOn'] - $candidate['octopus.offsetToOff'] >= 120)
 				{
