@@ -249,14 +249,15 @@
 			$date = ($minute >= 22 * 60 ? $now->addDay() : $now)->toDateString();
 			$key = $period.':'.$date;
 
+			// A completed overnight recharge is never repeated, including after an early shower.
+			if (($this->state['completed'][$period] ?? null) === $date && ($overnight || !$urgent))
+			{
+				return [null, ucfirst($period).' recharge opportunity already completed.'];
+			}
+
 			if ($urgent)
 			{
 				return [$key, 'Urgent recharge below '.ControlSettings::get('nibe.hotWaterUrgentTemperature').'°C; peak check passed.'];
-			}
-
-			if (($this->state['completed'][$period] ?? null) === $date)
-			{
-				return [null, ucfirst($period).' recharge opportunity already completed.'];
 			}
 
 			$threshold = $overnight ? ControlSettings::get('nibe.hotWaterOvernightTemperature') : ControlSettings::get($now->isSunday() ? 'nibe.hotWaterSundayTemperature' : 'nibe.hotWaterAfternoonTemperature');
@@ -266,15 +267,20 @@
 				return [null, 'Hot water is above the '.$period.' start threshold of '.$threshold.'°C.'];
 			}
 
-			if (!($minute <= 120 || $minute >= 1320 || $minute >= 600 && $minute <= 840))
+			if ($overnight)
+			{
+				return [$key, 'Overnight recharge below '.$threshold.'°C; hot water takes priority throughout 22:00–07:00.'];
+			}
+
+			if (!($minute >= 600 && $minute <= 840))
 			{
 				return [null, 'Waiting for the next hot water start window.'];
 			}
 
 			$demand = $heatingRequired($now);
-			// Unknown room/forecast demand conservatively reserves the cheap windows for heating.
+			// Unknown room/forecast demand conservatively reserves the afternoon cheap window for heating.
 			$reserveHeating = $demand !== false;
-			$allowed = $overnight ? ($reserveHeating ? $minute <= 120 : $minute >= 1320) : ($reserveHeating ? $minute >= 600 && $minute <= 720 : $minute >= 780 && $minute <= 840);
+			$allowed = $reserveHeating ? $minute >= 600 && $minute <= 720 : $minute >= 780 && $minute <= 840;
 
 			return $allowed ? [$key, $reserveHeating ? 'Recharging ahead of space heating'.($demand === null ? ' (heating demand unavailable).' : '.') : 'Using a cheap period because no space heating demand is expected.'] : [null, $reserveHeating ? 'Reserving cheap periods for space heating; waiting for the earlier hot water window.' : 'No space heating demand expected; waiting for a cheap hot water window.'];
 		}

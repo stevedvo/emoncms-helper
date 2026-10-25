@@ -62,13 +62,18 @@
 		{
 			return
 			[
-				'heating defers evening'         => ['2026-10-24 22:00', 36, true, false],
+				'heating permits evening'        => ['2026-10-24 22:00', 36, true, true],
 				'quiet evening'                  => ['2026-10-24 22:00', 36, false, true],
 				'quiet evening threshold'        => ['2026-10-24 22:00', 37, false, false],
 				'early night'                    => ['2026-10-24 00:00', 36, true, true],
-				'last early night check'         => ['2026-10-24 02:00', 36, true, true],
-				'after early night window'       => ['2026-10-24 02:05', 36, true, false],
-				'quiet night waits for evening'  => ['2026-10-24 00:00', 36, false, false],
+				'02:00 overnight check'          => ['2026-10-24 02:00', 36, true, true],
+				'after old overnight cutoff'     => ['2026-10-24 02:05', 36, true, true],
+				'quiet night permits recharge'   => ['2026-10-24 00:00', 36, false, true],
+				'morning dip permits recharge'   => ['2026-10-24 04:30', 36, true, true],
+				'early shower without recharge'  => ['2026-10-24 06:45', 36, true, true],
+				'last scheduled overnight check' => ['2026-10-24 06:55', 36, false, true],
+				'overnight closes at 07:00'       => ['2026-10-24 07:00', 36, true, false],
+				'overnight not yet open'         => ['2026-10-24 21:55', 36, true, false],
 				'early afternoon'                => ['2026-10-24 10:00', 32, true, true],
 				'last early afternoon check'     => ['2026-10-24 12:00', 32, true, true],
 				'heating avoids afternoon dip'   => ['2026-10-24 13:00', 32, true, false],
@@ -85,7 +90,7 @@
 				'urgent during peak'             => ['2026-10-24 18:55', 19, true, false],
 				'urgent after actual peak'       => ['2026-10-24 19:00', 19, true, true],
 				'urgent strict threshold'        => ['2026-10-24 08:00', 20, true, false],
-				'unknown protects heating dip'    => ['2026-10-24 22:00', 36, null, false],
+				'unknown permits overnight'      => ['2026-10-24 22:00', 36, null, true],
 				'unknown permits early recharge' => ['2026-10-24 10:00', 32, null, true],
 			];
 		}
@@ -111,6 +116,58 @@
 			$this->poll(10, 36);
 			$this->assertCount(2, $this->patches);
 			$this->assertNull($this->state()['request']);
+		}
+
+		#[DataProvider('earlyShowerTemperatures')]
+		public function test_completed_overnight_recharge_is_not_repeated_after_an_early_shower(float $temperature) : void
+		{
+			$this->at('2026-10-24 22:00');
+			$this->poll(30, 36);
+			$this->at('2026-10-24 22:05');
+			$this->poll(20, 36);
+			$this->at('2026-10-25 00:30');
+			$this->poll(30, 44);
+			$this->assertSame('2026-10-25', $this->state()['completed']['overnight']);
+			$this->at('2026-10-25 06:45');
+			$this->poll(30, $temperature);
+			$this->assertSame([[47041 => 1], [47041 => 0]], $this->patches);
+			$this->assertSame('Overnight recharge opportunity already completed.', $this->state()['reason']);
+			$this->at('2026-10-25 22:00');
+			$this->poll(30, 36);
+			$this->assertSame([47041 => 1], $this->patches[2]);
+			$this->assertSame('overnight:2026-10-26', $this->state()['request']['opportunity']);
+		}
+
+		public static function earlyShowerTemperatures() : array
+		{
+			return ['below overnight threshold' => [36], 'below urgent threshold' => [19]];
+		}
+
+		public function test_overnight_start_does_not_depend_on_the_heating_prediction() : void
+		{
+			$this->at('2026-10-24 23:00');
+			$this->control->run($this->points(30, 36), function()
+			{
+				throw new RuntimeException('The overnight decision must not request a heating prediction.');
+			});
+			$this->assertSame([[47041 => 1]], $this->patches);
+			$this->assertSame(0, ActivityLog::where('level', 'error')->count());
+		}
+
+		public function test_late_overnight_recharge_continues_beyond_07_and_is_recorded_against_its_night() : void
+		{
+			$this->at('2026-10-25 06:45');
+			$this->poll(30, 36);
+			$this->at('2026-10-25 06:50');
+			$this->poll(20, 36);
+			$this->at('2026-10-25 07:30');
+			$this->poll(20, 40);
+			$this->assertSame([[47041 => 1]], $this->patches);
+			$this->at('2026-10-25 08:30');
+			$this->poll(30, 44);
+			$this->assertSame([[47041 => 1], [47041 => 0]], $this->patches);
+			$this->assertSame('2026-10-25', $this->state()['completed']['overnight']);
+			$this->assertArrayNotHasKey('afternoon', $this->state()['completed']);
 		}
 
 		public function test_never_requests_economy_while_priority_is_20_even_when_disabled_or_overlong() : void
@@ -348,7 +405,7 @@
 			$this->assertSame([[47041 => 0]], $this->patches);
 		}
 
-		public function test_recorded_clock_change_night_keeps_the_strict_threshold_and_window() : void
+		public function test_recorded_clock_change_night_starts_when_below_threshold_arrives_after_02() : void
 		{
 			// Real source change times from the first trial; the priority stayed at heating overnight.
 			CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-25T01:00:00Z'));
@@ -363,9 +420,9 @@
 			CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-25T02:05:00Z'));
 			$points[1] = ['parameterId' => 40014, 'value' => 36.5, 'timestamp' => '2026-10-25T01:59:55Z'];
 			$this->control->run($points, fn() => true);
-			$this->assertSame('Waiting for the next hot water start window.', $this->state()['reason']);
-			$this->assertSame([[47041 => 0]], $this->patches);
-			$this->assertNull($this->state()['request']);
+			$this->assertStringContainsString('Overnight recharge below 37', $this->state()['reason']);
+			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
+			$this->assertSame('overnight:2026-10-25', $this->state()['request']['opportunity']);
 		}
 
 		public function test_old_non_hot_water_sample_cannot_complete_an_observed_run() : void

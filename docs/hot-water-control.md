@@ -17,19 +17,21 @@ All clock times use Europe/London, including summer time. Threshold comparisons 
 
 | Opportunity | Default threshold | Heating needed now or during the relevant cheap period | No heating demand expected |
 | --- | --- | --- | --- |
-| Overnight | 37°C | Check 00:00–02:00 inclusive | Check 22:00–23:59 |
+| Overnight | 37°C | Check throughout 22:00–07:00 | Check throughout 22:00–07:00 |
 | Afternoon, Monday–Saturday | 33°C | Check 10:00–12:00 inclusive | Check 13:00–14:00 inclusive, subject to peak admission |
 | Afternoon, Sunday | 37°C | Same afternoon window | Same afternoon window |
 
-An overnight opportunity belongs to the date of its morning: Saturday at 22:00 and Sunday at 00:00–02:00 share Sunday's opportunity. A completed normal opportunity is not repeated. An unsuccessful request does not consume it.
+The overnight start window includes 22:00 and ends at 07:00 exclusive. At the normal five-minute cadence, 06:55 is the last start check. Space heating demand and the 22:00–00:00 or 04:00–07:00 cheap periods do not delay an overnight recharge. A run started before 07:00 always continues to completion afterwards.
 
-Heating priority 30 immediately reserves the cheap periods. Otherwise, prediction evaluates current demand and the relevant cheap period using the existing radiator hysteresis, cold-forecast additions, boost adjustments, UFH preheat targets, and uncompensated heating fallback. At 22:00 it checks both the evening dip and the following morning's dip. It uses the currently available room temperatures rather than forecasting their cooling over the intervening hours. Missing prediction data conservatively reserves the cheap periods; it does not prevent an early hot water opportunity.
+An overnight opportunity belongs to the date of its morning: Saturday at 22:00 and Sunday before 07:00 share Sunday's opportunity, including both occurrences of 01:00 when the clocks go back. A completed overnight recharge is not repeated, even if a 06:45 shower drops the temperature below the urgent threshold. The next overnight opportunity opens at 22:00 for the following morning. An unsuccessful request does not consume an opportunity.
+
+For afternoon decisions, heating priority 30 immediately reserves the cheap period. Otherwise, prediction evaluates current demand and the afternoon cheap period using the existing radiator hysteresis, cold-forecast additions, boost adjustments, UFH preheat targets, and uncompensated heating fallback. It uses the currently available room temperatures rather than forecasting their cooling over the intervening hours. Missing prediction data conservatively reserves the cheap period; it does not prevent an early afternoon hot water opportunity. Overnight decisions do not call the heating prediction.
 
 Shared `HeatingDemand` and `HeatingBoostSchedule` calculations keep the live target rules and prediction aligned. Prediction does not update `htgMode`, `allowLoadCompensation`, the stored radiator decision, or heating settings.
 
 ## Urgent requests and peak admission
 
-Below **20°C**, an extra recharge may be requested outside the normal windows, including after a normal opportunity was used. A 30-minute recovery interval after a completed recharge prevents immediate repeated requests from delayed temperature readings.
+Below **20°C**, a recharge may be requested outside the normal windows, including an extra daytime recharge after an afternoon opportunity was used. The completed overnight opportunity still prevents a second recharge within the same 22:00–07:00 window. A 30-minute recovery interval after a completed recharge prevents immediate repeated requests from delayed temperature readings.
 
 Every new request and retry of an unconfirmed start must fit before the actual **16:00–19:00 tariff peak**, using **Recharge duration allowance**, default **180 minutes**. This check is independent of the space heating peak offsets. With 180 minutes, 13:00 is the latest admitted afternoon start; with 120 minutes, 14:00 is possible. The current control minute is used, allowing ordinary seconds of scheduler latency at the boundary.
 
@@ -51,7 +53,7 @@ Completion assumes the configured controller gives hot water exclusive priority 
 
 Activity logs record changes in decision reason, starts, completion, restoration, timeouts and errors. Identical waiting decisions are not logged every five minutes. API logs retain the underlying HTTP exchanges.
 
-The start threshold is strictly below the configured temperature. In the first overnight trial on 25 October 2026, the API reported 37.0°C from 00:12 UTC (01:12 BST); 36.5°C first arrived at 02:02 UTC (02:02 GMT), after the last 02:00 start check. A chart joining those sparse readings can suggest an earlier threshold crossing. The app does not infer a crossing from interpolation, and its threshold and window remain unchanged.
+The start threshold is strictly below the configured temperature. In the first overnight trial on 25 October 2026, the API reported 37.0°C from 00:12 UTC (01:12 BST); 36.5°C first arrived at 02:02 UTC (02:02 GMT), after the original 02:00 start cutoff. A chart joining those sparse readings can suggest an earlier threshold crossing. The threshold remains strictly below 37°C by default, but the overnight start window was subsequently extended to 22:00–07:00. Replaying those readings now requests a recharge at the 02:05 check, provided the overnight opportunity has not already completed.
 
 ## Return to the original control
 
