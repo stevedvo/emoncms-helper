@@ -581,6 +581,48 @@ h2
 	color: #8b9784;
 }
 
+.hot-water-panel tbody th
+{
+	color: var(--ink);
+	font-size: 12px;
+	font-weight: 550;
+	letter-spacing: normal;
+	text-transform: none;
+}
+
+.hot-water-control-heading
+{
+	border-top: 1px solid var(--line);
+}
+
+.hot-water-control-heading h3
+{
+	font-size: 15px;
+	margin: 0;
+}
+
+.hot-water-control-heading .field-help
+{
+	margin-bottom: 0;
+}
+
+.hot-water-state
+{
+	table-layout: fixed;
+}
+
+.hot-water-state th:first-child
+{
+	width: 38%;
+}
+
+.hot-water-state th, .hot-water-state td
+{
+	white-space: normal;
+	overflow-wrap: anywhere;
+	vertical-align: top;
+}
+
 .table-scroll
 {
 	overflow: auto;
