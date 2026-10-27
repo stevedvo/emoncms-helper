@@ -4,6 +4,8 @@
 
 The control panel has **Overview** at `/`, **Settings** at `/settings`, **Activity Logs** at `/logs/activity`, and **API Logs** at `/logs/api`. All require sign-in. No public registration or default password is supplied.
 
+Sign-in sessions allow **eight hours of inactivity** by default. Requests to the app refresh that window; signing out ends the session immediately. The duration is configured in minutes with `SESSION_LIFETIME=480` in `.env`, independently of the operating settings in the database. Existing installations with `SESSION_LIFETIME=120` must update that value to use the longer duration. If Laravel configuration is cached, run `php artisan config:clear` after changing it.
+
 ## First use
 
 For an existing installation whose database tables already exist:
