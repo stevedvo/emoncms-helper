@@ -3,6 +3,7 @@
 
 	use Exception;
 	use Throwable;
+	use App\Services\ControlSettings;
 	use App\APIs\EmonAPI;
 	use App\Models\ActivityLog;
 	use App\Models\EmonFeedMap;
@@ -33,7 +34,7 @@
 
 				$now = CarbonImmutable::now();
 				$endTime = $now->subMinutes(5);
-				$startTime = $endTime->subHours(config("emon.emonSyncPeriodHours"));
+				$startTime = $endTime->subHours(ControlSettings::get('emon.emonSyncPeriodHours'));
 				$startTimeMilliseconds = $startTime->format("Uv");
 				$endTimeMilliseconds = $endTime->format("Uv");
 
@@ -237,7 +238,7 @@
 
 		public static function getLatestEmonData(string $feedName, string $environment, int $minutes) : ?string
 		{
-			$latestValue = "";
+			$latestValue = null;
 			$dbColumn    = "";
 			$envFeedId   = "";
 
@@ -279,7 +280,7 @@
 				$feedData = EmonAPI::getFeedData($environment, $feedItem[$envFeedId], $startTimeMilliseconds, $endTimeMilliseconds);
 				$latestValue = ($pair = collect($feedData)->last(fn($pair) => !is_null($pair[1]))) ? round($pair[1], 1) : null;
 
-				if ($latestValue == null)
+				if ($latestValue === null)
 				{
 					throw new Exception ('Unable to get latest data. $environment = '.$environment.', $feedItem[$envFeedId] = '.$feedItem[$envFeedId].', $startTimeMilliseconds = '.$startTimeMilliseconds.', $endTimeMilliseconds = '.$endTimeMilliseconds);
 				}

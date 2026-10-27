@@ -3,6 +3,8 @@
 
 	use Exception;
 	use Throwable;
+	use JsonException;
+	use UnexpectedValueException;
 	use App\Models\NibeParameter;
 	use App\Models\Setting;
 	use Carbon\CarbonImmutable;
@@ -86,17 +88,45 @@
 
 		public function getParameterData() : array
 		{
+			$url = $this->nibeFunctionUrl."/devices/".$this->nibeDeviceId."/points";
+			$response = API::get($url)->headers(['Authorization' => "Bearer ".$this->nibeTokenCurrent->value])->send();
+			$body = (string)$response->getBody();
+			$context = 'HTTP '.$response->getStatusCode().'; '.strlen($body).' bytes';
+
+			if ($response->getStatusCode() < 200 || $response->getStatusCode() >= 300)
+			{
+				throw new UnexpectedValueException('NIBE points response had an unexpected status ('.$context.').');
+			}
+
+			if (trim($body) === '')
+			{
+				throw new UnexpectedValueException('NIBE points response was empty ('.$context.').');
+			}
+
 			try
 			{
-				$url = $this->nibeFunctionUrl."/devices/".$this->nibeDeviceId."/points";
-				$response = API::get($url)->headers(['Authorization' => "Bearer ".$this->nibeTokenCurrent->value])->send();
-
-				return json_decode((string)$response->getBody(), true);
+				$points = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
 			}
-			catch (Throwable $e)
+			catch (JsonException $e)
 			{
-				throw $e;
+				throw new UnexpectedValueException('NIBE points response contained invalid JSON ('.$context.'): '.$e->getMessage().'.', 0, $e);
 			}
+
+			// Decoding with associative arrays makes an empty JSON object look like [], so check the root too.
+			if (!is_array($points) || !array_is_list($points) || !str_starts_with(ltrim($body), '['))
+			{
+				throw new UnexpectedValueException('NIBE points response was not a JSON list of points ('.$context.').');
+			}
+
+			foreach ($points as $index => $point)
+			{
+				if (!is_array($point) || !array_key_exists('parameterId', $point) || !array_key_exists('timestamp', $point) || !array_key_exists('value', $point))
+				{
+					throw new UnexpectedValueException('NIBE points response contained an invalid point at index '.$index.'; expected parameterId, timestamp and value ('.$context.').');
+				}
+			}
+
+			return $points;
 		}
 
 		public function setParameterData(array $parameterData) : void

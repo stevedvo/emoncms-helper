@@ -3,6 +3,7 @@
 
 	use Exception;
 	use Throwable;
+	use App\Services\ControlSettings;
 	use App\APIs\EmonAPI;
 	use App\Models\ActivityLog;
 	use App\Models\Setting;
@@ -153,7 +154,7 @@
 				}
 
 				$now = CarbonImmutable::now();
-				$targetTime = $now->setTime($now->hour+config('weather.lookAheadHours'), 0, 0, 0);
+				$targetTime = $now->setTime($now->hour+ControlSettings::get('weather.lookAheadHours'), 0, 0, 0);
 
 				$sumTemperatures = 0;
 				$count = 0;

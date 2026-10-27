@@ -3,12 +3,11 @@
 
 	use Exception;
 	use Throwable;
+	use App\Services\ControlSettings;
 	use App\APIs\HomeAssistantAPI;
-	use App\Http\Controllers\EmonController;
 	use App\Models\ActivityLog;
 	use App\Models\NibeFeedItem;
-	use App\Models\Setting;
-	use Illuminate\Support\Facades\Log;
+	use App\Services\RadiatorHeatDemand;
 
 	class HomeAssistantController extends Controller
 	{
@@ -24,91 +23,24 @@
 				}
 
 				$priority = (int)$latestPriorityNibeFeedItem->rawValue;
+				$radiatorHeatRequired = $priority === 30 ? RadiatorHeatDemand::current() : null;
+				$targetTemp = ControlSettings::get('hive.targetOffTemp');
 
-				// $setting = Setting::firstWhere(["key" => "htgMode"]);
-				// $htgMode = $setting?->value;
-				// #59: allowing extraBoosts to drop DM again, using $forecastTemperature of UFH instead to determine Hive setpoint
-
-				$latestforecastTemperatureData = EmonController::getForecastRoomTemperatureData();
-
-				if ($latestforecastTemperatureData === null)
+				// Cooling retains its existing behaviour. Unknown heating demand falls back to priority.
+				if ($priority === 60 || ($priority === 30 && $radiatorHeatRequired !== false))
 				{
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => '$latestforecastTemperatureData is null',
-					]);
-
-					// return; // not bailing out of the method since $forecastTemperature isn't actually currently used
-				}
-				else
-				{
-					$forecastTemperature = $latestforecastTemperatureData['tempForecast'] ?? null;
+					$targetTemp = ControlSettings::get('hive.targetOnTemp');
 				}
 
-				$targetTemp = config("hive.targetOffTemp");
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => "Priority is '$priority'; radiatorHeatRequired is ".json_encode($radiatorHeatRequired)."; targetTemp is ".$targetTemp."degC",
+				]);
 
-				// if priority is either heating [30] or cooling [60]
-				if ($priority === 30 || $priority === 60)
-				{
-					$targetTemp = config("hive.targetOnTemp");
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => "Priority is '$priority'; targetTemp is ".$targetTemp."degC",
-					]);
-
-					// if ($forecastTemperature < config("nibe.loadCompTempLevel1"))
-					if (false)
-					{
-						$targetTemp = config("hive.targetOffTemp");
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => '$forecastTemperature '.$forecastTemperature.' < '.config("nibe.loadCompTempLevel1").' => targetTemp is '.$targetTemp.'degC',
-						]);
-
-						$flowTempRaw = EmonController::getLatestEmonData("heatmeter_FlowT", "local", 5);
-						$flowTemp = (is_null($flowTempRaw) || $flowTempRaw === "") ? 0.0 : (float)$flowTempRaw;
-
-						if ($flowTemp === 0.0)
-						{
-							// Log a warning, but continue safely
-							ActivityLog::create(
-							[
-								'controller' => __CLASS__,
-								'method'     => __FUNCTION__,
-								'level'      => "warning",
-								'message'    => "Flow temperature missing — defaulting to $flowTemp",
-							]);
-						}
-
-						// if ($flowTemp > 45)
-						if (false)
-						{
-							$targetTemp = config("hive.targetOnTemp");
-
-							ActivityLog::create(
-							[
-								'controller' => __CLASS__,
-								'method'     => __FUNCTION__,
-								'level'      => "info",
-								'message'    => "flowTemp is $flowTemp; targetTemp is ".$targetTemp."degC",
-							]);
-						}
-					}
-				}
-
-				$homeAssistant = new HomeAssistantAPI();
-
+				$homeAssistant = app(HomeAssistantAPI::class);
 				$homeAssistant->adjustHiveThermostat($targetTemp);
 			}
 			catch (Throwable $e)

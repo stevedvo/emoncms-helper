@@ -108,7 +108,7 @@
 		 */
 		public function send()
 		{
-			$client = new Client($this->setup);
+			$client = app(Client::class, ['config' => $this->setup]);
 
 			$options = [];
 
