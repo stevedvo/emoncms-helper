@@ -14,6 +14,9 @@
 	use App\Models\NibeParameter;
 	use App\Models\Setting;
 	use App\Services\RadiatorHeatDemand;
+	use App\Services\HeatingDemand;
+	use App\Services\HeatingBoostSchedule;
+	use App\Services\HotWaterControl;
 	use Carbon\CarbonImmutable;
 	use Carbon\CarbonInterface;
 	use Illuminate\Database\Eloquent\Collection;
@@ -158,6 +161,7 @@
 				{
 					return $item['parameterId'].$item['timestamp'].$item['value'];
 				});
+				$polledAt = CarbonImmutable::now();
 
 				// Log::info($parameterData);
 
@@ -268,7 +272,14 @@
 
 					if (true)
 					{
-						static::checkHotWaterRequirement($parameterData->firstWhere('parameterId', 40014));
+						if (HotWaterControl::handlesControl())
+						{
+							(new HotWaterControl($nibe))->run($parameterData->all(), fn(CarbonImmutable $time) => static::hotWaterHeatingRequired($parameterData->all(), $time), null, $polledAt);
+						}
+						else
+						{
+							static::checkHotWaterRequirement($parameterData->firstWhere('parameterId', 40014));
+						}
 					}
 				}
 			}
@@ -906,33 +917,11 @@
 			{
 				if (!is_null(static::getRoomTemperature("Rad_temperature")))
 				{
-					$defrostRoomTempAdjust = 0;
-					$boostRoomTempAdjust = 0;
-					$peakRoomTempAdjust = $peakImport ? -2 : 0;
-					// $highForecastRoomTempAdjust = $highTemperatureForecast ? -1 : 0;
-					// Oct-26: not sure I like this arbitrary cut-off that changes the target by 1degC
-					$highForecastRoomTempAdjust = $highTemperatureForecast ? 0 : 0;
-
-					// if high temps are expected then don't add positive adjustments
-					if ($highForecastRoomTempAdjust === 0)
-					{
-						// $boostRoomTempAdjust = $boostActive ? 1 : 0;
-
-						if (!is_null($nextDayLowTemperatureAverage))
-						{
-							if ($nextDayLowTemperatureAverage < ControlSettings::get('nibe.dmTargetBoostTemp'))
-							{
-								$defrostRoomTempAdjust = 2;
-							}
-							elseif ($nextDayLowTemperatureAverage < 3)
-							{
-								$defrostRoomTempAdjust = 1;
-							}
-						}
-					}
-
-					// Oct-26: actually let's add this positive adjustment during cheaper periods
-					$boostRoomTempAdjust = $boostActive ? 1 : 0;
+					$roomAdjustments = HeatingDemand::radiatorAdjustments($nextDayLowTemperatureAverage, $boostActive, $peakImport);
+					$defrostRoomTempAdjust = $roomAdjustments['cold'];
+					$boostRoomTempAdjust = $roomAdjustments['boost'];
+					$peakRoomTempAdjust = $roomAdjustments['peak'];
+					$highForecastRoomTempAdjust = 0;
 
 					$sumAdjustments = $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust + $highForecastRoomTempAdjust;
 					$adjustmentsString = '('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.')+('.$highForecastRoomTempAdjust.')';
@@ -1097,9 +1086,10 @@
 
 					if (!is_null($ufhTemperature))
 					{
-						$ufhPreheatAdjust = $boostActive && !$peakImport ? ControlSettings::get('nibe.ufhBoostTempAdjust') : 0;
-						$ufhTempOn = ControlSettings::get('nibe.ufhTempOn') + $ufhPreheatAdjust;
-						$ufhTempIntermittent = ControlSettings::get('nibe.ufhTempIntermittent') + $ufhPreheatAdjust;
+						$ufhThresholds = HeatingDemand::ufhThresholds($boostActive, $peakImport);
+						$ufhPreheatAdjust = $ufhThresholds['adjustment'];
+						$ufhTempOn = $ufhThresholds['on'];
+						$ufhTempIntermittent = $ufhThresholds['intermittent'];
 						$ufhBoostTempShortfall = ControlSettings::get('nibe.ufhBoostTempShortfall');
 						// Avoid floating-point noise turning an exact shortfall boundary into a boost request.
 						$ufhTemperatureShortfall = round($ufhTempIntermittent - $ufhTemperature, 6);
@@ -1338,267 +1328,21 @@
 
 		public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp) : bool
 		{
-			// return true;
-			$now = CarbonImmutable::now();
-
 			try
 			{
-				$scheduleString = Setting::firstWhere("key", "agile_schedule")->value;
-				$schedules = json_decode($scheduleString, true);
-
-				if (ControlSettings::get('weather.useForecast') !== false)
+				if (ControlSettings::get('weather.useForecast') && WeatherController::getForecastAverageTemperature() === null)
 				{
-					$forecastTemperature = WeatherController::getForecastAverageTemperature();
-
-					if (is_null($forecastTemperature))
-					{
-						throw new Exception('$forecastTemperature is null');
-					}
-
-					$scheduleWindow = "";
-
-					if ($outdoorTemp < ControlSettings::get('nibe.tempFreqMin') || $forecastTemperature < ControlSettings::get('nibe.tempFreqMin'))
-					{
-						// following #61 this may be redundant, but leaving in for now
-						// $scheduleWindow = "constant";
-						// or not
-						$scheduleWindow = "cosy";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.ControlSettings::get('nibe.tempFreqMin'),
-						]);
-
-						// return true;
-					}
-					elseif ($outdoorTemp < ControlSettings::get('nibe.runLevel2Temp') || $forecastTemperature < ControlSettings::get('nibe.runLevel2Temp'))
-					{
-						$scheduleWindow = "cosy";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.ControlSettings::get('nibe.runLevel2Temp'),
-						]);
-					}
-					elseif ($outdoorTemp < ControlSettings::get('nibe.runLevel1Temp') || $forecastTemperature < ControlSettings::get('nibe.runLevel1Temp'))
-					{
-						$scheduleWindow = "cosy";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => '$outdoorTemp '.$outdoorTemp.' or $forecastTemperature '.$forecastTemperature.' < '.ControlSettings::get('nibe.runLevel1Temp'),
-						]);
-					}
-					else
-					{
-						// if not cold at all then we're not boosting
-						// #53: testing what happens if we stick to Cosy even if this condition is true
-						// return false;
-						$scheduleWindow = "cosy";
-
-						ActivityLog::create(
-						[
-							'controller' => __CLASS__,
-							'method'     => __FUNCTION__,
-							'level'      => "info",
-							'message'    => '$outdoorTemp '.$outdoorTemp.' and $forecastTemperature '.$forecastTemperature.' not below < '.ControlSettings::get('nibe.runLevel1Temp'),
-						]);
-					}
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => '$scheduleWindow: '.$scheduleWindow,
-					]);
-
-					// it might be cold/cool now or in the short-term forecast, but check the upcoming temperature peaks
-					$nextDayHighTemperatureAverage = WeatherController::getNextDayHighTemperatures();
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => '$nextDayHighTemperatureAverage: '.$nextDayHighTemperatureAverage,
-					]);
-
-					// if it's going to be warm enough at some point then override the schedule window to just boost at the cheapest times or not at all
-					if (!is_null($nextDayHighTemperatureAverage))
-					{
-						if ($nextDayHighTemperatureAverage > ControlSettings::get('nibe.runLevel1Temp'))
-						{
-							// #53: testing what happens if we stick to Cosy even if this condition is true
-							// $scheduleWindow = "cosy";
-
-							/* Apr-26: high diurnal range means that heating is on due to cold overnight temps even though house temperature still does not require it
-							// plenty of solar gain to overheat the house in the daytime
-							// boosting here will change htgMode from 'off' to 'intermittent' but we don't need even that
-							*/
-
-							/* Oct-26: UFH can now independently call for heat, and without as much solar gain does need some heat to prevent overnight temperatures
-							// dropping too much, so let's still try to time the heating to match cheaper periods
-							*/
-							$scheduleWindow = "cosy";
-
-							ActivityLog::create(
-							[
-								'controller' => __CLASS__,
-								'method'     => __FUNCTION__,
-								'level'      => "info",
-								'message'    => '$nextDayHighTemperatureAverage > '.ControlSettings::get('nibe.runLevel1Temp').': schedule is "Cosy"',
-							]);
-
-							// return false;
-						}
-
-						if ($nextDayHighTemperatureAverage > ControlSettings::get('nibe.runLevel2Temp'))
-						{
-							$scheduleWindow = "cosy";
-						}
-					}
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => '$scheduleWindow: '.$scheduleWindow,
-					]);
-
-					if ($scheduleWindow == "constant")
-					{
-						// this key does not exist in $schedules so return here before we try accessing it in the foreach loop below
-						return true;
-					}
-
-					foreach ($schedules[$scheduleWindow] as $schedule)
-					{
-						$start = CarbonImmutable::parse($schedule['start']);
-						$end = CarbonImmutable::parse($schedule['end']);
-
-						if ($now->isAfter($start) && $now->isBefore($end))
-						{
-							return true;
-						}
-					}
-
-					return false;
+					throw new Exception('$forecastTemperature is null');
 				}
-				else
+
+				$schedules = json_decode(Setting::firstWhere('key', 'agile_schedule')?->value ?? 'null', true, 512, JSON_THROW_ON_ERROR);
+
+				if (!is_array($schedules))
 				{
-					if ($avgOutdoorTemp >= ControlSettings::get('nibe.runLevel1Temp'))
-					{
-						if ($outdoorTemp >= ControlSettings::get('nibe.dmTargetOffTemp'))
-						{
-							return false;
-						}
-
-						foreach ($schedules['cheapest_3_hours'] as $schedule)
-						{
-							$start = CarbonImmutable::parse($schedule['start']);
-							$end = CarbonImmutable::parse($schedule['end']);
-
-							if ($now->isAfter($start) && $now->isBefore($end))
-							{
-								return true;
-							}
-						}
-
-						return false;
-					}
-
-					if ($avgOutdoorTemp >= ControlSettings::get('nibe.runLevel2Temp'))
-					{
-						if ($outdoorTemp >= ControlSettings::get('nibe.dmTargetOffTemp'))
-						{
-							return false;
-						}
-
-						if ($outdoorTemp >= ControlSettings::get('nibe.runLevel1Temp'))
-						{
-							foreach ($schedules['cheapest_3_hours'] as $schedule)
-							{
-								$start = CarbonImmutable::parse($schedule['start']);
-								$end = CarbonImmutable::parse($schedule['end']);
-
-								if ($now->isAfter($start) && $now->isBefore($end))
-								{
-									return true;
-								}
-							}
-
-							return false;
-						}
-
-						foreach ($schedules['cheapest_6_hours'] as $schedule)
-						{
-							$start = CarbonImmutable::parse($schedule['start']);
-							$end = CarbonImmutable::parse($schedule['end']);
-
-							if ($now->isAfter($start) && $now->isBefore($end))
-							{
-								return true;
-							}
-						}
-
-						return false;
-					}
-
-					if ($avgOutdoorTemp >= ControlSettings::get('nibe.tempFreqMin'))
-					{
-						if ($outdoorTemp >= ControlSettings::get('nibe.dmTargetOffTemp'))
-						{
-							return false;
-						}
-
-						if ($outdoorTemp >= ControlSettings::get('nibe.runLevel1Temp'))
-						{
-							foreach ($schedules['cheapest_3_hours'] as $schedule)
-							{
-								$start = CarbonImmutable::parse($schedule['start']);
-								$end = CarbonImmutable::parse($schedule['end']);
-
-								if ($now->isAfter($start) && $now->isBefore($end))
-								{
-									return true;
-								}
-							}
-
-							return false;
-						}
-
-						if ($outdoorTemp >= ControlSettings::get('nibe.runLevel2Temp'))
-						{
-							foreach ($schedules['cheapest_6_hours'] as $schedule)
-							{
-								$start = CarbonImmutable::parse($schedule['start']);
-								$end = CarbonImmutable::parse($schedule['end']);
-
-								if ($now->isAfter($start) && $now->isBefore($end))
-								{
-									return true;
-								}
-							}
-
-							return false;
-						}
-
-						return true;
-					}
-
-					return true;
+					throw new Exception('Heating boost schedule is unavailable.');
 				}
+
+				return HeatingBoostSchedule::activeAt($schedules, $outdoorTemp, $avgOutdoorTemp, CarbonImmutable::now());
 			}
 			catch (Throwable $e)
 			{
@@ -1606,12 +1350,105 @@
 				[
 					'controller' => __CLASS__,
 					'method'     => __FUNCTION__,
-					'level'      => "error",
+					'level'      => 'error',
 					'message'    => $e->getMessage(),
 				]);
 			}
 
 			return false;
+		}
+
+		protected static function hotWaterHeatingRequired(array $points, CarbonImmutable $now) : ?bool
+		{
+			$points = collect($points)->keyBy('parameterId');
+			$priority = HotWaterControl::reading($points->get(49994), $now);
+
+			if (($priority['value'] ?? null) === 30.0)
+			{
+				return true;
+			}
+
+			$outdoor = HotWaterControl::reading($points->get(40004), $now);
+			$average = HotWaterControl::reading($points->get(40067), $now);
+
+			if ($outdoor === null || $average === null)
+			{
+				return null;
+			}
+
+			if ($average['value'] > ControlSettings::get('nibe.coolingStartTemp'))
+			{
+				return false;
+			}
+
+			$useForecast = ControlSettings::get('weather.useForecast');
+			$low = $useForecast ? WeatherController::getNextDayLowTemperatures() : null;
+			$high = $useForecast ? WeatherController::getNextDayHighTemperatures() : null;
+			$rad = ControlSettings::get('nibe.loadCompensationOn') ? static::hotWaterRoomTemperature('Rad_temperature') : null;
+			$ufh = ControlSettings::get('nibe.loadCompensationOn') ? static::hotWaterRoomTemperature('UFH_temperature') : null;
+			$loadCompensation = ControlSettings::get('nibe.loadCompensationOn') && $rad !== null;
+			$previous = RadiatorHeatDemand::previous();
+			$schedules = json_decode(Setting::firstWhere('key', 'agile_schedule')?->value ?? 'null', true);
+
+			if ($useForecast && ($low === null || $high === null || WeatherController::getForecastAverageTemperature() === null))
+			{
+				return null;
+			}
+
+			// Check current demand and each part of the relevant cheap periods using today's room readings.
+			$times = [$now];
+			$windows = $now->hour >= 22 ? [[$now, 22, 2], [$now->addDay(), 4, 3]] : [[$now, $now->hour < 7 ? 4 : 13, 3]];
+
+			foreach ($windows as [$date, $hour, $hours])
+			{
+				$start = $date->setTime($hour, 0);
+
+				for ($minutes = 1; $minutes < $hours * 60; $minutes += 5)
+				{
+					$times[] = $start->addMinutes($minutes);
+				}
+			}
+
+			$unknown = false;
+
+			foreach ($times as $time)
+			{
+				try
+				{
+					$boost = is_array($schedules) ? HeatingBoostSchedule::activeAt($schedules, $outdoor['value'], $average['value'], $time) : false;
+				}
+				catch (Throwable)
+				{
+					return null;
+				}
+				$peak = static::isPeakImport($time);
+
+				if ($loadCompensation)
+				{
+					$required = HeatingDemand::required($rad, $ufh, $low, $boost, $peak, $previous);
+				}
+				else
+				{
+					// The uncompensated calculation starts at intermittent, or off with a warm high forecast.
+					$required = $high === null || $high <= ControlSettings::get('nibe.runLevel1Temp') || (ControlSettings::get('nibe.allowBoosts') && $boost) || ($peak && $low !== null && $low < ControlSettings::get('nibe.dmTargetBoostTemp'));
+				}
+
+				if ($required === true)
+				{
+					return true;
+				}
+
+				$unknown = $unknown || $required === null;
+			}
+
+			return $unknown || !is_array($schedules) ? null : false;
+		}
+
+		protected static function hotWaterRoomTemperature(string $feed) : ?float
+		{
+			$value = EmonController::getLatestEmonData($feed, 'local', ControlSettings::get('nibe.roomTemperatureLookbackMinutes'));
+
+			return is_numeric($value) && is_finite((float)$value) ? (float)$value : null;
 		}
 
 		public static function calculateTargetDm(int $priority, string $htgMode, float $outdoorTemp) : int

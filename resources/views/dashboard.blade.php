@@ -104,6 +104,66 @@
 			<p class="panel-note">Counts include connection and control messages. Detailed messages remain in the activity log and administrator report.</p>
 		</section>
 	</div>
+	<section class="panel reading-panel hot-water-panel" aria-labelledby="hot-water-heading">
+		<div class="section-heading">
+			<div>
+				<div class="eyebrow">READY FOR THE NEXT SHOWER</div>
+				<h2 id="hot-water-heading">Hot Water</h2>
+			</div>
+			<span class="pill {{ $hotWaterControlEnabled ? 'green' : 'neutral' }}">App control {{ $hotWaterControlEnabled ? 'enabled' : 'disabled' }}</span>
+		</div>
+		<div class="table-scroll">
+			<table aria-label="Hot water temperatures">
+				<thead>
+					<tr>
+						<th scope="col">Parameter</th>
+						<th scope="col">Temperature</th>
+						<th scope="col">Last value change (UK)</th>
+					</tr>
+				</thead>
+				<tbody>
+					@foreach($hotWaterParameters as $parameter => $label)
+						@php($reading = $readings->get($parameter))
+						<tr>
+							<th scope="row">{{ $label }}</th>
+							<td class="numeric">{{ $display($reading?->rawValue) }} <span class="unit">°C</span></td>
+							<td class="muted">
+								@if($reading?->timestamp)
+									{{ \Carbon\CarbonImmutable::createFromTimestamp($reading->timestamp)->setTimezone('Europe/London')->format('j M Y, H:i:s T') }}
+								@else
+									No reading yet
+								@endif
+							</td>
+						</tr>
+					@endforeach
+				</tbody>
+			</table>
+		</div>
+		<div class="section-heading hot-water-control-heading">
+			<div>
+				<h3 id="hot-water-control-heading">Control status</h3>
+				<p class="field-help">Latest saved control state. Unchanged temperatures can retain an older value-change time.</p>
+			</div>
+		</div>
+		<div class="table-scroll">
+			<table class="hot-water-state" aria-labelledby="hot-water-control-heading">
+				<thead>
+					<tr>
+						<th scope="col">Detail</th>
+						<th scope="col">Value</th>
+					</tr>
+				</thead>
+				<tbody>
+					@foreach($hotWaterStatus as $label => $value)
+						<tr>
+							<th scope="row">{{ $label }}</th>
+							<td>{{ $value }}</td>
+						</tr>
+					@endforeach
+				</tbody>
+			</table>
+		</div>
+	</section>
 	<section class="panel reading-panel">
 		<div class="section-heading">
 			<div>
