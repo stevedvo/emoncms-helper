@@ -31,6 +31,7 @@
 			@foreach($groups as $group => $definitions)
 				<a href="#{{ Str::slug($group) }}">{{ $group }}<span>{{ count($definitions) }}</span></a>
 			@endforeach
+			<a href="#tariff-periods">Tariff periods<span>Cosy &amp; offers</span></a>
 			<p>Credentials and connection details stay in your environment configuration.</p>
 		</nav>
 		<form class="settings-form" method="post" action="{{ route('settings.update') }}" id="settings-form">
@@ -87,7 +88,9 @@
 			</div>
 		</form>
 	</div>
+	@include('settings.tariff-periods')
 @endsection
 @push('scripts')
 	<script src="{{ asset('js/control-panel.js') }}" defer></script>
+	<script src="{{ asset('js/tariff-periods.js') }}" defer></script>
 @endpush

@@ -5,6 +5,7 @@
 	use App\Models\Setting;
 	use App\Services\HeatingBoostSchedule;
 	use App\Services\RadiatorHeatDemand;
+	use App\Services\TariffPeriods;
 	use Carbon\CarbonImmutable;
 	use PHPUnit\Framework\Attributes\DataProvider;
 	use Tests\Support\ControlPanelDatabase;
@@ -106,6 +107,29 @@
 			DemandPredictionController::$rooms['UFH_temperature'] = 20.5;
 			$start = CarbonImmutable::now()->addDay()->setTime(3, 45);
 			Setting::where('key', 'agile_schedule')->update(['value' => json_encode(['cosy' => [['start' => $start->getTimestamp(), 'end' => $start->addHours(2)->getTimestamp()]]])]);
+			$this->assertTrue(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
+		}
+
+		public function test_prediction_follows_an_edited_afternoon_cheap_period() : void
+		{
+			DemandPredictionController::$rooms['Rad_temperature'] = 22;
+			$values = TariffPeriods::settings();
+			$values['daily']['afternoon'] = ['start' => '17:00', 'end' => '20:00'];
+			$values['daily']['peak'] = ['start' => '20:00', 'end' => '23:00'];
+			$values['daily']['evening'] = ['start' => '23:00', 'end' => '02:00'];
+			TariffPeriods::save($values, TariffPeriods::revision(TariffPeriods::settings()), 1);
+			$this->assertTrue(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
+		}
+
+		public function test_prediction_includes_dated_cheap_offers_and_saving_sessions() : void
+		{
+			DemandPredictionController::$rooms['Rad_temperature'] = 22;
+			$values = TariffPeriods::settings();
+			$values['extra'] = [['name' => 'Saving session', 'type' => 'peak', 'start' => '2026-10-24T12:30', 'end' => '2026-10-24T16:00']];
+			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($values)]);
+			$this->assertFalse(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
+			$values['extra'][] = ['name' => 'Extra cheap morning', 'type' => 'cheap', 'start' => '2026-10-24T10:30', 'end' => '2026-10-24T11:30'];
+			Setting::where('key', TariffPeriods::KEY)->update(['value' => json_encode($values)]);
 			$this->assertTrue(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
 		}
 

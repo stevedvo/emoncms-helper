@@ -8,6 +8,13 @@
 	{
 		public static function activeAt(array $schedules, float $outdoor, float $average, CarbonImmutable $time) : bool
 		{
+			$extra = TariffPeriods::extraTypeAt($time);
+
+			if ($extra !== null)
+			{
+				return $extra === 'cheap';
+			}
+
 			if (ControlSettings::get('weather.useForecast'))
 			{
 				// All forecast-enabled temperature branches currently select Cosy.

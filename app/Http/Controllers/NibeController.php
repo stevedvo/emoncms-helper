@@ -17,6 +17,7 @@
 	use App\Services\HeatingDemand;
 	use App\Services\HeatingBoostSchedule;
 	use App\Services\HotWaterControl;
+	use App\Services\TariffPeriods;
 	use Carbon\CarbonImmutable;
 	use Carbon\CarbonInterface;
 	use Illuminate\Database\Eloquent\Collection;
@@ -1330,6 +1331,13 @@
 		{
 			try
 			{
+				$extra = TariffPeriods::extraTypeAt(CarbonImmutable::now());
+
+				if ($extra !== null)
+				{
+					return $extra === 'cheap';
+				}
+
 				if (ControlSettings::get('weather.useForecast') && WeatherController::getForecastAverageTemperature() === null)
 				{
 					throw new Exception('$forecastTemperature is null');
@@ -1397,15 +1405,20 @@
 
 			// Check current demand and each part of the relevant cheap periods using today's room readings.
 			$times = [$now];
-			$windows = $now->hour >= 22 ? [[$now, 22, 2], [$now->addDay(), 4, 3]] : [[$now, $now->hour < 7 ? 4 : 13, 3]];
+			$timings = TariffPeriods::settings();
+			$local = $now->setTimezone(TariffPeriods::ZONE);
+			[$overnightStart, $overnightEnd] = TariffPeriods::window($local, $timings['hot_water']['overnight']);
+			$morningEnd = TariffPeriods::clock($local, $timings['hot_water']['overnight']['end']);
+			$until = $local->greaterThanOrEqualTo($overnightStart) ? $overnightEnd : ($local->isBefore($morningEnd) ? $morningEnd : $overnightStart);
 
-			foreach ($windows as [$date, $hour, $hours])
+			foreach (TariffPeriods::cheapWindows($local, $until) as [$start, $end])
 			{
-				$start = $date->setTime($hour, 0);
-
-				for ($minutes = 1; $minutes < $hours * 60; $minutes += 5)
+				for ($time = ($start->isBefore($local) ? $local : $start)->addMinute(); $time->isBefore($end) && $time->isBefore($until); $time = $time->addMinutes(5))
 				{
-					$times[] = $start->addMinutes($minutes);
+					if ($time->greaterThanOrEqualTo($local))
+					{
+						$times[] = $time;
+					}
 				}
 			}
 
@@ -1421,6 +1434,7 @@
 				{
 					return null;
 				}
+
 				$peak = static::isPeakImport($time);
 
 				if ($loadCompensation)
@@ -1563,14 +1577,7 @@
 		{
 			try
 			{
-				$startOffset = ControlSettings::get('nibe.peakImportStartOffsetMinutes');
-				$endOffset = ControlSettings::get('nibe.peakImportEndOffsetMinutes');
-				$localTime = $time->copy()->setTimezone("Europe/London");
-
-				$startPeak = $localTime->copy()->setTime(16, 0)->addMinutes($startOffset);
-				$endPeak   = $localTime->copy()->setTime(19, 0)->addMinutes($endOffset);
-
-				return ($localTime->betweenIncluded($startPeak, $endPeak));
+				return TariffPeriods::peakAt($time);
 			}
 			catch (Throwable $e)
 			{

@@ -8,6 +8,7 @@
 	use App\Models\ActivityLog;
 	use App\Models\Setting;
 	use App\Services\ControlSettings;
+	use App\Services\TariffPeriods;
 	use Carbon\Carbon;
 	use Carbon\CarbonImmutable;
 	use Illuminate\Support\Facades\Log;
@@ -18,7 +19,7 @@
 		public static function tryGetAgileRates(): void
 		{
 			$currentTime = CarbonImmutable::now()->timezone("Europe/London");
-			$cutoff = $currentTime->copy()->setTime(16, 30);
+			$cutoff = TariffPeriods::clock($currentTime, TariffPeriods::settings()['fetch']);
 
 			$setting = Setting::firstWhere(["key" => "getAgileRatesSuccess"]);
 			$settingValue = $setting?->value === "true";
@@ -26,7 +27,7 @@
 			// Log::info("Current time: " . $currentTime);
 			// Log::info("Setting value: " . var_export($settingValue, true));
 
-			// Case 1: Before 16:00 and setting is true → reset to false
+			// Before the configured fetch time, reset the daily success latch.
 			if ($currentTime->lt($cutoff) && $settingValue)
 			{
 				// Log::info("Before 16:30, resetting getAgileRatesSuccess to false");
@@ -35,7 +36,7 @@
 				return;
 			}
 
-			// Case 2: After 16:00 and setting is false or missing → try to get rates
+			// From the configured fetch time, try until a daily fetch succeeds.
 			if ($currentTime->gte($cutoff) && !$settingValue)
 			{
 				// Log::info("After 16:30 and setting is false/missing, attempting getAgileRates()");
@@ -70,19 +71,24 @@
 
 				// Log::info($results);exit;
 
-				// Define time ranges to check (adjust based on your needs)
+				$timings = TariffPeriods::settings()['agile'];
+				$now = CarbonImmutable::now(TariffPeriods::ZONE);
+				[$overnightStart, $overnightEnd] = TariffPeriods::window($now, $timings['overnight']);
+				[$daytimeStart, $daytimeEnd] = TariffPeriods::window($now->addDay(), $timings['daytime']);
+				[$expensiveStart, $expensiveEnd] = TariffPeriods::window($now->addDay(), $timings['expensive']);
+
 				$cheapPeriodsToCheck =
 				[
 					'overnight' =>
 					[
-						'start' => Carbon::createFromTime(19, 0, 0), // 19:00
-						'end'   => Carbon::createFromTime(7, 0, 0)->addDay(), // 07:00 next day
+						'start' => $overnightStart,
+						'end'   => $overnightEnd,
 					],
 
 					'daytime'   =>
 					[
-						'start' => Carbon::createFromTime(10, 0, 0)->addDay(), // 10:00 tomorrow
-						'end'   => Carbon::createFromTime(16, 0, 0)->addDay(), // 16:00 tomorrow
+						'start' => $daytimeStart,
+						'end'   => $daytimeEnd,
 					],
 				];
 
@@ -90,15 +96,10 @@
 				[
 					'morning'   =>
 					[
-						'start' => Carbon::createFromTime(6, 0, 0)->addDay(), // 06:00 tomorrow
-						'end'   => Carbon::createFromTime(12, 0, 0)->addDay(), // 12:00 tomorrow
+						'start' => $expensiveStart,
+						'end'   => $expensiveEnd,
 					],
 
-					// 'evening'   =>
-					// [
-					// 	'start' => Carbon::createFromTime(16, 0, 0)->addDay(), // 16:00 tomorrow
-					// 	'end'   => Carbon::createFromTime(22, 0, 0)->addDay(), // 22:00 tomorrow
-					// ],
 				];
 
 				$cheapestPeriods = static::findCheapestPeriods($results, $cheapPeriodsToCheck);
@@ -153,7 +154,7 @@
 			$cheapestPeriods = [];
 
 			// Get current time
-			$currentTime = CarbonImmutable::now();
+			$currentTime = CarbonImmutable::now(TariffPeriods::ZONE);
 			$twentyFourHoursAhead = $currentTime->addDay();
 
 			foreach ($periodsToCheck as $label => $timeRange)
@@ -218,7 +219,7 @@
 			$mostExpensivePeriods = [];
 
 			// Get current time
-			$currentTime = CarbonImmutable::now();
+			$currentTime = CarbonImmutable::now(TariffPeriods::ZONE);
 			$twentyFourHoursAhead = $currentTime->addDay();
 
 			foreach ($periodsToCheck as $label => $timeRange)
@@ -314,52 +315,7 @@
 				],
 			];
 
-			$now = CarbonImmutable::now()->tz("Europe/London");
-			$morningStart = $now->setTime(4, 0);
-
-			if ($morningStart->isBefore($now))
-			{
-				$morningStart = $morningStart->addDay();
-			}
-
-			$morningEnd = $morningStart->addMinutes(180);
-
-			$afternoonStart = $now->setTime(13, 0);
-
-			if ($afternoonStart->isBefore($now))
-			{
-				$afternoonStart = $afternoonStart->addDay();
-			}
-
-			$afternoonEnd = $afternoonStart->addMinutes(180);
-
-			$eveningStart = $now->setTime(22, 0);
-
-			if ($eveningStart->isBefore($now))
-			{
-				$eveningStart = $eveningStart->addDay();
-			}
-
-			$eveningEnd = $eveningStart->addMinutes(120);
-
-			$schedule['cosy'] =
-			[
-				[
-					'average_cost' => 13.64,
-					'start'        => $morningStart->addMinutes($offsetToOn)->getTimestamp(),
-					'end'          => $morningEnd->addMinutes($offsetToOff)->getTimestamp(),
-				],
-				[
-					'average_cost' => 13.64,
-					'start'        => $afternoonStart->addMinutes($offsetToOn)->getTimestamp(),
-					'end'          => $afternoonEnd->addMinutes($offsetToOff)->getTimestamp(),
-				],
-				[
-					'average_cost' => 13.64,
-					'start'        => $eveningStart->addMinutes($offsetToOn)->getTimestamp(),
-					'end'          => $eveningEnd->addMinutes($offsetToOff)->getTimestamp(),
-				],
-			];
+			$schedule['cosy'] = TariffPeriods::nextCosyWindows(CarbonImmutable::now());
 
 			$setting = Setting::updateOrCreate(["key" => "agile_schedule"], ["value" => json_encode($schedule)]);
 		}

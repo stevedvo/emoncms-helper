@@ -30,6 +30,7 @@ Route::middleware('auth')->group(function()
     Route::get('/dashboard/feeds', [DashboardController::class, 'feeds'])->name('dashboard.feeds');
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
+	Route::put('/settings/tariff', [SettingsController::class, 'updateTariff'])->name('settings.tariff.update');
 	Route::get('/logs/{type}', [LogBrowserController::class, 'index'])->whereIn('type', ['activity', 'api'])->name('logs.index');
 	Route::post('/logs/{type}/searches', [LogBrowserController::class, 'store'])->whereIn('type', ['activity', 'api'])->name('logs.searches.store');
 	Route::delete('/logs/{type}/searches/{search}', [LogBrowserController::class, 'destroy'])->whereIn('type', ['activity', 'api'])->whereNumber('search')->name('logs.searches.destroy');

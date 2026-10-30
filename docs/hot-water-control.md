@@ -15,6 +15,8 @@ The app uses PATCH parameter **47041**, economy **0**, standard/normal **1**. A 
 
 All clock times use Europe/London, including summer time. Threshold comparisons are strictly below the configured value.
 
+The times below are defaults. **Settings → Tariff periods** edits the daily cheap/peak times and, separately, the overnight/early/quiet hot-water start preferences. Dated cheap offers and saving sessions are also supported. See [tariff periods](tariff-periods.md) for their precedence and expiry. Minimum temperatures and recharge duration remain on the main operating-parameter form.
+
 | Opportunity | Default threshold | Heating needed now or during the relevant cheap period | No heating demand expected |
 | --- | --- | --- | --- |
 | Overnight | 37°C | Check throughout 22:00–07:00 | Check throughout 22:00–07:00 |
@@ -36,7 +38,7 @@ Shared `HeatingDemand` and `HeatingBoostSchedule` calculations keep the live tar
 
 Below **20°C**, a recharge may be requested outside the normal windows, including an extra daytime recharge after an afternoon opportunity was used. The completed overnight opportunity still prevents a second recharge within the same 22:00–07:00 window. A 30-minute recovery interval after a completed recharge prevents immediate repeated requests from delayed temperature readings. Before 14:00, a repeat daytime top-up bypasses that interval if its below-threshold charging value has a source change timestamp newer than the controller's completion priority timestamp. This handles late showers, including a shower between the controller finishing and the app observing completion. Older state records fall back to the app's completion observation time. Failed-start retry delays are retained.
 
-Every new request and retry of an unconfirmed start must fit before the actual **16:00–19:00 tariff peak**, using **Recharge duration allowance**, default **180 minutes**. This check is independent of the space heating peak offsets. With 180 minutes, 13:00 is the latest admitted afternoon start; with 120 minutes, 14:00 is possible for a first afternoon or urgent recharge. Normal repeats still close before 14:00. The current control minute is used, allowing ordinary seconds of scheduler latency at the boundary.
+Every new request and retry of an unconfirmed start is checked for overlap with the actual daily tariff peak (default **16:00–19:00**) and dated saving sessions, using **Recharge duration allowance**, default **180 minutes**. This check is independent of the space heating peak offsets. A dated cheap offer removes only its own interval from the normal peak. With default timing and 180 minutes, 13:00 is the latest admitted afternoon start; with 120 minutes, 14:00 is possible for a first afternoon or urgent recharge. Normal repeats close at the configured quiet-window finish, default 14:00. The current control minute is used, allowing ordinary seconds of scheduler latency at the boundary.
 
 Requests which cannot fit are deferred. At 19:00, the next control check reassesses an urgent need using the current temperature. A running recharge always continues, even into a heating dip or the tariff peak. The allowance reduces the risk of peak operation; it is not a guarantee that an unusually long run will finish beforehand.
 

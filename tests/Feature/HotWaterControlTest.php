@@ -6,6 +6,7 @@
 	use App\Models\ActivityLog;
 	use App\Models\Setting;
 	use App\Services\HotWaterControl;
+	use App\Services\TariffPeriods;
 	use Carbon\CarbonImmutable;
 	use Mockery;
 	use PHPUnit\Framework\Attributes\DataProvider;
@@ -586,6 +587,42 @@
 			$this->at('2026-10-24 14:00');
 			$this->poll(10, 32, false);
 			$this->assertSame([[47041 => 1]], $this->patches);
+		}
+
+		public function test_a_saving_session_defers_a_new_recharge_that_would_overlap_it() : void
+		{
+			$values = TariffPeriods::settings();
+			$values['extra'] = [['name' => 'Saving', 'type' => 'peak', 'start' => '2026-10-24T14:00', 'end' => '2026-10-24T15:00']];
+			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($values)]);
+			$this->at('2026-10-24 11:05');
+			$this->poll(10, 19, false);
+			$this->assertSame([[47041 => 0]], $this->patches);
+			$this->assertNull($this->state()['request']);
+		}
+
+		public function test_extra_cheap_offer_can_allow_hot_water_outside_its_normal_quiet_window() : void
+		{
+			$values = TariffPeriods::settings();
+			$values['daily']['peak'] = ['start' => '19:00', 'end' => '22:00'];
+			$values['extra'] = [['name' => 'Extra cheap', 'type' => 'cheap', 'start' => '2026-10-24T15:00', 'end' => '2026-10-24T16:00']];
+			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($values)]);
+			$this->at('2026-10-24 15:00');
+			$this->poll(10, 32, true);
+			$this->assertNull($this->state()['request']);
+			$this->at('2026-10-24 15:05');
+			$this->poll(10, 32, false);
+			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
+		}
+
+		public function test_hot_water_start_preferences_are_read_from_saved_tariff_settings() : void
+		{
+			$values = TariffPeriods::settings();
+			$values['hot_water']['overnight'] = ['start' => '21:00', 'end' => '08:00'];
+			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($values)]);
+			$this->at('2026-10-24 21:05');
+			$this->poll(10, 36, true);
+			$this->assertSame([[47041 => 1]], $this->patches);
+			$this->assertSame('overnight:2026-10-25', $this->state()['request']['opportunity']);
 		}
 
 		private function poll(int $priority, float $temperature, ?bool $heating = true) : void

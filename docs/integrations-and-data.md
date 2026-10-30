@@ -140,23 +140,23 @@ Every five minutes when forecasts are enabled, `syncForecastWithEmon()` posts `f
 
 `OctopusAPI` GETs the configured `AGILE_RATES_URL` appended to `https://api.octopus.energy/v1/`. The expected response has a `results` array of half-hour periods with `valid_from`, `valid_to`, and `value_inc_vat`. The code reads only that response page; it does not follow pagination.
 
-The scheduled command runs every 15 minutes but only fetches from **16:30 Europe/London onward** while `getAgileRatesSuccess` is not the string `true`. Before 16:30, a true flag is reset to false. A successful run saves the schedule, sends the rates email, then marks true. Failure leaves/sets false so the next scheduled invocation retries. Email failure therefore retries rate retrieval and schedule generation too.
+The scheduled command runs every 15 minutes but only fetches from the configured **Daily rates fetch from** time (default **16:30 Europe/London**) while `getAgileRatesSuccess` is not the string `true`. Before that time, a true flag is reset to false. A successful run saves the schedule, sends the rates email, then marks true. Failure leaves/sets false so the next scheduled invocation retries. Email failure therefore retries rate retrieval and schedule generation too.
 
-Rate analysis uses default application time (checked-in UTC) for its ranges:
+Rate analysis uses editable **Europe/London** clock ranges under **Settings → Tariff periods**, with defaults:
 
 - Overnight: today 19:00 through tomorrow 07:00.
 - Daytime: tomorrow 10:00 through 16:00.
 - Expensive morning: tomorrow 06:00 through 12:00.
 
-Only period starts from now inclusive to now +24 hours exclusive are considered. Within each range, periods are sorted by start and sliding windows select the lowest average VAT-inclusive cost for 1, 2, 3, and 6 hours. Morning analysis selects the highest-cost 2, 3, 4, and 5 hours. Each half-hour has equal weight; equal-cost ties keep the first window. Consecutive array entries are assumed to be contiguous half-hours without an explicit gap/duration check.
+Only period starts from now inclusive to the same London clock time the following day exclusive are considered. This horizon follows the clock changes rather than truncating the daytime range on the autumn transition. Within each range, periods are sorted by start and sliding windows select the lowest average VAT-inclusive cost for 1, 2, 3, and 6 hours. Morning analysis selects the highest-cost 2, 3, 4, and 5 hours. Each half-hour has equal weight; equal-cost ties keep the first window. Consecutive array entries are assumed to be contiguous half-hours without an explicit gap/duration check.
 
 `saveCheapestPeriods()` stores JSON in `settings.agile_schedule` with keys `cheapest_3_hours`, `cheapest_6_hours`, and `cosy`. The cheapest schedules each have overnight/daytime entries. Every entry contains `average_cost`, `start`, and `end`, with start/end as integer Unix seconds.
 
 Control timing offsets are editable in **Settings → Weather and boosts** as **Boost window: start offset** (`octopus.offsetToOn`, default -15 minutes) and **Boost window: end offset** (`octopus.offsetToOff`, default -100 minutes). Both apply to the cheapest-three-hour, cheapest-six-hour and Cosy schedules. Negative values move a boundary earlier; positive values move it later. The defaults still start 15 minutes early and finish 100 minutes early: a selected three-hour tariff window gives 95 minutes of boost eligibility, and six hours gives 275 minutes. The cost remains the average of the full selected tariff window.
 
-Both offsets accept whole minutes from -180 to +180. The Settings form rejects combinations that leave the shortest nominal window (the two-hour evening Cosy window) with zero or negative duration. `saveCheapestPeriods()` reads the database values on every generation. Saving an offset does not rewrite the existing `agile_schedule`; changes take effect at the next successful tariff refresh/schedule generation, normally the daily evening refresh, without a scheduler restart.
+Both offsets accept whole minutes from -180 to +180. The Settings form checks them against the configured Cosy durations and the three-hour calculated window. `saveCheapestPeriods()` reads the database values on every generation. Saving an offset alone does not rewrite the existing `agile_schedule`; changes take effect at the next successful generation. Saving the separate tariff form refreshes existing Cosy entries immediately, preserving the calculated cheapest entries.
 
-Cosy windows are generated separately from fixed **Europe/London** times, using the next occurrence of each start:
+Cosy windows are generated through `TariffPeriods` from the editable daily **Europe/London** times, using the next occurrence of each start. Defaults are:
 
 | Nominal window | Stored control window with default offsets |
 | --- | --- |
@@ -164,9 +164,9 @@ Cosy windows are generated separately from fixed **Europe/London** times, using 
 | 13:00–16:00 | 12:45–14:20 |
 | 22:00–00:00 | 21:45–22:20 |
 
-Each Cosy entry has hard-coded `average_cost = 13.64`; the value is not used to authorise a boost. On a typical successful evening refresh, the morning and afternoon windows are tomorrow and the evening window is tonight. These dates are persisted and do not roll forward without another successful generation.
+Each Cosy entry has hard-coded `average_cost = 13.64`; the value is not used to authorise a boost. On a typical successful evening refresh, the morning and afternoon windows are tomorrow and the evening window is tonight. These dates are persisted and do not roll forward without generation or a tariff-form save.
 
-Although forecast-enabled heating currently uses the fixed Cosy entries, their generation still depends on a successful Octopus response and enough rate periods for the cheapest-window indexing that runs first. The email displays calculated cheapest/most-expensive windows; it does not display the adjusted Cosy control schedule.
+Initial regular schedule generation still depends on a successful Octopus response and enough rate periods for the cheapest-window indexing that runs first. Dated extra cheap offers and saving sessions are evaluated live and do not depend on this stored schedule or immediate rate retrieval. See [tariff periods](tariff-periods.md) for their precedence and hot-water behaviour. The email displays calculated cheapest/most-expensive windows; it does not display the adjusted Cosy control schedule.
 
 ## Home Assistant / Hive
 

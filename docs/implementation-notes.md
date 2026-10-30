@@ -49,7 +49,7 @@ The implementation relies on expected incoming data without checking age everywh
 - Local NIBE upload failures are retried only when the API returns that reading again; there is no independent full backlog drain. A title-keyed outgoing collection can also replace an earlier candidate for that title. Remote upload status is not stored.
 - The offline alert counts empty outgoing collections rather than failed network calls. Its text and counter should not be interpreted as proof that NIBE has been offline for exactly 15 minutes.
 - The hot-water flag is undated. Missing an evening reset can leave the flag set across days, and a later reset changes the current day's schedule entry rather than necessarily restoring the originally changed entry.
-- The rates success latch resets during a pre-16:30 invocation. If the runner misses that entire part of the day, a stale true latch can prevent a later fetch. Stored schedules also have no automatic expiry/renewal fallback.
+- The rates success latch resets before the configured fetch cutoff (default 16:30). If the runner misses that entire part of the day, a stale true latch can prevent a later fetch. Stored regular schedules have no automatic renewal fallback, though tariff-form saves refresh existing Cosy entries. Dated extra windows are evaluated independently and stop applying at their finish.
 
 ## Boundary and provisioning details
 
@@ -73,6 +73,6 @@ The weather POST endpoint accepts unvalidated, unauthenticated input under the o
 
 Caught integration errors commonly leave a successful command exit status and an end marker. For priority sync, stored local success reflects the last binary-input post rather than all three posts. For DM steering, `htgMode` is saved before PATCH confirmation. Hive sends every minute without checking whether the target changed or reading it back.
 
-Daily schedules use UTC by default, while peak/hot-water/Cosy/fetch-cutoff rules explicitly use London time. Tariff window searches use application time and the email displays London labels. The summer-time difference is documented in the operations guide; this review did not normalise it.
+Daily scheduler jobs use UTC by default. Shared tariff timing, including rate searches, peak/hot-water/Cosy decisions, dated offers and the fetch cutoff, uses London time. This removes the former summer-time mismatch between rate-search ranges and emailed London labels. See [tariff periods](tariff-periods.md).
 
 Automated tests now cover radiator-demand capture, overall mode selection for the new zone-control scenarios, persistence/freshness, and Hive targets using controlled inputs and a mocked Home Assistant API, alongside the existing reporting tests. This is regression evidence for those paths, not validation of the physical control strategy. Other integration/data limitations above remain.

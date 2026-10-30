@@ -8,11 +8,14 @@ This is a Laravel 10 / PHP application driven primarily by scheduled commands. I
 
 Activity and API Logs offer 100, 250, 500 or 1000 entries per page, defaulting to 250, with a bottom page-number control for jumping directly to older results while retaining the applied search.
 
+**Settings → Tariff periods** provides daily Cosy cheap/peak times and dated extra cheap offers or saving sessions that stop applying automatically. Shared timing is used by peak controls, Cosy generation and app-managed hot water; see [tariff periods](docs/tariff-periods.md).
+
 ## Documentation
 
 | Guide | Contents |
 | --- | --- |
 | [Control panel and live settings](docs/control-panel.md) | First sign-in, importing existing values, live parameter editing, dashboard, searchable logs and saved searches. |
+| [Tariff periods and dated offers](docs/tariff-periods.md) | Editable daily Cosy/peak times, dated extra windows, heating offsets, hot-water admission and Agile search timing. |
 | [Heat pump control](docs/heat-pump-control.md) | Exact decision order, room-temperature bands, boosts, peak periods, defrost reduction, degree-minute calculations, cooling, and worked examples. |
 | [App-managed hot water](docs/hot-water-control.md) | Optional direct comfort-mode control, recharge windows, heating demand, peak avoidance, trial setup and return to scheduled control. |
 | [Integrations and data](docs/integrations-and-data.md) | NIBE polling, Emoncms feeds, weather payloads, tariff schedules, Hive, hot water, database tables, and logging. |
@@ -94,4 +97,4 @@ The existing tests can be run with:
 php vendor/bin/phpunit
 ```
 
-All **309 tests / 1572 assertions** pass. Coverage includes cooling-offset limits after dew-point adjustments, NIBE response validation and failed-poll state preservation, Emon feed validation and recovery, zero readings and failed-feed comparison isolation, live settings, validation, access protection, dashboard behaviour, searchable logs, selectable page sizes and direct page navigation, private saved searches, zone-demand decisions, radiator hysteresis, UFH preheating, shortfall-based boost and peak comfort protection, scheduled boost fallback with inactive room compensation, configurable boost and peak-window offsets, London summer/winter timing, Hive targets, reports with missing local feed grouping and framework examples, using isolated test databases and mocked external calls. Warm-forecast expectations reflect the 22 October trial. These tests do not operate the physical equipment.
+All **450 tests / 1997 assertions** pass. Coverage includes editable daily tariff times, dated offer/saving-session precedence and expiry, hot-water admission and tariff validation, cooling-offset limits after dew-point adjustments, NIBE response validation and failed-poll state preservation, Emon feed validation and recovery, zero readings and failed-feed comparison isolation, live settings, validation, access protection, dashboard behaviour, searchable logs, selectable page sizes and direct page navigation, private saved searches, zone-demand decisions, radiator hysteresis, UFH preheating, shortfall-based boost and peak comfort protection, scheduled boost fallback with inactive room compensation, configurable boost and peak-window offsets, London summer/winter timing, Hive targets, reports with missing local feed grouping and framework examples, using isolated test databases and mocked external calls. Warm-forecast expectations reflect the 22 October trial. These tests do not operate the physical equipment.

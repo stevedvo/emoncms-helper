@@ -35,7 +35,7 @@ The definitions are in `app/Console/Kernel.php`. Timings below describe requeste
 | `emon:sync` | Every 30 minutes | Compares selected local/remote feeds and stores differences; backlog upload is a placeholder. |
 | `logs:cleanUp` | Daily at midnight | Deletes old activity/API logs by retention period. |
 | `admin:emails` | Daily at 06:00 | Sends a summary of the previous 24 hours' error logs. |
-| `octopus:getAgileRates` | Every 15 minutes | After the local 16:30 cutoff, retrieves rates, saves schedules and emails results until successful. |
+| `octopus:getAgileRates` | Every 15 minutes | From the editable London fetch cutoff (default 16:30), retrieves rates, saves schedules and emails results until successful. |
 
 Other registered commands are `schedule:test` (writes a scheduler-test message to Laravel's log) and `command:test` (developer scratch command). The latter currently tries to call protected `NibeController::getRoomTemperature()` from outside its class, so it catches/logs a visibility error; it is not a controller simulation or a dependable diagnostics command. The standard `inspire` console command also remains.
 
@@ -62,14 +62,14 @@ Calling `php artisan nibe:getData` manually performs its real integrations, incl
 | Daily cleanup and 06:00 administrator report | Application timezone, default UTC. The report is therefore 07:00 UK time during BST. |
 | Five-minute control gate | Minute number of application time. |
 | Peak-import window | Explicit Europe/London, 16:00–18:35 inclusive by default; both boundaries have editable minute offsets. |
-| Rate-fetch cutoff/reset | Explicit Europe/London, 16:30. |
-| Cheapest/most-expensive rate search ranges | Application timezone, default UTC. |
+| Rate-fetch cutoff/reset | Explicit Europe/London, editable; default 16:30. |
+| Cheapest/most-expensive rate search ranges | Explicit Europe/London; editable in Tariff periods. |
 | Cosy schedule starts and hot-water checks | Explicit Europe/London. |
 | Emailed rate labels | Explicit Europe/London. |
 | Persisted control schedule timestamps | Integer Unix seconds, compared as instants. |
 | Feed reads / historical comparisons | Unix milliseconds; NIBE readings and input posts use seconds. |
 
-Consequently, rate-search clock ranges and displayed London labels differ by one hour during BST. Changing only the host operating-system timezone does not change Laravel's checked-in UTC setting. The documentation records this behaviour without changing it.
+Tariff clock ranges and emailed labels now both use London time, removing the previous BST difference in the rate-search ranges. Changing only the host operating-system timezone does not change Laravel's checked-in UTC scheduler setting.
 
 ## NIBE configuration
 
@@ -115,7 +115,7 @@ The myUplink token and function URLs are fixed in `config/nibe.php` to `https://
 
 The UFH thresholds are now editable as `nibe.ufhTempOn` (default 19.5°C) and `nibe.ufhTempIntermittent` (default 20°C), and room-sensor history as `nibe.roomTemperatureLookbackMinutes` (default 180). Log retention is editable under `logs.infoRetentionDays`, `warningRetentionDays`, `errorRetentionDays` and `apiRetentionDays` (defaults 30/60/90/90).
 
-Boost schedule offsets are editable as `octopus.offsetToOn` and `octopus.offsetToOff` (defaults -15/-100 minutes) under **Weather and boosts**. They apply when the schedule is next generated. Peak control offsets are separately editable as `nibe.peakImportStartOffsetMinutes` and `nibe.peakImportEndOffsetMinutes` (defaults 0/-25 minutes), added to 16:00/19:00 London time and read at each evaluation. These affect radiator peak reduction, UFH preheat suppression and the cold-forecast peak minimum; they do not rewrite the boost schedule. Negative offsets move boundaries earlier, positive later, and the Settings form requires a positive peak-window duration. The remaining hard-coded constants include the nominal peak clock times, extraBoost's +90, room-band adjustments, the 60-minute evaporator window, minimum-flow baseline/cap 10/60°C, two-hour UFH extrapolation, and hot-water schedule/time/temperature rules.
+Boost schedule offsets are editable as `octopus.offsetToOn` and `octopus.offsetToOff` (defaults -15/-100 minutes) under **Weather and boosts**. They apply when the schedule is next generated. Peak control offsets are separately editable as `nibe.peakImportStartOffsetMinutes` and `nibe.peakImportEndOffsetMinutes` (defaults 0/-25 minutes), added to the editable daily tariff peak boundaries (default 16:00/19:00 London) and read at each evaluation. These affect radiator peak reduction, UFH preheat suppression and the cold-forecast peak minimum; they do not rewrite the boost schedule. Negative offsets move boundaries earlier, positive later. The separate [Tariff periods](tariff-periods.md) form edits daily Cosy/peak times, dated offers/saving sessions, hot-water start preferences, Agile search ranges and fetch time. Its save refreshes existing Cosy entries. Remaining constants include extraBoost's +90, room-band adjustments, the 60-minute evaporator window, minimum-flow baseline/cap 10/60°C, two-hour UFH extrapolation and legacy controller hot-water schedule rules.
 
 ## Other integration configuration
 
@@ -146,7 +146,7 @@ The project's `.env` is ignored by Git. Keep credentials and connection details 
 
 Values are stored as text, not typed model casts. In particular, the boolean flags below use literal strings `true` and `false`.
 
-This paragraph and the table below describe runtime state. The separate `control.*` rows use JSON scalars and are typed by `ControlSettings`; they are the only values editable through the Settings page. Tokens, forecast payloads and other runtime state are excluded from that page.
+The `control.*` rows use JSON scalars and are typed by `ControlSettings`. The tariff editor separately stores its structured timings in `octopusTariffPeriods`; defaults are in `config/octopus-periods.php` until its first save. Tokens, forecast payloads and runtime state are excluded from the Settings forms.
 
 | `settings.key` | Written/read by | Meaning |
 | --- | --- | --- |
@@ -154,6 +154,7 @@ This paragraph and the table below describe runtime state. The separate `control
 | `nibe_token_expiry` | NIBE API | Expiry as Unix seconds; must exist initially. |
 | `weather_data` | Weather POST / weather readers | Full forecast JSON; replaced on each submission. |
 | `agile_schedule` | Octopus / boost selection | JSON with cheapest and Cosy windows as integer Unix seconds. |
+| `octopusTariffPeriods` | Tariff settings form / shared timing service | Daily periods, hot-water preferences, Agile ranges/fetch time and dated extra windows. User-editable configuration, separate from runtime state. |
 | `getAgileRatesSuccess` | Octopus | Fetch/email success latch, reset before the daily cutoff. |
 | `RoomTemperature[Rad_temperature]` | Room lookup | Last usable Rad temperature, used as a fallback value. |
 | `allowLoadCompensation` | Room lookup / mode selection | Whether a usable Rad reading was obtained for room compensation. |
