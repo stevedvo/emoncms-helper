@@ -27,6 +27,9 @@
 
 	class NibeController extends Controller
 	{
+		// populate collection with values for outdoor temp, avg outdoor temp, external flow temp, degree-minutes, calculated flow temp, heating curve, heating offset, min. flow line temp., priority, calculated flow temp cooling, cooling offset
+		protected const DM_OVERRIDE_PARAMETER_IDS = [40004, 40067, 40071, 40940, 43009, 47007, 47011, 47015, 49994, 44270, 48739];
+
 		protected static $defrostDewpointMin;
 		protected static $defrostDewpointMax;
 		protected static $defrostEvaporatorMax;
@@ -162,6 +165,7 @@
 				{
 					return $item['parameterId'].$item['timestamp'].$item['value'];
 				});
+
 				$polledAt = CarbonImmutable::now();
 
 				// Log::info($parameterData);
@@ -209,8 +213,7 @@
 						}
 					}
 
-					// populate collection with values for outdoor temp, avg outdoor temp, external flow temp, degree-minutes, calculated flow temp, heating curve, heating offset, min. flow line temp., priority, calculated flow temp cooling, cooling offset
-					if (in_array($datum['parameterId'], [40004, 40067, 40071, 40940, 43009, 47007, 47011, 47015, 49994, 44270, 48739]))
+					if (in_array($datum['parameterId'], static::DM_OVERRIDE_PARAMETER_IDS))
 					{
 						$dmOverrideCollection->put($datum['parameterId'], $datum['value']);
 					}
@@ -256,6 +259,17 @@
 				// if (true)
 				if ($now->format("i") % 5 == 0)
 				{
+					$receivedParameterIds = $parameterData->pluck('parameterId')->unique()->sort(SORT_NUMERIC)->values();
+					$missingDmParameterIds = collect(static::DM_OVERRIDE_PARAMETER_IDS)->diff($dmOverrideCollection->keys())->sort(SORT_NUMERIC)->values();
+
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => 'info',
+						'message'    => 'NIBE poll received '.$parameterData->count().' points; parameter IDs ('.$receivedParameterIds->count().'): ['.$receivedParameterIds->implode(', ').']; missing DM override parameter IDs: ['.$missingDmParameterIds->implode(', ').'].',
+					]);
+
 					if (ControlSettings::get('nibe.dmOverride') !== false)
 					{
 						static::dmOverride($dmOverrideCollection);
@@ -1839,7 +1853,7 @@
 			{
 				$threshold = 15;
 
-				DB::transaction(function () use ($threshold)
+				DB::transaction(function() use ($threshold)
 				{
 					// Ensure the counter exists.
 					$setting = Setting::firstOrCreate(['key' => 'nibeEmptyDataCount'], ['value' => 0]);
@@ -1848,7 +1862,7 @@
 					Setting::where('key', 'nibeEmptyDataCount')->increment('value');
 
 					// Re-read the current value (inside the same transaction).
-					$currentCount = (int) Setting::where('key', 'nibeEmptyDataCount')->value('value');
+					$currentCount = (int)Setting::where('key', 'nibeEmptyDataCount')->value('value');
 
 					// Fire exactly once when hitting the threshold.
 					if ($currentCount === $threshold)

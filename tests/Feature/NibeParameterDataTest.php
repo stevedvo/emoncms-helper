@@ -127,6 +127,78 @@
 			$this->assertCount(1, $this->requests);
 		}
 
+		#[DataProvider('diagnosticTimes')]
+		public function test_poll_id_diagnostics_run_only_on_five_minute_ticks_and_include_unmapped_and_unchanged_inputs(string $time, bool $expected) : void
+		{
+			CarbonImmutable::setTestNow(CarbonImmutable::parse($time, 'UTC'));
+			config()->set('nibe.dmOverride', false);
+			config()->set('nibe.loadCompensationOn', false);
+			$points =
+			[
+				['parameterId' => 40067, 'timestamp' => '2026-10-23T11:00:00Z', 'value' => null],
+				['parameterId' => '40004', 'timestamp' => '2026-10-23T11:00:00Z', 'value' => 0],
+				['parameterId' => 40004, 'timestamp' => '2026-10-23T11:01:00Z', 'value' => 1],
+				['parameterId' => 40014, 'timestamp' => '2026-10-23T11:00:00Z', 'value' => 40],
+				['parameterId' => 99999, 'timestamp' => '2026-10-23T11:00:00Z', 'value' => 'private-value-not-logged'],
+			];
+			$this->responses->append(new Response(200, [], json_encode($points, JSON_THROW_ON_ERROR)));
+			NibeController::getNibeData();
+			$logs = ActivityLog::where('method', 'getNibeData')->where('message', 'like', 'NIBE poll received %')->get();
+			$this->assertCount($expected ? 1 : 0, $logs);
+
+			if ($expected)
+			{
+				$this->assertSame('info', $logs->sole()->level);
+				$this->assertStringContainsString('received 5 points; parameter IDs (4): [40004, 40014, 40067, 99999]', $logs->sole()->message);
+				$this->assertStringContainsString('missing DM override parameter IDs: [40071, 40940, 43009, 44270, 47007, 47011, 47015, 48739, 49994]', $logs->sole()->message);
+				$this->assertStringNotContainsString('private-value-not-logged', $logs->sole()->message);
+			}
+
+			$this->assertSame(0, NibeFeedItem::count());
+			$this->assertSame(0, ActivityLog::where('level', 'error')->count());
+			$this->assertCount(1, $this->requests);
+			$this->assertSame('GET', $this->requests[0]['request']->getMethod());
+		}
+
+		public static function diagnosticTimes() : array
+		{
+			return [
+				'control tick'        => ['2026-10-23 12:00:00', true],
+				'ordinary minute'     => ['2026-10-23 12:01:00', false],
+				'next control tick'   => ['2026-10-23 12:05:00', true],
+			];
+		}
+
+		public function test_a_valid_empty_poll_logs_zero_points_and_all_missing_ids_before_the_existing_dm_error() : void
+		{
+			config()->set('nibe.dmOverride', true);
+			config()->set('nibe.loadCompensationOn', false);
+			$this->responses->append(new Response(200, [], '[]'));
+			NibeController::getNibeData();
+			$diagnostic = ActivityLog::where('message', 'like', 'NIBE poll received %')->sole();
+			$error = ActivityLog::where('method', 'dmOverride')->where('level', 'error')->sole();
+			$this->assertStringContainsString('received 0 points; parameter IDs (0): []', $diagnostic->message);
+			$this->assertStringContainsString('missing DM override parameter IDs: [40004, 40067, 40071, 40940, 43009, 44270, 47007, 47011, 47015, 48739, 49994]', $diagnostic->message);
+			$this->assertSame("No data for 'outdoor temp.'", $error->message);
+			$this->assertLessThan($error->id, $diagnostic->id);
+			$this->assertCount(1, $this->requests);
+		}
+
+		public function test_a_complete_poll_reports_no_missing_dm_inputs_even_without_export_candidates() : void
+		{
+			config()->set('nibe.dmOverride', false);
+			config()->set('nibe.loadCompensationOn', false);
+			$ids = [40004, 40014, 40067, 40071, 40940, 43009, 44270, 47007, 47011, 47015, 48739, 49994];
+			$points = array_map(fn($id) => ['parameterId' => $id, 'timestamp' => '2026-10-23T12:00:00Z', 'value' => 40], $ids);
+			$this->responses->append(new Response(200, [], json_encode($points, JSON_THROW_ON_ERROR)));
+			NibeController::getNibeData();
+			$diagnostic = ActivityLog::where('message', 'like', 'NIBE poll received %')->sole();
+			$this->assertStringContainsString('received 12 points; parameter IDs (12): [', $diagnostic->message);
+			$this->assertStringContainsString('missing DM override parameter IDs: [].', $diagnostic->message);
+			$this->assertSame(1, ActivityLog::where('message', 'No new NIBE data found')->count());
+			$this->assertCount(1, $this->requests);
+		}
+
 		public function test_a_later_request_can_succeed_after_a_bad_response() : void
 		{
 			$this->responses->append(new Response(200, [], 'null'));

@@ -24,6 +24,10 @@ Failures identify the response problem, HTTP status and body length in bytes wit
 6. Sends outgoing readings to local Emoncms. Only the title `calculated flow temp.` is also selected for direct remote publication.
 7. Runs the five-minute work described in the control guide.
 
+At the start of the five-minute block, `getNibeData()` writes one info-level `NIBE poll received ...` diagnostic with the deduplicated point count, sorted unique parameter IDs from the current response, and all missing DM-override parameter IDs. It includes uncatalogued and unchanged readings, logs zero points for a valid empty list, and records IDs rather than values or credentials. Ordinary one-minute polls do not add this diagnostic. It is written before `dmOverride()` checks its required inputs, even when DM override is disabled. Invalid responses rejected by the API adapter retain their existing error instead.
+
+An empty `$emonPostCollection` means there are no non-priority catalogued readings needing export; it does not establish whether the API response itself was empty or complete. Missing DM inputs still skip that adjustment without using stored readings as a fallback. The caller can continue its other five-minute work after `dmOverride()` logs the error and returns.
+
 There is no unit conversion using the catalogue's `unit` or `designation`. Parameter titles become Emon input names, so exact titles matter. Multiple readings sharing an outgoing title overwrite earlier entries in that collection. A changed value with an unchanged source timestamp does not replace an existing database row because `firstOrCreate()` only uses parameter ID and timestamp for identity.
 
 ### Priority heartbeat
