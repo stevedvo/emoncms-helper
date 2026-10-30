@@ -8,7 +8,7 @@
 	{
 		public static function activeAt(array $schedules, float $outdoor, float $average, CarbonImmutable $time) : bool
 		{
-			$extra = TariffPeriods::extraTypeAt($time);
+			$extra = TariffPeriods::extraHeatingTypeAt($time);
 
 			if ($extra !== null)
 			{

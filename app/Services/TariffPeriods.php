@@ -57,10 +57,41 @@
 			return null;
 		}
 
+		public static function heatingWindow(CarbonImmutable $start, CarbonImmutable $end, string $type, ?array $offsets = null) : array
+		{
+			$startKey = $type === 'cheap' ? 'octopus.offsetToOn' : 'nibe.peakImportStartOffsetMinutes';
+			$endKey = $type === 'cheap' ? 'octopus.offsetToOff' : 'nibe.peakImportEndOffsetMinutes';
+
+			return [$start->addMinutes($offsets[$startKey] ?? ControlSettings::get($startKey)), $end->addMinutes($offsets[$endKey] ?? ControlSettings::get($endKey))];
+		}
+
+		public static function extraHeatingTypeAt(CarbonInterface $time, ?array $settings = null) : ?string
+		{
+			$type = null;
+
+			foreach (($settings ?? self::settings())['extra'] as $event)
+			{
+				[$start, $end] = self::heatingWindow(CarbonImmutable::parse($event['start'], self::ZONE), CarbonImmutable::parse($event['end'], self::ZONE), $event['type']);
+
+				if ($time->greaterThanOrEqualTo($start) && $time->lessThan($end))
+				{
+					// Different offsets can make otherwise separate offers overlap; peak controls take priority.
+					if ($event['type'] === 'peak')
+					{
+						return 'peak';
+					}
+
+					$type = 'cheap';
+				}
+			}
+
+			return $type;
+		}
+
 		public static function peakAt(CarbonInterface $time) : bool
 		{
 			$settings = self::settings();
-			$extra = self::extraTypeAt($time, $settings);
+			$extra = self::extraHeatingTypeAt($time, $settings);
 
 			if ($extra !== null)
 			{
@@ -128,12 +159,18 @@
 			$settings = self::settings();
 			$windows = [];
 			$local = $from->setTimezone(self::ZONE);
+			$offsets =
+			[
+				'octopus.offsetToOn'  => ControlSettings::get('octopus.offsetToOn'),
+				'octopus.offsetToOff' => ControlSettings::get('octopus.offsetToOff'),
+			];
 
 			foreach ([-1, 0, 1] as $day)
 			{
 				foreach (['morning', 'afternoon', 'evening'] as $name)
 				{
-					$windows[] = self::window($local->addDays($day), $settings['daily'][$name]);
+					[$start, $end] = self::window($local->addDays($day), $settings['daily'][$name]);
+					$windows[] = self::heatingWindow($start, $end, 'cheap', $offsets);
 				}
 			}
 
@@ -141,11 +178,11 @@
 			{
 				if ($event['type'] === 'cheap')
 				{
-					$windows[] = [CarbonImmutable::parse($event['start'], self::ZONE), CarbonImmutable::parse($event['end'], self::ZONE)];
+					$windows[] = self::heatingWindow(CarbonImmutable::parse($event['start'], self::ZONE), CarbonImmutable::parse($event['end'], self::ZONE), 'cheap', $offsets);
 				}
 			}
 
-			return array_values(array_filter($windows, fn($window) => $window[1]->isAfter($from) && $window[0]->isBefore($until)));
+			return array_values(array_filter($windows, fn($window) => $window[1]->isAfter($window[0]) && $window[1]->isAfter($from) && $window[0]->isBefore($until)));
 		}
 
 		public static function hotWaterCanFinish(CarbonImmutable $time, int $minutes) : bool

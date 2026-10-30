@@ -1331,7 +1331,7 @@
 		{
 			try
 			{
-				$extra = TariffPeriods::extraTypeAt(CarbonImmutable::now());
+				$extra = TariffPeriods::extraHeatingTypeAt(CarbonImmutable::now());
 
 				if ($extra !== null)
 				{

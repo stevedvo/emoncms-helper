@@ -89,6 +89,7 @@
 				}
 
 				$values = $this->input('tariff');
+				// An arbitrary winter day keeps recurring clock-time checks independent of DST changes.
 				$day = CarbonImmutable::parse('2026-01-15', TariffPeriods::ZONE);
 
 				foreach ($values['daily'] as $name => $period)
@@ -156,6 +157,12 @@
 				{
 					$start = CarbonImmutable::parse($event['start'], TariffPeriods::ZONE);
 					$end = CarbonImmutable::parse($event['end'], TariffPeriods::ZONE);
+					[$heatingStart, $heatingEnd] = TariffPeriods::heatingWindow($start, $end, $event['type']);
+
+					if ($end->isAfter(CarbonImmutable::now()) && $heatingEnd->lessThanOrEqualTo($heatingStart))
+					{
+						$validator->errors()->add('tariff.extra.'.$index.'.end', 'The heating offsets must leave a positive duration for this dated window.');
+					}
 
 					if ($start->format('Y-m-d\TH:i') !== $event['start'] || $end->format('Y-m-d\TH:i') !== $event['end'])
 					{

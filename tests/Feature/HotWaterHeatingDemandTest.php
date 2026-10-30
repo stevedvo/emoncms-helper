@@ -128,7 +128,8 @@
 			$values['extra'] = [['name' => 'Saving session', 'type' => 'peak', 'start' => '2026-10-24T12:30', 'end' => '2026-10-24T16:00']];
 			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($values)]);
 			$this->assertFalse(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
-			$values['extra'][] = ['name' => 'Extra cheap morning', 'type' => 'cheap', 'start' => '2026-10-24T10:30', 'end' => '2026-10-24T11:30'];
+			// The adjusted 10:15–10:20 heating window precedes the actual 10:30 tariff start.
+			$values['extra'][] = ['name' => 'Extra cheap morning', 'type' => 'cheap', 'start' => '2026-10-24T10:30', 'end' => '2026-10-24T12:00'];
 			Setting::where('key', TariffPeriods::KEY)->update(['value' => json_encode($values)]);
 			$this->assertTrue(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
 		}

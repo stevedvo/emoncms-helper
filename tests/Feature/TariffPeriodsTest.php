@@ -71,8 +71,11 @@
 			$this->assertSame($this->time('2026-10-27 12:45')->timestamp, TariffPeriods::nextCosyWindows(CarbonImmutable::now(), true)[1]['start']);
 		}
 
-		public function test_dated_offers_take_precedence_apply_exact_boundaries_and_expire_without_a_job() : void
+		public function test_zero_offsets_keep_dated_heating_boundaries_at_the_actual_tariff_times() : void
 		{
+			config()->set('octopus.offsetToOn', 0);
+			config()->set('octopus.offsetToOff', 0);
+			config()->set('nibe.peakImportEndOffsetMinutes', 0);
 			$this->storeEvents([
 				$this->event('cheap', '2026-10-27T16:30', '2026-10-27T17:30'),
 				$this->event('peak', '2026-10-27T13:30', '2026-10-27T14:00'),
@@ -100,6 +103,113 @@
 			$this->assertTrue(TariffPeriods::hotWaterCanFinish($this->time('2026-10-27 13:00:12'), 180));
 			$this->assertFalse(TariffPeriods::hotWaterCanFinish($this->time('2026-10-27 18:40'), 180));
 			$this->assertTrue(TariffPeriods::hotWaterCanFinish($this->time('2026-10-27 19:00'), 180));
+		}
+
+		public function test_dated_cheap_heating_uses_default_boost_offsets_while_hot_water_keeps_actual_times() : void
+		{
+			$this->storeEvents([$this->event('cheap', '2026-10-27T16:30', '2026-10-27T18:30')]);
+
+			foreach (['16:14:59' => false, '16:15:00' => true, '16:49:59' => true, '16:50:00' => false, '18:30:00' => false] as $clock => $expected)
+			{
+				$time = $this->time('2026-10-27 '.$clock);
+				$this->assertSame($expected, HeatingBoostSchedule::activeAt(['cosy' => []], 15, 15, $time));
+				$this->assertSame(!$expected, NibeController::isPeakImport($time));
+			}
+
+			CarbonImmutable::setTestNow($this->time('2026-10-27 16:20'));
+			$this->assertTrue(NibeController::isBoostActive(15, 15));
+			$this->assertNull(TariffPeriods::extraTypeAt(CarbonImmutable::now()));
+			$this->assertSame('cheap', TariffPeriods::extraTypeAt($this->time('2026-10-27 17:00')));
+			$this->assertTrue(TariffPeriods::hotWaterCanFinish($this->time('2026-10-27 17:00'), 60));
+			$this->assertFalse(TariffPeriods::hotWaterCanFinish($this->time('2026-10-27 15:30'), 60));
+		}
+
+		public function test_dated_peak_heating_uses_peak_offsets_while_hot_water_avoids_the_full_session() : void
+		{
+			$this->storeEvents([$this->event('peak', '2026-10-27T10:00', '2026-10-27T12:00')]);
+			$this->assertFalse(NibeController::isPeakImport($this->time('2026-10-27 09:59:59')));
+			$this->assertTrue(NibeController::isPeakImport($this->time('2026-10-27 10:00')));
+			$this->assertTrue(NibeController::isPeakImport($this->time('2026-10-27 11:34:59')));
+			$this->assertFalse(NibeController::isPeakImport($this->time('2026-10-27 11:35')));
+			$this->assertSame('peak', TariffPeriods::extraTypeAt($this->time('2026-10-27 11:40')));
+			$this->assertFalse(TariffPeriods::hotWaterCanFinish($this->time('2026-10-27 11:40'), 60));
+			$this->assertTrue(TariffPeriods::hotWaterCanFinish($this->time('2026-10-27 12:00'), 60));
+		}
+
+		public function test_saved_positive_offsets_change_dated_heating_immediately_and_can_cross_midnight() : void
+		{
+			$this->storeEvents([$this->event('cheap', '2026-10-27T23:00', '2026-10-28T01:00')]);
+			Setting::create(['key' => 'control.octopus.offsetToOn', 'value' => '30']);
+			Setting::create(['key' => 'control.octopus.offsetToOff', 'value' => '30']);
+			$this->assertNull(TariffPeriods::extraHeatingTypeAt($this->time('2026-10-27 23:29:59')));
+			$this->assertSame('cheap', TariffPeriods::extraHeatingTypeAt($this->time('2026-10-27 23:30')));
+			$this->assertSame('cheap', TariffPeriods::extraHeatingTypeAt($this->time('2026-10-28 01:29:59')));
+			$this->assertNull(TariffPeriods::extraHeatingTypeAt($this->time('2026-10-28 01:30')));
+			$this->assertNull(TariffPeriods::extraTypeAt($this->time('2026-10-28 01:15')));
+			Setting::where('key', 'control.octopus.offsetToOn')->update(['value' => '-15']);
+			$this->assertSame('cheap', TariffPeriods::extraHeatingTypeAt($this->time('2026-10-27 23:00')));
+		}
+
+		public function test_peak_controls_win_if_different_offsets_make_dated_heating_windows_overlap() : void
+		{
+			Setting::create(['key' => 'control.nibe.peakImportEndOffsetMinutes', 'value' => '30']);
+			$events = [$this->event('cheap', '2026-10-27T13:00', '2026-10-27T15:00'), $this->event('peak', '2026-10-27T11:00', '2026-10-27T13:00')];
+			$this->storeEvents($events);
+			$settings = TariffPeriods::settings();
+
+			foreach ([$events, array_reverse($events)] as $ordered)
+			{
+				$settings['extra'] = $ordered;
+				Setting::where('key', TariffPeriods::KEY)->update(['value' => json_encode($settings)]);
+				$time = $this->time('2026-10-27 13:05');
+				$this->assertSame('peak', TariffPeriods::extraHeatingTypeAt($time));
+				$this->assertTrue(NibeController::isPeakImport($time));
+				$this->assertFalse(HeatingBoostSchedule::activeAt(['cosy' => []], 10, 10, $time));
+				$this->assertTrue(TariffPeriods::hotWaterCanFinish($time, 60));
+			}
+		}
+
+		public function test_legacy_short_windows_cannot_enable_an_inverted_heating_interval() : void
+		{
+			$this->storeEvents([$this->event('cheap', '2026-10-27T10:30', '2026-10-27T11:30')]);
+			$this->assertNull(TariffPeriods::extraHeatingTypeAt($this->time('2026-10-27 10:45')));
+			$this->assertSame([], TariffPeriods::cheapWindows($this->time('2026-10-27 10:00'), $this->time('2026-10-27 12:00')));
+			$this->assertSame('cheap', TariffPeriods::extraTypeAt($this->time('2026-10-27 10:45')));
+		}
+
+		public function test_dated_heating_boundaries_follow_london_times_on_the_autumn_clock_change() : void
+		{
+			$this->storeEvents([$this->event('cheap', '2026-10-25T00:00', '2026-10-25T04:00')]);
+			$this->assertSame('cheap', TariffPeriods::extraHeatingTypeAt($this->time('2026-10-24 23:45')));
+			$this->assertSame('cheap', TariffPeriods::extraHeatingTypeAt($this->time('2026-10-25 02:19:59')));
+			$this->assertNull(TariffPeriods::extraHeatingTypeAt($this->time('2026-10-25 02:20')));
+		}
+
+		#[DataProvider('datedOffsetEdits')]
+		public function test_offset_edits_cannot_remove_an_upcoming_dated_heating_window(string $type, string $end, string $key, int $value) : void
+		{
+			$this->actingAs(User::factory()->create());
+			$this->storeEvents([$this->event($type, '2026-10-27T10:30', $end)]);
+			$this->put('/settings', ['revision' => ControlSettings::revision(ControlSettings::values()), 'values' => [ControlSettings::field($key) => $value]])->assertSessionHasErrors('values.'.ControlSettings::field($key));
+			$this->assertNotSame($value, ControlSettings::get($key));
+		}
+
+		public static function datedOffsetEdits() : array
+		{
+			return [
+				'cheap' => ['cheap', '2026-10-27T12:00', 'octopus.offsetToOff', -110],
+				'peak'  => ['peak', '2026-10-27T11:00', 'nibe.peakImportEndOffsetMinutes', -40],
+			];
+		}
+
+		public function test_expired_short_windows_do_not_block_unrelated_tariff_edits() : void
+		{
+			$this->actingAs(User::factory()->create());
+			$payload = $this->payload();
+			$payload['tariff']['extra'] = [$this->event('cheap', '2026-10-26T10:30', '2026-10-26T11:30')];
+			$this->put('/settings/tariff', $payload)->assertSessionHasNoErrors();
+			$this->put('/settings', ['revision' => ControlSettings::revision(ControlSettings::values()), 'values' => ['octopus__offsetToOff' => -110]])->assertSessionHasNoErrors();
+			$this->assertSame(-110, ControlSettings::get('octopus.offsetToOff'));
 		}
 
 		public function test_a_cheap_override_only_removes_its_own_part_of_the_daily_peak() : void
@@ -175,7 +285,7 @@
 		{
 			$this->actingAs(User::factory()->create());
 			$payload = $this->payload();
-			$payload['tariff']['extra'] = [$this->event('cheap', '2026-10-27T10:30', '2026-10-27T11:30')];
+			$payload['tariff']['extra'] = [$this->event('cheap', '2026-10-27T10:30', '2026-10-27T12:30')];
 			$this->put('/settings/tariff', $payload)->assertSessionHasNoErrors();
 			$this->get('/settings')->assertOk()->assertSee('value="Cheap offer"', false)->assertSee('value="2026-10-27T10:30"', false);
 			$this->assertSame('cheap', TariffPeriods::extraTypeAt($this->time('2026-10-27 11:00')));
@@ -222,6 +332,8 @@
 				'reversed daytime'       => ['tariff.hot_water.quiet.end', '12:00', 'tariff.hot_water.quiet.end'],
 				'short Agile search'      => ['tariff.agile.daytime.end', '12:00', 'tariff.agile.daytime.end'],
 				'fetch before next range' => ['tariff.fetch', '09:00', 'tariff.agile.daytime.end'],
+				'cheap dated collapsed'   => ['tariff.extra', [['name' => 'Offer', 'type' => 'cheap', 'start' => '2026-10-27T10:30', 'end' => '2026-10-27T11:30']], 'tariff.extra.0.end'],
+				'peak dated collapsed'    => ['tariff.extra', [['name' => 'Saving', 'type' => 'peak', 'start' => '2026-10-27T10:30', 'end' => '2026-10-27T10:50']], 'tariff.extra.0.end'],
 				'invalid event type'      => ['tariff.extra', [['name' => 'Offer', 'type' => 'unknown', 'start' => '2026-10-27T10:00', 'end' => '2026-10-27T11:00']], 'tariff.extra.0.type'],
 				'event end before start'  => ['tariff.extra', [['name' => 'Offer', 'type' => 'cheap', 'start' => '2026-10-27T11:00', 'end' => '2026-10-27T10:00']], 'tariff.extra.0.end'],
 				'missing spring hour'     => ['tariff.extra', [['name' => 'Offer', 'type' => 'cheap', 'start' => '2027-03-28T01:30', 'end' => '2027-03-28T03:00']], 'tariff.extra.0.start'],

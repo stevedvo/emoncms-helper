@@ -6,7 +6,7 @@
 		</div>
 		<span class="pill neutral">London time</span>
 	</div>
-	<p class="panel-note">Set the actual tariff times here. Your existing boost and peak-control offsets still apply to daily heating windows. Dated offers use their exact times and take precedence over the daily tariff.</p>
+	<p class="panel-note">Set the actual tariff times here. Heating uses your boost and peak-control offsets for both daily and dated windows. Hot-water admission uses the actual tariff times. Dated windows take precedence over the daily tariff.</p>
 	<form method="post" action="{{ route('settings.tariff.update') }}" id="tariff-settings-form">
 		@csrf
 		@method('PUT')
@@ -42,7 +42,7 @@
 		</div>
 		<div class="tariff-subsection">
 			<h3>Dated extra windows</h3>
-			<p class="field-help">Add extra cheap offers or peak/saving sessions. They stop applying automatically at the finish; expired entries may be removed whenever convenient. Windows cannot overlap. Extra cheap offers enable heating preheat targets and may allow a first hot-water recharge when no heating demand is expected. Peak sessions suppress preheating and defer new hot-water starts that would overlap them; running recharges continue.</p>
+			<p class="field-help">Add extra cheap offers or peak/saving sessions. Heating follows the adjusted start and finish; hot water uses the actual times. Expired entries may be removed whenever convenient. Entered tariff windows cannot overlap; if heating offsets create an overlap, peak controls take priority. Cheap offers enable preheat targets and may allow a first hot-water recharge without heating demand. Peak sessions defer new hot-water starts that would overlap them; running recharges continue.</p>
 			<div id="tariff-events">
 				@foreach(old('tariff.extra', $tariff['extra']) as $index => $event)
 					@include('settings.tariff-event', ['index' => $index, 'event' => $event])
