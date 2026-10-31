@@ -262,13 +262,24 @@
 					$receivedParameterIds = $parameterData->pluck('parameterId')->unique()->sort(SORT_NUMERIC)->values();
 					$missingDmParameterIds = collect(static::DM_OVERRIDE_PARAMETER_IDS)->diff($dmOverrideCollection->keys())->sort(SORT_NUMERIC)->values();
 
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => 'info',
-						'message'    => 'NIBE poll received '.$parameterData->count().' points; parameter IDs ('.$receivedParameterIds->count().'): ['.$receivedParameterIds->implode(', ').']; missing DM override parameter IDs: ['.$missingDmParameterIds->implode(', ').'].',
-					]);
+					if (!$missingDmParameterIds->isEmpty())
+					{
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => 'info',
+							'message'    => 'NIBE poll received '.$parameterData->count().' points; parameter IDs ('.$receivedParameterIds->count().'): ['.$receivedParameterIds->implode(', ').']',
+						]);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => 'warning',
+							'message'    => 'Missing DM override parameter IDs: ['.$missingDmParameterIds->implode(', ').'].',
+						]);
+					}
 
 					if (ControlSettings::get('nibe.dmOverride') !== false)
 					{

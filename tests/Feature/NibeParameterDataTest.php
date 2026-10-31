@@ -144,13 +144,15 @@
 			$this->responses->append(new Response(200, [], json_encode($points, JSON_THROW_ON_ERROR)));
 			NibeController::getNibeData();
 			$logs = ActivityLog::where('method', 'getNibeData')->where('message', 'like', 'NIBE poll received %')->get();
+			$warnings = ActivityLog::where('method', 'getNibeData')->where('level', 'warning')->get();
 			$this->assertCount($expected ? 1 : 0, $logs);
+			$this->assertCount($expected ? 1 : 0, $warnings);
 
 			if ($expected)
 			{
 				$this->assertSame('info', $logs->sole()->level);
 				$this->assertStringContainsString('received 5 points; parameter IDs (4): [40004, 40014, 40067, 99999]', $logs->sole()->message);
-				$this->assertStringContainsString('missing DM override parameter IDs: [40071, 40940, 43009, 44270, 47007, 47011, 47015, 48739, 49994]', $logs->sole()->message);
+				$this->assertStringContainsString('Missing DM override parameter IDs: [40071, 40940, 43009, 44270, 47007, 47011, 47015, 48739, 49994]', $warnings->sole()->message);
 				$this->assertStringNotContainsString('private-value-not-logged', $logs->sole()->message);
 			}
 
@@ -176,15 +178,17 @@
 			$this->responses->append(new Response(200, [], '[]'));
 			NibeController::getNibeData();
 			$diagnostic = ActivityLog::where('message', 'like', 'NIBE poll received %')->sole();
+			$warning = ActivityLog::where('method', 'getNibeData')->where('level', 'warning')->sole();
 			$error = ActivityLog::where('method', 'dmOverride')->where('level', 'error')->sole();
 			$this->assertStringContainsString('received 0 points; parameter IDs (0): []', $diagnostic->message);
-			$this->assertStringContainsString('missing DM override parameter IDs: [40004, 40067, 40071, 40940, 43009, 44270, 47007, 47011, 47015, 48739, 49994]', $diagnostic->message);
+			$this->assertStringContainsString('Missing DM override parameter IDs: [40004, 40067, 40071, 40940, 43009, 44270, 47007, 47011, 47015, 48739, 49994]', $warning->message);
 			$this->assertSame("No data for 'outdoor temp.'", $error->message);
-			$this->assertLessThan($error->id, $diagnostic->id);
+			$this->assertLessThan($warning->id, $diagnostic->id);
+			$this->assertLessThan($error->id, $warning->id);
 			$this->assertCount(1, $this->requests);
 		}
 
-		public function test_a_complete_poll_reports_no_missing_dm_inputs_even_without_export_candidates() : void
+		public function test_a_complete_poll_omits_id_diagnostics_even_without_export_candidates() : void
 		{
 			config()->set('nibe.dmOverride', false);
 			config()->set('nibe.loadCompensationOn', false);
@@ -192,9 +196,8 @@
 			$points = array_map(fn($id) => ['parameterId' => $id, 'timestamp' => '2026-10-23T12:00:00Z', 'value' => 40], $ids);
 			$this->responses->append(new Response(200, [], json_encode($points, JSON_THROW_ON_ERROR)));
 			NibeController::getNibeData();
-			$diagnostic = ActivityLog::where('message', 'like', 'NIBE poll received %')->sole();
-			$this->assertStringContainsString('received 12 points; parameter IDs (12): [', $diagnostic->message);
-			$this->assertStringContainsString('missing DM override parameter IDs: [].', $diagnostic->message);
+			$this->assertSame(0, ActivityLog::where('message', 'like', 'NIBE poll received %')->count());
+			$this->assertSame(0, ActivityLog::where('method', 'getNibeData')->where('level', 'warning')->count());
 			$this->assertSame(1, ActivityLog::where('message', 'No new NIBE data found')->count());
 			$this->assertCount(1, $this->requests);
 		}
