@@ -21,7 +21,7 @@ These observations explain the checked-in implementation, including radiator dem
 | Default UFH comparisons are <=19.5°C and <=20°C. | `calculateHeatingMode` | The two thresholds are now database-backed settings, and logs report their current values. |
 | Forecast-average lookahead is a starting offset. | `WeatherController::getForecastAverageTemperature` | The value summarises data from six hours ahead onward, not the coming six hours. |
 | UFH forecast temperature is not used to select Hive's target. | `HomeAssistantController::adjustHiveThermostat` | Recorded priority and a fresh radiator-demand decision select the target; the unused prediction lookup/disabled experiments have been removed from this method. |
-| Radiator demand is captured before later mode rules. | `calculateHeatingMode`, `RadiatorHeatDemand` | Preserving a running cycle or a UFH minimum can keep NIBE heating while Hive keeps a warm radiator zone off. |
+| Radiator temperature demand is captured before later mode rules. | `calculateHeatingMode`, `RadiatorHeatDemand` | UFH-only heat does not open a warm radiator zone. Once radiators join a scheduled boost during space heating, a separate valve hold retains them through the full cheap period without raising the mode. |
 | Disabling DM override does not disable other NIBE writes. | `getNibeData`, `checkHotWaterRequirement` | The five-minute hot-water schedule routine remains active. |
 
 ## Unfinished or unused pieces

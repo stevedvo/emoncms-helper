@@ -144,6 +144,7 @@
 							'average_cost' => 13.64,
 							'start'        => $adjustedStart->getTimestamp(),
 							'end'          => $adjustedEnd->getTimestamp(),
+							'tariff_end'   => $end->getTimestamp(),
 						];
 
 						break;

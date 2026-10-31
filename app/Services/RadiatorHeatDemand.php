@@ -9,12 +9,35 @@
 	{
 		public const SETTING_KEY = 'radiatorHeatDemand';
 
-		public static function record(?bool $required) : void
+		public static function record(?bool $required, ?CarbonImmutable $holdUntil = null, bool $cancelBoostHold = false) : void
 		{
+			$now = CarbonImmutable::now();
+			$reason = null;
+			$previousRequired = self::storedDemand($reason, $previous);
+			$previousHold = $previous['boostHoldUntil'] ?? null;
+			$boostHoldUntil = !$cancelBoostHold && $required !== null && $previousRequired !== null && is_int($previousHold) && $previousHold > $now->getTimestamp() ? $previousHold : null;
+
+			if (!$cancelBoostHold && $required === true && $holdUntil !== null && $holdUntil->isAfter($now))
+			{
+				$boostHoldUntil = max($boostHoldUntil ?? 0, $holdUntil->getTimestamp());
+			}
+
+			if ($boostHoldUntil !== $previousHold)
+			{
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => 'info',
+					'message'    => $boostHoldUntil === null ? 'Radiator boost hold ended; using temperature demand.' : 'Radiator boost hold active until '.$now->setTimestamp($boostHoldUntil)->setTimezone(TariffPeriods::ZONE)->format('Y-m-d H:i:s T').'; Hive will retain radiator demand during space heating.',
+				]);
+			}
+
 			Setting::updateOrCreate(['key' => self::SETTING_KEY], ['value' => json_encode(
 			[
-				'required'     => $required,
-				'calculatedAt' => CarbonImmutable::now()->getTimestamp(),
+				'required'       => $required,
+				'calculatedAt'   => $now->getTimestamp(),
+				'boostHoldUntil' => $boostHoldUntil,
 			], JSON_THROW_ON_ERROR)]);
 		}
 
@@ -71,10 +94,15 @@
 			}
 			else
 			{
-				$required = self::storedDemand($reason);
+				$required = self::storedDemand($reason, $decision);
 
 				if ($required !== null)
 				{
+					if (is_int($decision['boostHoldUntil'] ?? null) && $decision['boostHoldUntil'] > CarbonImmutable::now()->getTimestamp() && !self::peakBlocksHold(CarbonImmutable::now()))
+					{
+						return true;
+					}
+
 					return $required;
 				}
 			}
@@ -90,7 +118,13 @@
 			return null;
 		}
 
-		private static function storedDemand(?string &$reason) : ?bool
+		public static function peakBlocksHold(CarbonImmutable $time, ?bool $peakImport = null) : bool
+		{
+			// A dated cheap offer can outlast its early boost finish inside the normal daily peak.
+			return ($peakImport ?? TariffPeriods::peakAt($time)) && (TariffPeriods::extraHeatingTypeAt($time) === 'peak' || TariffPeriods::extraTypeAt($time) !== 'cheap');
+		}
+
+		private static function storedDemand(?string &$reason, ?array &$decision = null) : ?bool
 		{
 			$stored = Setting::firstWhere('key', self::SETTING_KEY)?->value;
 			$decision = is_string($stored) ? json_decode($stored, true) : null;

@@ -292,11 +292,13 @@
 						'average_cost' => $cheapestPeriods['overnight']['cheapest_3_hours']['average_cost'],
 						'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes($offsetToOn)->getTimestamp(),
 						'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes($offsetToOff)->getTimestamp(),
+						'tariff_end'   => Carbon::parse($cheapestPeriods['overnight']['cheapest_3_hours']['window'][5]['valid_to'])->getTimestamp(),
 					],
 					[
 						'average_cost' => $cheapestPeriods['daytime']['cheapest_3_hours']['average_cost'],
 						'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][0]['valid_from'])->addMinutes($offsetToOn)->getTimestamp(),
 						'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][5]['valid_to'])->addMinutes($offsetToOff)->getTimestamp(),
+						'tariff_end'   => Carbon::parse($cheapestPeriods['daytime']['cheapest_3_hours']['window'][5]['valid_to'])->getTimestamp(),
 					],
 				],
 
@@ -306,11 +308,13 @@
 						'average_cost' => $cheapestPeriods['overnight']['cheapest_6_hours']['average_cost'],
 						'start'        => Carbon::parse($cheapestPeriods['overnight']['cheapest_6_hours']['window'][0]['valid_from'])->addMinutes($offsetToOn)->getTimestamp(),
 						'end'          => Carbon::parse($cheapestPeriods['overnight']['cheapest_6_hours']['window'][11]['valid_to'])->addMinutes($offsetToOff)->getTimestamp(),
+						'tariff_end'   => Carbon::parse($cheapestPeriods['overnight']['cheapest_6_hours']['window'][11]['valid_to'])->getTimestamp(),
 					],
 					[
 						'average_cost' => $cheapestPeriods['daytime']['cheapest_6_hours']['average_cost'],
 						'start'        => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][0]['valid_from'])->addMinutes($offsetToOn)->getTimestamp(),
 						'end'          => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][11]['valid_to'])->addMinutes($offsetToOff)->getTimestamp(),
+						'tariff_end'   => Carbon::parse($cheapestPeriods['daytime']['cheapest_6_hours']['window'][11]['valid_to'])->getTimestamp(),
 					],
 				],
 			];

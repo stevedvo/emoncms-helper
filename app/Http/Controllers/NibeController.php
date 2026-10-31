@@ -1243,7 +1243,17 @@
 				}
 			}
 
-			RadiatorHeatDemand::record($radiatorHeatRequired);
+			$cancelRadiatorBoostHold = !$loadCompensationActive || RadiatorHeatDemand::peakBlocksHold(CarbonImmutable::now(), $peakImport) || $htgMode === 'cooling' || ControlSettings::get('nibe.dmOverride') === false;
+			$radiatorBoostHoldUntil = null;
+
+			if (!$cancelRadiatorBoostHold && $radiatorHeatRequired === true && $boostActive && $priority === 30)
+			{
+				$schedules = json_decode(Setting::firstWhere('key', 'agile_schedule')?->value ?? 'null', true);
+				$radiatorBoostHoldUntil = HeatingBoostSchedule::radiatorHoldUntilAt(is_array($schedules) ? $schedules : [], $outdoorTemp, $avgOutdoorTemp, CarbonImmutable::now());
+			}
+
+			// Keep the temperature decision separate: the valve hold must not promote the heating mode.
+			RadiatorHeatDemand::record($radiatorHeatRequired, $radiatorBoostHoldUntil, $cancelRadiatorBoostHold);
 
 			return $htgMode;
 		}

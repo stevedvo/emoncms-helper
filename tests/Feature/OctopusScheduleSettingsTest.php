@@ -46,6 +46,7 @@
 				{
 					$this->assertSame(CarbonImmutable::parse($start, 'UTC')->timestamp, $schedule[$group][$index]['start']);
 					$this->assertSame(CarbonImmutable::parse($end, 'UTC')->timestamp, $schedule[$group][$index]['end']);
+					$this->assertSame(CarbonImmutable::parse($end, 'UTC')->addMinutes(100)->timestamp, $schedule[$group][$index]['tariff_end']);
 				}
 			}
 
@@ -75,6 +76,7 @@
 					$this->assertSame($window['start'] + 30 * 60, $after[$group][$index]['start']);
 					$this->assertSame($window['end'] + 130 * 60, $after[$group][$index]['end']);
 					$this->assertSame($window['average_cost'], $after[$group][$index]['average_cost']);
+					$this->assertSame($window['tariff_end'], $after[$group][$index]['tariff_end']);
 				}
 			}
 
