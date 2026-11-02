@@ -41,30 +41,30 @@
 			], JSON_THROW_ON_ERROR)]);
 		}
 
-		public static function calculate(float $temperature, float $threshold) : bool
+		public static function calculate(float $temperature, float $threshold, int $priority) : bool
 		{
 			$reason = null;
 			$previous = self::storedDemand($reason);
-			$margin = ControlSettings::get('hive.radiatorHysteresis');
+			$margin = $priority === 30 ? ControlSettings::get('hive.radiatorHysteresis') : 0;
 			$onThreshold = round($threshold - $margin, 6);
 			$offThreshold = round($threshold + $margin, 6);
 
-			$required = self::evaluate($temperature, $threshold, $previous);
+			$required = self::evaluate($temperature, $threshold, $previous, $priority);
 
 			ActivityLog::create(
 			[
 				'controller' => __CLASS__,
 				'method'     => __FUNCTION__,
 				'level'      => 'info',
-				'message'    => 'Radiator demand: temperature '.$temperature.'; adjusted threshold '.$threshold.'; hysteresis +/-'.$margin.'; on at '.$onThreshold.'; off at '.$offThreshold.'; previous '.json_encode($previous).'; required '.json_encode($required).($previous === null ? '; initial decision: '.$reason : '').'.',
+				'message'    => 'Radiator demand: temperature '.$temperature.'; adjusted threshold '.$threshold.'; hysteresis +/-'.$margin.'; on at '.$onThreshold.'; off at '.$offThreshold.'; priority '.$priority.'; previous '.json_encode($previous).'; required '.json_encode($required).($previous === null ? '; initial decision: '.$reason : '').'.',
 			]);
 
 			return $required;
 		}
 
-		public static function evaluate(float $temperature, float $threshold, ?bool $previous) : bool
+		public static function evaluate(float $temperature, float $threshold, ?bool $previous, int $priority) : bool
 		{
-			$margin = ControlSettings::get('hive.radiatorHysteresis');
+			$margin = $priority === 30 ? ControlSettings::get('hive.radiatorHysteresis') : 0;
 
 			if ($previous === null || $margin == 0)
 			{

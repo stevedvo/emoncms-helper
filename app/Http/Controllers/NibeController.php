@@ -952,9 +952,9 @@
 					$sumAdjustments = $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust + $highForecastRoomTempAdjust;
 					$adjustmentsString = '('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.')+('.$highForecastRoomTempAdjust.')';
 
-					// Retain radiator demand through the hysteresis band before later rules can raise the overall mode.
+					// Use hysteresis while space heating; otherwise allow a new request at the adjusted threshold.
 					$radiatorThreshold = static::$loadCompTempOff + $sumAdjustments;
-					$radiatorHeatRequired = RadiatorHeatDemand::calculate(static::getRoomTemperature("Rad_temperature"), $radiatorThreshold);
+					$radiatorHeatRequired = RadiatorHeatDemand::calculate(static::getRoomTemperature("Rad_temperature"), $radiatorThreshold, $priority);
 
 					if (!$radiatorHeatRequired)
 					{
@@ -1474,7 +1474,7 @@
 
 				if ($loadCompensation)
 				{
-					$required = HeatingDemand::required($rad, $ufh, $low, $boost, $peak, $previous);
+					$required = HeatingDemand::required($rad, $ufh, $low, $boost, $peak, $previous, (int)($priority['value'] ?? 10));
 				}
 				else
 				{

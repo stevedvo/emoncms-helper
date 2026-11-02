@@ -64,6 +64,7 @@
 				'both rooms warm'           => [24, 22, false],
 				'radiator demand now'       => [20, 22, true],
 				'radiator boost demand'     => [22, 22, true],
+				'idle boost threshold'     => [22.5, 22, true],
 				'UFH preheat demand'        => [24, 20.5, true],
 				'missing Rad uses fallback' => [null, 22, false],
 			];

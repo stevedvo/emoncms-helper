@@ -123,9 +123,11 @@ The radiator temperature is tested against these bands in descending order:
 | 19 + A < T <= 20 + A | Ensure at least `boost`. |
 | T <= 19 + A | Set `extraBoost`. |
 
-Equality falls into the colder, more demanding band. A positive adjustment requests warmer rooms; a negative adjustment permits cooler rooms. The intensity bands have no separate deadband or mode-persistence timer. The radiator demand on/off decision uses the hysteresis below before these intensity bands are applied.
+Equality falls into the colder, more demanding band. A positive adjustment requests warmer rooms; a negative adjustment permits cooler rooms. The intensity bands have no separate deadband or mode-persistence timer. Before applying these bands, the radiator demand on/off decision uses the adjusted threshold directly unless NIBE is currently space heating (priority `30`).
 
-Let `C = loadCompTempOff + A` and `H = hive.radiatorHysteresis` (default **0.5°C each side**). A fresh previous radiator-demand decision is read from the settings table:
+Let `C = loadCompTempOff + A` and `H = hive.radiatorHysteresis` (default **0.5°C each side**). When priority is anything other than `30`, demand is simply `T <= C`, regardless of the previous decision. This allows an idle heat pump to request at least `intermittent` at the adjusted threshold, without waiting for an additional temperature drop. For example, at a 20.5°C threshold, a previously off radiator requests heat at 20.5°C while NIBE is idle, rather than waiting for 20.0°C.
+
+While priority is `30`, a fresh previous radiator-demand decision is read from the settings table and hysteresis protects the valve from frequent switching during a heating cycle:
 
 | Previous radiator demand | New decision |
 | --- | --- |
@@ -133,11 +135,11 @@ Let `C = loadCompTempOff + A` and `H = hive.radiatorHysteresis` (default **0.5°
 | On | Switch off at `T >= C + H`; otherwise remain on. |
 | Missing, unknown, invalid, stale or future-dated | Initialise using the original comparison `T <= C`. |
 
-For an adjusted threshold of **19.5°C**, an established off decision remains off until **19.0°C**, and an established on decision remains on until **20.0°C**. Between these boundaries, keep the previous decision. This is a 1°C total band. Zero margin restores the original `T <= C` comparison, including equality. Fractional switching boundaries are rounded to six decimal places. The current peak, boost and forecast adjustments move the centre of the band on each calculation.
+During space heating, for an adjusted threshold of **19.5°C**, an established off decision remains off until **19.0°C**, and an established on decision remains on until **20.0°C**. Between these boundaries, keep the previous decision. This is a 1°C total band. Zero margin restores the original `T <= C` comparison, including equality. Fractional switching boundaries are rounded to six decimal places. The current peak, boost and forecast adjustments move the centre of the band on each calculation. Once an idle threshold decision starts heating, that true decision becomes the previous state for subsequent priority-30 hysteresis calculations.
 
 If this retained radiator decision is false, the radiator stage selects `off`. If true, the existing intermittent/on/boost/extraBoost intensity comparisons apply, with at least intermittent even above `C` while demand is retained. A radiator whose valve is held off cannot alone start a heating cycle. Cycle preservation, UFH demand, and peak minimum-mode rules can raise the overall heat-pump mode without changing the temperature decision. If the room bands cannot be evaluated, radiator demand is null (unknown).
 
-The decision and calculation time are saved at the end of each calculation, so hysteresis persists between scheduler invocations. The existing decision-age limit applies to the previous state (default ten minutes, inclusive); after a longer gap the next valid temperature initialises a new decision. Activity logs show the temperature, adjusted centre, margin, switching boundaries, previous state and result. The margin is editable under **Settings → Hive** and applies at the next control calculation without a scheduler restart.
+The decision and calculation time are saved at the end of each calculation, so hysteresis persists between scheduler invocations while heating. The existing decision-age limit applies to the previous state (default ten minutes, inclusive); after a longer gap the next valid temperature initialises a new decision. Activity logs show the temperature, adjusted centre, applied margin, switching boundaries, priority, previous state and result. At non-heating priorities, the applied margin is logged as zero and both boundaries equal the adjusted threshold. The configured margin is editable under **Settings → Hive** and applies at the next control calculation without a scheduler restart.
 
 An independent **radiator boost hold** keeps Hive's radiator circuit open once the temperature decision is true during an active scheduled boost and NIBE priority is heating (`30`). It lasts until that occurrence's actual cheap-period end, or its adjusted boost end if that is later. With the default morning period and -100-minute end offset, boost adjustments finish at **05:20**, but an armed radiator hold lasts until **07:00**. UFH-only heat cannot arm the hold. Radiators can join later in the boost if their own temperature decision becomes true.
 
