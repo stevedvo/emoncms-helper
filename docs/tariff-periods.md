@@ -42,6 +42,8 @@ The hot-water heating-demand prediction samples the offset-adjusted daily and da
 
 The Settings page displays the calculated latest daytime start using the saved peak time and recharge allowance. Old saved `hot_water.early.end` and `hot_water.quiet.end` values are ignored on read and disappear from the record on its next save; no database migration or scheduler restart is needed. The first-recharge earliest starts and overnight window are preserved.
 
+**Post-peak catch-up** runs from the actual daily peak finish until the configured overnight hot-water start, default 19:00–22:00. It uses the normal weekday/Sunday afternoon threshold regardless of space-heating demand or an earlier afternoon recharge. This allows a temperature drop after the pre-peak cutoff to request hot water after peak, without waiting for urgency or the evening cheap window. It uses the saved tariff finish directly, without heating peak offsets; saving sessions can still defer a start whose estimated run would overlap them. Runs already in progress continue through the overnight boundary.
+
 **Agile rate-search windows** default to overnight 19:00–07:00, daytime 10:00–16:00 and expensive 06:00–12:00. Overnight starts on the fetch date; daytime and expensive start the following day. The first two must allow at least six hours, and the expensive search at least five hours, for the existing analysis. These ranges now use London clock time throughout, including during BST. They affect the next analysis/email, not the actual Cosy tariff. The **Daily rates fetch from** preference defaults to 16:30; the existing success latch and every-15-minute command cadence are retained.
 
 ## Storage and audit

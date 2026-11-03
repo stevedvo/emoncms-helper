@@ -17,7 +17,7 @@
 				@if($group === 'daily')
 					<p class="field-help">Morning, afternoon and evening are the cheap periods. A finish earlier than the start means the following day.</p>
 				@elseif($group === 'hot_water')
-					<p class="field-help">Early is the first start time when space heating needs the cheap period; quiet is the first start time otherwise. Both remain open until the latest daytime start, calculated from the peak start minus the recharge duration allowance. With your saved settings, that is {{ $hotWaterLatestStart }}. Repeat daytime top-ups use the same cutoff. Every start must still pass the peak and saving-session checks.</p>
+					<p class="field-help">Early is the first start time when space heating needs the cheap period; quiet is the first start time otherwise. Both remain open until the latest daytime start, calculated from the peak start minus the recharge duration allowance. With your saved settings, that is {{ $hotWaterLatestStart }}. Repeat daytime top-ups use the same cutoff. After peak ends, the normal daytime temperature threshold allows catch-up recharges until the overnight window opens, regardless of heating demand. Every start must still pass the peak and saving-session checks.</p>
 				@else
 					<p class="field-help">Used for the next tariff analysis and rates email. Overnight starts today; daytime and expensive start tomorrow. These do not define the Cosy tariff.</p>
 				@endif

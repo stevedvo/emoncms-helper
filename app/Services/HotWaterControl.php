@@ -15,9 +15,7 @@
 		private const LIVE_PARAMETERS = [40004, 40014, 40067, 40071, 40940, 43009, 44270, 44363, 49994];
 		private array $state;
 
-		public function __construct(private NibeAPI $nibe)
-		{
-		}
+		public function __construct(private NibeAPI $nibe) { }
 
 		public static function handlesControl() : bool
 		{
@@ -240,7 +238,8 @@
 
 		private function opportunity(float $temperature, CarbonImmutable $now, callable $heatingRequired) : array
 		{
-			$timings = TariffPeriods::settings()['hot_water'];
+			$periods = TariffPeriods::settings();
+			$timings = $periods['hot_water'];
 			$urgent = $temperature < ControlSettings::get('nibe.hotWaterUrgentTemperature');
 
 			if (!$this->canStart($now))
@@ -276,6 +275,14 @@
 			if ($overnight)
 			{
 				return [$key, 'Overnight recharge below '.$threshold.'°C; hot water takes priority throughout '.$timings['overnight']['start'].'–'.$timings['overnight']['end'].'.'];
+			}
+
+			$peakEnd = TariffPeriods::clock($now, $periods['daily']['peak']['end']);
+
+			// Catch up on normal demand after peak, including after an earlier afternoon recharge.
+			if ($now->greaterThanOrEqualTo($peakEnd) && $now->isBefore($overnightStart))
+			{
+				return [$key, 'Post-peak recharge below '.$threshold.'°C; catching up before the overnight hot water window.'];
 			}
 
 			if (($this->state['completed']['afternoon'] ?? null) === $date)
