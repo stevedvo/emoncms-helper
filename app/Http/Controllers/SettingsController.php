@@ -5,6 +5,7 @@
 	use App\Http\Requests\UpdateTariffPeriodsRequest;
 	use App\Services\ControlSettings;
 	use App\Services\TariffPeriods;
+	use Carbon\CarbonImmutable;
 
 	class SettingsController extends Controller
 	{
@@ -16,11 +17,12 @@
 
 			return view('settings',
 			[
-				'groups'         => collect(ControlSettings::definitions())->groupBy('group', true),
-				'values'         => $values,
-				'revision'       => ControlSettings::revision($values),
-				'tariff'         => $tariff,
-				'tariffRevision' => TariffPeriods::revision($tariff),
+				'groups'              => collect(ControlSettings::definitions())->groupBy('group', true),
+				'values'              => $values,
+				'revision'            => ControlSettings::revision($values),
+				'tariff'              => $tariff,
+				'tariffRevision'      => TariffPeriods::revision($tariff),
+				'hotWaterLatestStart' => TariffPeriods::hotWaterLatestDaytimeStart(CarbonImmutable::now())->format('H:i'),
 			]);
 		}
 

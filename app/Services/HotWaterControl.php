@@ -280,12 +280,13 @@
 
 			if (($this->state['completed']['afternoon'] ?? null) === $date)
 			{
-				return $this->afternoonTopUp($now) ? [$key, 'Afternoon top-up below '.$threshold.'°C after an earlier recharge; peak check passed.'] : [null, 'Afternoon recharge already completed; additional normal top-ups close at '.$timings['quiet']['end'].'.'];
+				return $this->afternoonTopUp($now) ? [$key, 'Afternoon top-up below '.$threshold.'°C after an earlier recharge; peak check passed.'] : [null, 'Afternoon recharge already completed; additional normal top-ups must start by '.TariffPeriods::hotWaterLatestDaytimeStart($now)->format('H:i').'.'];
 			}
 
 			$controlTime = $now->startOfMinute();
-			$early = $controlTime->betweenIncluded(TariffPeriods::clock($now, $timings['early']['start']), TariffPeriods::clock($now, $timings['early']['end']));
-			$quiet = $controlTime->betweenIncluded(TariffPeriods::clock($now, $timings['quiet']['start']), TariffPeriods::clock($now, $timings['quiet']['end']));
+			$latestStart = TariffPeriods::hotWaterLatestDaytimeStart($now);
+			$early = $controlTime->greaterThanOrEqualTo(TariffPeriods::clock($now, $timings['early']['start'])) && $controlTime->lessThanOrEqualTo($latestStart);
+			$quiet = $controlTime->greaterThanOrEqualTo(TariffPeriods::clock($now, $timings['quiet']['start'])) && $controlTime->lessThanOrEqualTo($latestStart);
 			$extraCheap = TariffPeriods::extraTypeAt($now) === 'cheap';
 
 			if (!$early && !$quiet && !$extraCheap)
@@ -298,14 +299,14 @@
 			$reserveHeating = $demand !== false;
 			$allowed = $reserveHeating ? $early : ($quiet || $extraCheap);
 
-			return $allowed ? [$key, $reserveHeating ? 'Recharging ahead of space heating'.($demand === null ? ' (heating demand unavailable).' : '.') : 'Using a cheap period because no space heating demand is expected.'] : [null, $reserveHeating ? 'Reserving cheap periods for space heating; waiting for the earlier hot water window.' : 'No space heating demand expected; waiting for a cheap hot water window.'];
+			return $allowed ? [$key, $reserveHeating ? 'Recharging as soon as possible because space heating needs the cheap period'.($demand === null ? ' (heating demand unavailable).' : '.') : 'Using a cheap period because no space heating demand is expected.'] : [null, $reserveHeating ? 'Outside the normal early hot water start window; space heating needs the cheap period.' : 'No space heating demand expected; waiting for a cheap hot water window.'];
 		}
 
 		private function afternoonTopUp(CarbonImmutable $now) : bool
 		{
 			$timings = TariffPeriods::settings()['hot_water'];
 
-			return $now->greaterThanOrEqualTo(TariffPeriods::clock($now, $timings['overnight']['end'])) && $now->isBefore(TariffPeriods::clock($now, $timings['quiet']['end'])) && ($this->state['completed']['afternoon'] ?? null) === $now->toDateString();
+			return $now->greaterThanOrEqualTo(TariffPeriods::clock($now, $timings['overnight']['end'])) && $now->startOfMinute()->lessThanOrEqualTo(TariffPeriods::hotWaterLatestDaytimeStart($now)) && ($this->state['completed']['afternoon'] ?? null) === $now->toDateString();
 		}
 
 		private function afternoonThreshold(CarbonImmutable $now) : float

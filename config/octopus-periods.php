@@ -11,8 +11,8 @@
 		'hot_water' =>
 		[
 			'overnight' => ['start' => '22:00', 'end' => '07:00'],
-			'early'     => ['start' => '10:00', 'end' => '12:00'],
-			'quiet'     => ['start' => '13:00', 'end' => '14:00'],
+			'early'     => ['start' => '10:00'],
+			'quiet'     => ['start' => '13:00'],
 		],
 		'agile'     =>
 		[

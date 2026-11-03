@@ -44,6 +44,20 @@
 			$this->assertNull(Setting::firstWhere('key', TariffPeriods::KEY));
 		}
 
+		public function test_hot_water_editor_shows_starts_and_a_calculated_finish_and_saves_without_legacy_end_fields() : void
+		{
+			$this->actingAs(User::factory()->create());
+			config()->set('nibe.hotWaterDurationMinutes', 120);
+			$this->get('/settings')->assertOk()->assertSee('that is 14:00')->assertSee('id="tariff-hot_water-early-start"', false)->assertDontSee('id="tariff-hot_water-early-end"', false)->assertDontSee('id="tariff-hot_water-quiet-end"', false);
+			$payload = $this->payload();
+			$payload['tariff']['hot_water']['early']['start'] = '10:30';
+			$this->put('/settings/tariff', $payload)->assertSessionHasNoErrors();
+			$this->assertSame(['start' => '10:30'], TariffPeriods::settings()['hot_water']['early']);
+			$this->assertSame(['start' => '13:00'], TariffPeriods::settings()['hot_water']['quiet']);
+			Http::assertNothingSent();
+			Mail::assertNothingSent();
+		}
+
 		public function test_saving_tariff_times_updates_peak_checks_and_existing_cosy_schedule_immediately() : void
 		{
 			Setting::create(['key' => 'agile_schedule', 'value' => json_encode(['cheapest_3_hours' => [['start' => 123, 'end' => 456]], 'cosy' => []])]);
@@ -329,7 +343,7 @@
 				'peak offsets too large'  => ['tariff.daily.peak.end', '16:20', 'tariff.daily.peak.end'],
 				'overlapping daily'       => ['tariff.daily.afternoon.end', '17:00', 'tariff.daily.peak.start'],
 				'overnight must cross'    => ['tariff.hot_water.overnight.end', '23:00', 'tariff.hot_water.overnight.end'],
-				'reversed daytime'       => ['tariff.hot_water.quiet.end', '12:00', 'tariff.hot_water.quiet.end'],
+				'invalid daytime start'  => ['tariff.hot_water.quiet.start', '25:00', 'tariff.hot_water.quiet.start'],
 				'short Agile search'      => ['tariff.agile.daytime.end', '12:00', 'tariff.agile.daytime.end'],
 				'fetch before next range' => ['tariff.fetch', '09:00', 'tariff.agile.daytime.end'],
 				'cheap dated collapsed'   => ['tariff.extra', [['name' => 'Offer', 'type' => 'cheap', 'start' => '2026-10-27T10:30', 'end' => '2026-10-27T11:30']], 'tariff.extra.0.end'],

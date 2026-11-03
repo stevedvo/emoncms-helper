@@ -18,7 +18,11 @@
 			$stored = Setting::where('key', self::KEY)->value('value');
 			$values = $stored === null ? [] : json_decode($stored, true, 512, JSON_THROW_ON_ERROR);
 
-			return array_replace_recursive(config('octopus-periods'), $values);
+			$settings = array_replace_recursive(config('octopus-periods'), $values);
+			// Old saved finish times no longer restrict the duration-based daytime window.
+			unset($settings['hot_water']['early']['end'], $settings['hot_water']['quiet']['end']);
+
+			return $settings;
 		}
 
 		public static function revision(array $values) : string
@@ -184,6 +188,11 @@
 			}
 
 			return array_values(array_filter($windows, fn($window) => $window[1]->isAfter($window[0]) && $window[1]->isAfter($from) && $window[0]->isBefore($until)));
+		}
+
+		public static function hotWaterLatestDaytimeStart(CarbonInterface $time) : CarbonImmutable
+		{
+			return self::clock($time, self::settings()['daily']['peak']['start'])->subMinutes(ControlSettings::get('nibe.hotWaterDurationMinutes'));
 		}
 
 		public static function hotWaterCanFinish(CarbonImmutable $time, int $minutes) : bool

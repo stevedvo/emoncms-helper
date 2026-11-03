@@ -17,7 +17,7 @@
 				@if($group === 'daily')
 					<p class="field-help">Morning, afternoon and evening are the cheap periods. A finish earlier than the start means the following day.</p>
 				@elseif($group === 'hot_water')
-					<p class="field-help">These are hot-water preferences, separate from the tariff. Early is used when space heating needs the cheap period; quiet is used otherwise. Repeat daytime top-ups close at the quiet-window finish. Every start must still pass the tariff peak check.</p>
+					<p class="field-help">Early is the first start time when space heating needs the cheap period; quiet is the first start time otherwise. Both remain open until the latest daytime start, calculated from the peak start minus the recharge duration allowance. With your saved settings, that is {{ $hotWaterLatestStart }}. Repeat daytime top-ups use the same cutoff. Every start must still pass the peak and saving-session checks.</p>
 				@else
 					<p class="field-help">Used for the next tariff analysis and rates email. Overnight starts today; daytime and expensive start tomorrow. These do not define the Cosy tariff.</p>
 				@endif
@@ -25,7 +25,7 @@
 					@foreach($tariff[$group] as $name => $period)
 						<div class="tariff-time-window">
 							<h4>{{ ucfirst($name) }}</h4>
-							@foreach(['start' => 'Start', 'end' => 'Finish'] as $boundary => $label)
+							@foreach(array_intersect_key(['start' => 'Start', 'end' => 'Finish'], $period) as $boundary => $label)
 								<div>
 									<label for="tariff-{{ $group }}-{{ $name }}-{{ $boundary }}">{{ $label }}</label>
 									<input type="time" id="tariff-{{ $group }}-{{ $name }}-{{ $boundary }}" name="tariff[{{ $group }}][{{ $name }}][{{ $boundary }}]" value="{{ old('tariff.'.$group.'.'.$name.'.'.$boundary, $period[$boundary]) }}" required>

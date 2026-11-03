@@ -47,9 +47,14 @@
 				foreach ($names as $name)
 				{
 					$path = 'tariff.'.$group.'.'.$name;
-					$rules[$path] = ['required', 'array:start,end'];
+					$startOnly = $group === 'hot_water' && $name !== 'overnight';
+					$rules[$path] = ['required', $startOnly ? 'array:start' : 'array:start,end'];
 					$rules[$path.'.start'] = ['required', 'date_format:H:i'];
-					$rules[$path.'.end'] = ['required', 'date_format:H:i', 'different:'.$path.'.start'];
+
+					if (!$startOnly)
+					{
+						$rules[$path.'.end'] = ['required', 'date_format:H:i', 'different:'.$path.'.start'];
+					}
 				}
 			}
 
@@ -101,14 +106,6 @@
 					if ($duration + $adjustment <= 0 || $duration + $adjustment >= 1440)
 					{
 						$validator->errors()->add('tariff.daily.'.$name.'.end', 'The '.$name.' period and its control offsets must leave a positive window shorter than 24 hours.');
-					}
-				}
-
-				foreach (['early', 'quiet'] as $name)
-				{
-					if ($values['hot_water'][$name]['end'] <= $values['hot_water'][$name]['start'])
-					{
-						$validator->errors()->add('tariff.hot_water.'.$name.'.end', 'Daytime hot water windows must finish after they start on the same day.');
 					}
 				}
 
