@@ -5,13 +5,25 @@
 	{
 		public static function radiatorAdjustments(?float $lowForecast, bool $boost, bool $peak) : array
 		{
-			$cold = $lowForecast === null ? 0 : ($lowForecast < ControlSettings::get('nibe.dmTargetBoostTemp') ? 2 : ($lowForecast < 3 ? 1 : 0));
+			$cold = 0;
+
+			if ($lowForecast !== null)
+			{
+				if ($lowForecast < ControlSettings::get('nibe.dmTargetBoostTemp'))
+				{
+					$cold = ControlSettings::get('nibe.radColdForecastTempAdjust');
+				}
+				elseif ($lowForecast < ControlSettings::get('nibe.radCoolForecastTemp'))
+				{
+					$cold = ControlSettings::get('nibe.radCoolForecastTempAdjust');
+				}
+			}
 
 			return
 			[
 				'cold'  => $cold,
-				'boost' => $boost ? 1 : 0,
-				'peak'  => $peak ? -2 : 0,
+				'boost' => $boost ? ControlSettings::get('nibe.radBoostTempAdjust') : 0,
+				'peak'  => $peak ? ControlSettings::get('nibe.radPeakTempAdjust') : 0,
 			];
 		}
 

@@ -8,6 +8,7 @@ use App\Models\NibeFeedItem;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\ControlSettings;
+use App\Services\HeatingDemand;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -102,6 +103,27 @@ class ControlPanelTest extends TestCase
 		Http::assertNothingSent();
 	}
 
+	public function test_radiator_adjustment_settings_are_editable_and_take_effect_without_restarting() : void
+	{
+		$this->actingAs(User::factory()->create());
+		$this->get('/settings')->assertOk()->assertSee('Radiators: boost target adjustment')->assertSee('Radiators: peak target adjustment')->assertSee('Radiators: cold forecast target adjustment')->assertSee('Radiators: cool forecast threshold')->assertSee('Radiators: cool forecast target adjustment');
+		$this->assertSame(['cold' => 2.0, 'boost' => 1.0, 'peak' => -2.0], HeatingDemand::radiatorAdjustments(2, true, true));
+		$this->put('/settings', $this->payload(
+		[
+			'nibe__radBoostTempAdjust'        => '0.6',
+			'nibe__radPeakTempAdjust'         => '-1.4',
+			'nibe__radColdForecastTempAdjust' => '2.5',
+			'nibe__radCoolForecastTemp'       => '5',
+			'nibe__radCoolForecastTempAdjust' => '0.75',
+		]))->assertSessionHasNoErrors()->assertRedirect('/settings');
+		$this->assertSame(['cold' => 2.5, 'boost' => 0.6, 'peak' => -1.4], HeatingDemand::radiatorAdjustments(2, true, true));
+		$this->assertSame(['cold' => 0.75, 'boost' => 0, 'peak' => 0], HeatingDemand::radiatorAdjustments(4, false, false));
+		$this->assertSame(['cold' => 0, 'boost' => 0, 'peak' => 0], HeatingDemand::radiatorAdjustments(5, false, false));
+		$this->assertSame(['cold' => 0, 'boost' => 0.6, 'peak' => -1.4], HeatingDemand::radiatorAdjustments(null, true, true));
+		$this->assertSame(5, ActivityLog::where('controller', ControlSettings::class)->where('method', 'save')->count());
+		Http::assertNothingSent();
+	}
+
 	public function test_saved_values_are_typed_audited_and_used_without_restarting_the_process(): void
 	{
 		$user = User::factory()->create();
@@ -141,6 +163,11 @@ class ControlPanelTest extends TestCase
 			'fractional integer' => [['hive__targetOnTemp' => 29.5]],
 			'negative radiator hysteresis' => [['hive__radiatorHysteresis' => -0.1]],
 			'excessive radiator hysteresis' => [['hive__radiatorHysteresis' => 2.1]],
+			'negative radiator boost adjustment' => [['nibe__radBoostTempAdjust' => -0.1]],
+			'positive radiator peak adjustment' => [['nibe__radPeakTempAdjust' => 0.1]],
+			'negative cold forecast adjustment' => [['nibe__radColdForecastTempAdjust' => -0.1]],
+			'excessive cool forecast adjustment' => [['nibe__radCoolForecastTempAdjust' => 5.1]],
+			'cool forecast threshold out of range' => [['nibe__radCoolForecastTemp' => 20.1]],
 			'unordered room bands' => [['nibe__loadCompTempOff' => 18]],
 			'unordered UFH bands' => [['nibe__ufhTempOn' => 21]],
             'negative UFH preheat margin' => [['nibe__ufhBoostTempAdjust' => -0.1]],

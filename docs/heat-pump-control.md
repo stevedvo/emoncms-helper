@@ -9,7 +9,7 @@ This guide describes the active code in [NibeController.php](../app/Http/Control
 The owner clarified the following installation details on **20 October 2026**:
 
 - The UFH wall thermostat is set to **23°C**, so at the usual room temperatures it is effectively always calling for heat and holding the UFH zone valve open. It has no Internet connection and locally controls only whether that valve is open or closed. It can still close the valve when its own setpoint is satisfied. The helper's UFH thresholds and preheat target govern the requested ASHP heating mode; they do not adjust this thermostat or directly operate its valve. The helper does not receive the valve's position.
-- The NIBE has an owner-configured compressor curve. Observed behaviour is that degree minutes below approximately **-300** cause a higher compressor stage, typically about **+30Hz** above the speed otherwise selected from the curve. Below approximately **-420**, a further stage adds roughly another **30Hz**. The owner is less certain of the second threshold; both are installation observations, not verified universal NIBE specifications.
+- The NIBE has an owner-configured compressor curve. The experimental description was refined on **5 November 2026**: higher stages are requested near **-320 DM** and **-420 DM**, with reductions on recovery near **-320** and **-220 DM**. Stored requests show **25 → 55 → 85 Hz**, but historical March cycles also show **35 → 60 → 85 Hz** and **45 → 65 → 85 Hz**. The stages therefore do not consistently mean +30 Hz or a fixed 55 Hz first higher request. See the [compressor staging observations](compressor-staging-observations.md) for the dated evidence, a provisional midpoint interpretation and the limits of manufacturer corroboration. This supersedes the earlier approximate -300 DM first-stage estimate; it is not a universal NIBE specification.
 
 These compressor stages explain the intent of the checked-in DM targets: normal `on` targets **-180**, `boost` targets **-360** to encourage the first higher stage, and `extraBoost` targets **-450** to encourage the next. The helper steers DM through flow-temperature settings rather than writing DM or frequency directly, and NIBE retains control of the actual compressor response. A UFH shortfall requesting `boost` therefore participates in the same deliberate compressor-staging strategy as radiator demand.
 
@@ -99,19 +99,21 @@ Every band boundary is shifted by the same adjustment `A`:
 
 | Condition | Addition to A |
 | --- | ---: |
-| In the peak window | -2°C |
+| In the peak window | `radPeakTempAdjust` (default -2°C) |
 | Warm forecast | 0°C during the 22 October trial; the previous -1°C assignment is commented out. |
-| Boost window active, including during a warm forecast | +1°C |
-| Low-six forecast average < `dmTargetBoostTemp` (default 3°C), including with a warm high forecast during the current trial | +2°C |
-| Otherwise low-six forecast average < hard-coded 3°C, including with a warm high forecast during the current trial | +1°C |
+| Boost window active, including during a warm forecast | `radBoostTempAdjust` (default +1°C) |
+| Low-six forecast average < `dmTargetBoostTemp` (default 3°C), including with a warm high forecast during the current trial | `radColdForecastTempAdjust` (default +2°C) |
+| Otherwise low-six forecast average < `radCoolForecastTemp` (default 3°C), including with a warm high forecast during the current trial | `radCoolForecastTempAdjust` (default +1°C) |
 
-With the defaults, the +1°C cold-forecast branch cannot be reached: both cold comparisons use 3°C, so the +2°C branch wins. Changing `dmTargetBoostTemp` below 3°C makes a +1°C band possible.
+All five `nibe.rad...` parameters are editable under **Settings → Room temperatures** and read live by `HeatingDemand::radiatorAdjustments()`. The same calculation is used for heating mode selection and hot-water heating-demand prediction. Forecast thresholds use strict `<` comparisons. The colder branch is checked first; the cold and cool adjustments are alternatives, while boost and peak additions accumulate independently. A missing low forecast contributes zero forecast adjustment.
 
-The boost-window +1°C adjustment is based on `boostActive` even if `allowBoosts` is false. That flag controls fallback scheduled mode promotion when room compensation is inactive; active room compensation selects intensity from the adjusted room targets without a second scheduled promotion. During the current trial, a warm forecast contributes zero to the room-band adjustment, so the full +1°C boost adjustment applies. For a base radiator off threshold of 21.5°C, with no peak or cold-forecast adjustment, the adjusted centre is therefore 22.5°C inside a boost window and 21.5°C outside it, before hysteresis is applied.
+With the defaults, the +1°C cool-forecast branch cannot be reached: both forecast comparisons use 3°C, so the +2°C branch wins below 3°C. Raise `radCoolForecastTemp` above the existing cold threshold, or lower `dmTargetBoostTemp`, to create a separate cool band. No new ordering restriction is imposed on existing settings. Boost and forecast additions accept 0–5°C; the peak adjustment accepts -5–0°C; the new cool forecast threshold accepts -30–20°C. Fractional values are supported, and zero disables an individual addition without changing window selection or other mode rules.
 
-The cold-forecast additions are guarded by `highForecastRoomTempAdjust === 0`. Since the trial sets that value to zero for both warm and cool high forecasts, this guard now always passes: a cold low-six average can raise the radiator bands even if the high-six average exceeds `runLevel1Temp`. This is a consequence of disabling the warm room-band adjustment.
+The boost-window adjustment is based on `boostActive` even if `allowBoosts` is false. That flag controls fallback scheduled mode promotion when room compensation is inactive; active room compensation selects intensity from the adjusted room targets without a second scheduled promotion. During the current trial, a warm forecast contributes zero to the room-band adjustment, so the configured boost adjustment still applies. With the default +1°C addition and a base radiator off threshold of 21.5°C, with no peak or cold-forecast adjustment, the adjusted centre is therefore 22.5°C inside a boost window and 21.5°C outside it, before hysteresis is applied.
 
-The original -1°C assignment remains commented out for possible reinstatement. Restoring it and raising `nibe.runLevel1Temp` would move the warm-forecast cut-off; changing that setting alone during this trial does not restore the room-band reduction. The setting still affects the initial mode nudge and forecast-disabled boost selection.
+The warm room-band adjustment remains zero during the current trial. A cold low-six average can therefore apply its configured addition even if the high-six average exceeds `runLevel1Temp`.
+
+Changing `nibe.runLevel1Temp` alone does not restore the disabled warm room-band reduction. The setting still affects the initial mode nudge and forecast-disabled boost selection; the new radiator settings do not re-enable that reduction.
 
 The radiator temperature is tested against these bands in descending order:
 

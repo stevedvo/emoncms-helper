@@ -412,6 +412,39 @@ class RadiatorHeatDemandTest extends TestCase
         }
     }
 
+    #[DataProvider('editableRadiatorAdjustments')]
+    public function test_live_radiator_adjustments_change_the_heating_mode_and_hive_demand(string $key, float $before, float $after, ?float $forecast, float $temperature, bool $boost, bool $peak) : void
+    {
+        config()->set('nibe.dmTargetBoostTemp', 0);
+
+        if ($forecast !== null)
+        {
+            $this->setForecast($forecast);
+        }
+
+        $setting = Setting::create(['key' => 'control.'.$key, 'value' => json_encode($before)]);
+        ControlledNibeController::prepare($temperature, 26, $boost, $peak);
+        $this->assertSame('off', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertFalse(RadiatorHeatDemand::current());
+        $setting->update(['value' => json_encode($after)]);
+        ControlledNibeController::prepare($temperature, 26, $boost, $peak);
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertTrue(RadiatorHeatDemand::current());
+        $this->assertHiveTarget(30, 30);
+    }
+
+    public static function editableRadiatorAdjustments() : array
+    {
+        return
+        [
+            'boost amount'    => ['nibe.radBoostTempAdjust', 0, 1, null, 22.2, true, false],
+            'peak amount'     => ['nibe.radPeakTempAdjust', -2, -0.5, null, 21.0, false, true],
+            'cold amount'     => ['nibe.radColdForecastTempAdjust', 0, 1, -1, 22.2, false, false],
+            'cool amount'     => ['nibe.radCoolForecastTempAdjust', 0, 1, 2, 22.2, false, false],
+            'cool threshold'  => ['nibe.radCoolForecastTemp', 3, 5, 4, 22.2, false, false],
+        ];
+    }
+
     public function test_hysteresis_margin_is_live_and_zero_restores_the_original_comparison() : void
     {
         RadiatorHeatDemand::record(false);

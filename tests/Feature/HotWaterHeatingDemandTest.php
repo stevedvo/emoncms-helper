@@ -70,6 +70,17 @@
 			];
 		}
 
+		public function test_prediction_uses_saved_radiator_adjustments_without_recording_live_demand() : void
+		{
+			DemandPredictionController::$rooms['Rad_temperature'] = 22.5;
+			$adjustment = Setting::create(['key' => 'control.nibe.radBoostTempAdjust', 'value' => '0']);
+			$this->assertFalse(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
+			$adjustment->update(['value' => '1']);
+			$before = Setting::pluck('value', 'key')->all();
+			$this->assertTrue(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
+			$this->assertSame($before, Setting::pluck('value', 'key')->all());
+		}
+
 		public function test_missing_ufh_data_is_unknown_when_radiators_are_satisfied() : void
 		{
 			DemandPredictionController::$rooms['UFH_temperature'] = null;
