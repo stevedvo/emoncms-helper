@@ -279,15 +279,27 @@
 
 			$peakEnd = TariffPeriods::clock($now, $periods['daily']['peak']['end']);
 
-			// Catch up on normal demand after peak, including after an earlier afternoon recharge.
+			// Reserve the evening cheap period for heating only when demand is expected or unknown.
 			if ($now->greaterThanOrEqualTo($peakEnd) && $now->isBefore($overnightStart))
 			{
-				return [$key, 'Post-peak recharge below '.$threshold.'°C; catching up before the overnight hot water window.'];
+				$demand = $heatingRequired($now);
+
+				return $demand === false ? [null, 'No space heating demand expected; waiting until '.$timings['overnight']['start'].' for the overnight hot water window.'] : [$key, 'Post-peak recharge below '.$threshold.'°C; catching up before the overnight hot water window because space heating needs the cheap period'.($demand === null ? ' (heating demand unavailable).' : '.')];
 			}
 
 			if (($this->state['completed']['afternoon'] ?? null) === $date)
 			{
-				return $this->afternoonTopUp($now) ? [$key, 'Afternoon top-up below '.$threshold.'°C after an earlier recharge; peak check passed.'] : [null, 'Afternoon recharge already completed; additional normal top-ups must start by '.TariffPeriods::hotWaterLatestDaytimeStart($now)->format('H:i').'.'];
+				if (!$this->afternoonTopUp($now))
+				{
+					return [null, 'Afternoon recharge already completed; additional normal top-ups must start by '.TariffPeriods::hotWaterLatestDaytimeStart($now)->format('H:i').'.'];
+				}
+
+				if ($now->isBefore(TariffPeriods::clock($now, $timings['quiet']['start'])) && $heatingRequired($now) === false)
+				{
+					return [null, 'No space heating demand expected; waiting until '.$timings['quiet']['start'].' for an afternoon hot water top-up.'];
+				}
+
+				return [$key, 'Afternoon top-up below '.$threshold.'°C after an earlier recharge; peak check passed.'];
 			}
 
 			$controlTime = $now->startOfMinute();

@@ -91,11 +91,21 @@
 				'urgent during peak'             => ['2026-10-24 18:55', 19, true, false],
 				'urgent after actual peak'       => ['2026-10-24 19:00', 19, true, true],
 				'normal after actual peak'       => ['2026-11-03 19:00', 32.5, true, true],
+				'quiet post-peak waits'          => ['2026-11-03 19:00', 32.5, false, false],
+				'unknown post-peak demand'       => ['2026-11-03 19:00', 32.5, null, true],
 				'normal before actual peak end'  => ['2026-11-03 18:55', 32.5, false, false],
 				'post-peak strict threshold'     => ['2026-11-03 19:00', 33, true, false],
 				'post-peak before overnight'     => ['2026-11-03 21:55', 32.5, true, true],
+				'quiet waits until overnight'    => ['2026-11-03 21:55', 32.5, false, false],
+				'quiet below day threshold'      => ['2026-11-03 22:00', 32.5, false, true],
 				'post-peak below overnight only' => ['2026-11-03 21:55', 36, true, false],
 				'Sunday post-peak threshold'     => ['2026-11-08 19:00', 36.5, true, true],
+				'Sunday quiet post-peak waits'   => ['2026-11-08 19:00', 36.5, false, false],
+				'urgent quiet early afternoon'   => ['2026-11-03 10:00', 19, false, true],
+				'urgent quiet before cheap'      => ['2026-11-03 12:55', 19, false, true],
+				'urgent quiet after peak'        => ['2026-11-03 19:00', 19, false, true],
+				'urgent quiet before overnight'  => ['2026-11-03 21:55', 19, false, true],
+				'urgent quiet strict threshold'  => ['2026-11-03 19:00', 20, false, false],
 				'Sunday post-peak equality'      => ['2026-11-08 19:00', 37, true, false],
 				'urgent strict threshold'        => ['2026-10-24 08:00', 20, true, false],
 				'unknown permits overnight'      => ['2026-10-24 22:00', 36, null, true],
@@ -183,14 +193,52 @@
 			$this->assertSame([[47041 => 0]], $this->patches);
 			$this->at('2026-11-03 19:00');
 			$this->control = new HotWaterControl($this->api);
-			$this->control->run($this->points(30, 32.5), function()
-			{
-				throw new RuntimeException('Post-peak catch-up must not wait for a heating prediction.');
-			});
+			$this->poll(30, 32.5);
 			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
 			$this->assertSame('afternoon:2026-11-03', $this->state()['request']['opportunity']);
 			$this->assertStringContainsString('Post-peak recharge below 33°C', $this->state()['reason']);
 			$this->assertSame(0, ActivityLog::where('level', 'error')->count());
+		}
+
+		public function test_no_heating_demand_defers_a_late_temperature_drop_until_the_overnight_window() : void
+		{
+			$this->at('2026-11-06 19:00');
+			$this->poll(10, 34.7, false);
+			$this->at('2026-11-06 20:00');
+			$this->poll(10, 32.5, false);
+			$this->assertNull($this->state()['request']);
+			$this->assertStringContainsString('waiting until 22:00', $this->state()['reason']);
+			$this->at('2026-11-06 21:55');
+			$this->poll(10, 32.5, false);
+			$this->assertSame([[47041 => 0]], $this->patches);
+			$this->at('2026-11-06 22:00');
+			$this->poll(10, 32.5, false);
+			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
+			$this->assertSame('overnight:2026-11-07', $this->state()['request']['opportunity']);
+		}
+
+		public function test_post_peak_demand_is_rechecked_when_the_heating_prediction_changes() : void
+		{
+			$this->at('2026-11-06 19:00');
+			$this->poll(10, 32.5, false);
+			$this->at('2026-11-06 19:05');
+			$this->poll(10, 32.5, true);
+			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
+			$this->assertSame('afternoon:2026-11-06', $this->state()['request']['opportunity']);
+		}
+
+		public function test_quiet_evening_wait_follows_the_configured_overnight_start() : void
+		{
+			$values = TariffPeriods::settings();
+			$values['hot_water']['overnight']['start'] = '21:00';
+			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($values)]);
+			$this->at('2026-11-06 20:55');
+			$this->poll(10, 32.5, false);
+			$this->assertNull($this->state()['request']);
+			$this->assertStringContainsString('waiting until 21:00', $this->state()['reason']);
+			$this->at('2026-11-06 21:00');
+			$this->poll(10, 32.5, false);
+			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
 		}
 
 		public function test_post_peak_catch_up_is_available_after_an_earlier_afternoon_recharge() : void
@@ -203,6 +251,10 @@
 			$this->poll(10, 40);
 			$this->assertSame('2026-11-03', $this->state()['completed']['afternoon']);
 			$this->at('2026-11-03 19:00');
+			$this->poll(10, 32.5, false);
+			$this->assertNull($this->state()['request']);
+			$this->assertSame([[47041 => 1], [47041 => 0]], $this->patches);
+			$this->at('2026-11-03 19:05');
 			$this->poll(30, 32.5);
 			$this->assertSame([[47041 => 1], [47041 => 0], [47041 => 1]], $this->patches);
 			$this->assertSame('afternoon:2026-11-03', $this->state()['request']['opportunity']);
@@ -691,7 +743,9 @@
 			return
 			[
 				'heating at 12:35'         => ['2026-10-24', '12:35', 32, true, 120, true],
-				'no heating before 13:00'  => ['2026-10-24', '12:35', 32, false, 120, true],
+				'no heating before 13:00'  => ['2026-10-24', '12:35', 32, false, 120, false],
+				'no heating at 13:00'      => ['2026-10-24', '13:00', 32, false, 120, true],
+				'urgent before 13:00'      => ['2026-10-24', '12:35', 19, false, 120, true],
 				'unknown heating demand'   => ['2026-10-24', '12:35', 32, null, 120, true],
 				'late shower at 13:55'     => ['2026-10-24', '13:55', 32, true, 120, true],
 				'normal repeat at 14:00'   => ['2026-10-24', '14:00', 32, false, 120, true],
@@ -726,6 +780,26 @@
 			});
 			$this->assertSame([[47041 => 1], [47041 => 0], [47041 => 1]], $this->patches);
 			$this->assertSame(0, ActivityLog::where('level', 'error')->count());
+		}
+
+		public function test_quiet_repeat_top_ups_follow_the_configured_afternoon_start() : void
+		{
+			config()->set('nibe.hotWaterDurationMinutes', 120);
+			$values = TariffPeriods::settings();
+			$values['hot_water']['quiet']['start'] = '14:00';
+			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($values)]);
+			$this->poll(30, 32);
+			$this->at('2026-10-24 10:05');
+			$this->poll(20, 32);
+			$this->at('2026-10-24 12:00');
+			$this->poll(10, 44);
+			$this->at('2026-10-24 13:30');
+			$this->poll(10, 32, false);
+			$this->assertNull($this->state()['request']);
+			$this->assertStringContainsString('waiting until 14:00', $this->state()['reason']);
+			$this->at('2026-10-24 14:00');
+			$this->poll(10, 32, false);
+			$this->assertSame([[47041 => 1], [47041 => 0], [47041 => 1]], $this->patches);
 		}
 
 		public function test_multiple_afternoon_top_ups_can_complete_on_the_same_day() : void
