@@ -69,6 +69,8 @@
 					$period['valid_to_formatted']   = Carbon::parse($period['valid_to'])->setTimezone("Europe/London")->format("Y-m-d H:i");
 				}
 
+				unset($period);
+
 				// Log::info($results);exit;
 
 				$timings = TariffPeriods::settings()['agile'];
@@ -76,6 +78,7 @@
 				[$overnightStart, $overnightEnd] = TariffPeriods::window($now, $timings['overnight']);
 				[$daytimeStart, $daytimeEnd] = TariffPeriods::window($now->addDay(), $timings['daytime']);
 				[$expensiveStart, $expensiveEnd] = TariffPeriods::window($now->addDay(), $timings['expensive']);
+				[$peakStart, $peakEnd] = TariffPeriods::window($now->addDay(), $timings['peak']);
 
 				$cheapPeriodsToCheck =
 				[
@@ -99,7 +102,11 @@
 						'start' => $expensiveStart,
 						'end'   => $expensiveEnd,
 					],
-
+					'peak'      =>
+					[
+						'start' => $peakStart,
+						'end'   => $peakEnd,
+					],
 				];
 
 				$cheapestPeriods = static::findCheapestPeriods($results, $cheapPeriodsToCheck);
@@ -198,6 +205,12 @@
 			for ($i = 0; $i <= count($results) - $windowSize; $i++)
 			{
 				$currentWindow = array_slice($results, $i, $windowSize);
+
+				if (!static::isCompleteRateWindow($currentWindow))
+				{
+					continue;
+				}
+
 				$totalCost = array_sum(array_column($currentWindow, 'value_inc_vat'));
 				$avgCost = $totalCost / $windowSize; // Calculate average cost
 
@@ -209,7 +222,7 @@
 			}
 
 			return [
-				'average_cost' => round($minAvgCost, 4),
+				'average_cost' => $cheapestWindow === [] ? null : round($minAvgCost, 4),
 				'window'       => $cheapestWindow,
 			];
 		}
@@ -220,20 +233,20 @@
 
 			// Get current time
 			$currentTime = CarbonImmutable::now(TariffPeriods::ZONE);
-			$twentyFourHoursAhead = $currentTime->addDay();
 
 			foreach ($periodsToCheck as $label => $timeRange)
 			{
-				// Filter the results based on the time range and only future periods up to 24 hours ahead
-				$filteredResults = array_filter($results, function($item) use ($timeRange, $currentTime, $twentyFourHoursAhead)
+				// Include the full requested range, including tomorrow's peak beyond the 24-hour horizon.
+				$filteredResults = array_filter($results, function($item) use ($timeRange, $currentTime)
 				{
 					$validFrom = Carbon::parse($item['valid_from']);
+					$validTo = Carbon::parse($item['valid_to']);
 
 					// Ensure that the valid_from is after the current time and falls within the time range
 					return $validFrom->greaterThanOrEqualTo($currentTime) &&
-						   $validFrom->lessThan($twentyFourHoursAhead) &&
 						   $validFrom->greaterThanOrEqualTo($timeRange['start']) &&
-						   $validFrom->lessThan($timeRange['end']);
+						   $validFrom->lessThan($timeRange['end']) &&
+						   $validTo->lessThanOrEqualTo($timeRange['end']);
 				});
 
 				// Sort the filtered results by valid_from
@@ -245,6 +258,9 @@
 				// Find most expensive 2-hour, 3-hour, 4-hour, and 5-hour windows
 				$mostExpensivePeriods[$label] =
 				[
+					'start'                  => $timeRange['start']->format('Y-m-d H:i'),
+					'end'                    => $timeRange['end']->format('Y-m-d H:i'),
+					'rates'                  => $filteredResults,
 					'most_expensive_2_hours' => static::findMostExpensiveWindow($filteredResults, 4), // 2 hours = 4 periods (30 min each)
 					'most_expensive_3_hours' => static::findMostExpensiveWindow($filteredResults, 6), // 3 hours = 6 periods (30 min each)
 					'most_expensive_4_hours' => static::findMostExpensiveWindow($filteredResults, 8), // 4 hours = 8 periods (30 min each)
@@ -263,6 +279,12 @@
 			for ($i = 0; $i <= count($results) - $windowSize; $i++)
 			{
 				$currentWindow = array_slice($results, $i, $windowSize);
+
+				if (!static::isCompleteRateWindow($currentWindow))
+				{
+					continue;
+				}
+
 				$totalCost = array_sum(array_column($currentWindow, 'value_inc_vat'));
 				$avgCost = $totalCost / $windowSize; // Calculate average cost
 
@@ -274,13 +296,24 @@
 			}
 
 			return [
-				'average_cost' => round($maxAvgCost, 4),
+				'average_cost' => $mostExpensiveWindow === [] ? null : round($maxAvgCost, 4),
 				'window'       => $mostExpensiveWindow,
 			];
 		}
 
 		private static function saveCheapestPeriods(array $cheapestPeriods) : void
 		{
+			foreach (['overnight', 'daytime'] as $label)
+			{
+				foreach (['cheapest_3_hours' => 6, 'cheapest_6_hours' => 12] as $name => $count)
+				{
+					if (count($cheapestPeriods[$label][$name]['window'] ?? []) !== $count)
+					{
+						throw new Exception('Insufficient consecutive Agile rates for '.$label.' '.$name.'; retaining the previous schedule and retrying later.');
+					}
+				}
+			}
+
 			$offsetToOn = ControlSettings::get('octopus.offsetToOn');
 			$offsetToOff = ControlSettings::get('octopus.offsetToOff');
 
@@ -322,5 +355,25 @@
 			$schedule['cosy'] = TariffPeriods::nextCosyWindows(CarbonImmutable::now());
 
 			$setting = Setting::updateOrCreate(["key" => "agile_schedule"], ["value" => json_encode($schedule)]);
+		}
+
+		private static function isCompleteRateWindow(array $window) : bool
+		{
+			$previousEnd = null;
+
+			foreach ($window as $period)
+			{
+				$start = Carbon::parse($period['valid_from'])->getTimestamp();
+				$end = Carbon::parse($period['valid_to'])->getTimestamp();
+
+				if ($end - $start !== 1800 || ($previousEnd !== null && $start !== $previousEnd))
+				{
+					return false;
+				}
+
+				$previousEnd = $end;
+			}
+
+			return $window !== [];
 		}
 	}

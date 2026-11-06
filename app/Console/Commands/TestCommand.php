@@ -45,10 +45,10 @@
 					'message'    => "Command Start.",
 				]);
 
-				$data = NibeController::getRoomTemperature("Rad_temperature");
+				// $data = NibeController::getRoomTemperature("Rad_temperature");
 				// $data = WeatherController::getNextDayLowTemperatures();
 				// $syncSuccess = EmonAPI::postInputData("local", CarbonImmutable::now()->startOfMinute()->setTimezone("UTC")->format("U"), "emonth2_23", json_encode(["temperature_forecast" => 21.6]));
-				// OctopusController::tryGetAgileRates();
+				OctopusController::getAgileRates();
 
 				// Log::info($data);
 

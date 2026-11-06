@@ -114,17 +114,18 @@
 					$validator->errors()->add('tariff.hot_water.overnight.end', 'The overnight hot water window must cross midnight.');
 				}
 
-				foreach (['overnight' => 360, 'daytime' => 360, 'expensive' => 300] as $name => $minimum)
+				foreach (['overnight' => 360, 'daytime' => 360, 'expensive' => 300, 'peak' => 30] as $name => $minimum)
 				{
 					[$start, $end] = TariffPeriods::window($name === 'overnight' ? $day : $day->addDay(), $values['agile'][$name]);
 					$fetch = TariffPeriods::clock($day, $values['fetch']);
 					$horizon = $fetch->addDay();
 					$usableStart = $start->isBefore($fetch) ? $fetch : $start;
-					$usableEnd = $end->isAfter($horizon) ? $horizon : $end;
+					$limited = in_array($name, ['overnight', 'daytime'], true);
+					$usableEnd = $limited && $end->isAfter($horizon) ? $horizon : $end;
 
 					if ($usableEnd->lessThanOrEqualTo($usableStart) || $usableEnd->diffInMinutes($usableStart) < $minimum)
 					{
-						$validator->errors()->add('tariff.agile.'.$name.'.end', 'The '.$name.' rate-search range must allow at least '.($minimum / 60).' hours between the fetch time and the same time the following day.');
+						$validator->errors()->add('tariff.agile.'.$name.'.end', 'The '.$name.' rate-search range must allow at least '.($minimum / 60).' hours'.($limited ? ' between the fetch time and the same time the following day.' : ' in its configured window.'));
 					}
 				}
 

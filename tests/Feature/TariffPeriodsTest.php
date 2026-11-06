@@ -58,6 +58,22 @@
 			Mail::assertNothingSent();
 		}
 
+		public function test_agile_peak_defaults_are_added_to_older_settings_and_can_be_saved_beyond_the_fetch_horizon() : void
+		{
+			$settings = TariffPeriods::settings();
+			unset($settings['agile']['peak']);
+			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($settings)]);
+			$this->assertSame(['start' => '16:00', 'end' => '19:00'], TariffPeriods::settings()['agile']['peak']);
+			$this->actingAs(User::factory()->create());
+			$this->get('/settings')->assertOk()->assertSee('id="tariff-agile-peak-start"', false)->assertSee('id="tariff-agile-peak-end"', false);
+			$payload = $this->payload();
+			$payload['tariff']['agile']['peak'] = ['start' => '17:00', 'end' => '20:00'];
+			$this->put('/settings/tariff', $payload)->assertSessionHasNoErrors();
+			$this->assertSame(['start' => '17:00', 'end' => '20:00'], TariffPeriods::settings()['agile']['peak']);
+			Http::assertNothingSent();
+			Mail::assertNothingSent();
+		}
+
 		public function test_saving_tariff_times_updates_peak_checks_and_existing_cosy_schedule_immediately() : void
 		{
 			Setting::create(['key' => 'agile_schedule', 'value' => json_encode(['cheapest_3_hours' => [['start' => 123, 'end' => 456]], 'cosy' => []])]);
@@ -345,6 +361,7 @@
 				'overnight must cross'    => ['tariff.hot_water.overnight.end', '23:00', 'tariff.hot_water.overnight.end'],
 				'invalid daytime start'  => ['tariff.hot_water.quiet.start', '25:00', 'tariff.hot_water.quiet.start'],
 				'short Agile search'      => ['tariff.agile.daytime.end', '12:00', 'tariff.agile.daytime.end'],
+				'short Agile peak'        => ['tariff.agile.peak.end', '16:15', 'tariff.agile.peak.end'],
 				'fetch before next range' => ['tariff.fetch', '09:00', 'tariff.agile.daytime.end'],
 				'cheap dated collapsed'   => ['tariff.extra', [['name' => 'Offer', 'type' => 'cheap', 'start' => '2026-10-27T10:30', 'end' => '2026-10-27T11:30']], 'tariff.extra.0.end'],
 				'peak dated collapsed'    => ['tariff.extra', [['name' => 'Saving', 'type' => 'peak', 'start' => '2026-10-27T10:30', 'end' => '2026-10-27T10:50']], 'tariff.extra.0.end'],

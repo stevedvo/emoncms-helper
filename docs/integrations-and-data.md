@@ -153,8 +153,11 @@ Rate analysis uses editable **Europe/London** clock ranges under **Settings → 
 - Overnight: today 19:00 through tomorrow 07:00.
 - Daytime: tomorrow 10:00 through 16:00.
 - Expensive morning: tomorrow 06:00 through 12:00.
+- Peak: tomorrow 16:00 through 19:00, including a table of the returned half-hour VAT-inclusive rates.
 
-Only period starts from now inclusive to the same London clock time the following day exclusive are considered. This horizon follows the clock changes rather than truncating the daytime range on the autumn transition. Within each range, periods are sorted by start and sliding windows select the lowest average VAT-inclusive cost for 1, 2, 3, and 6 hours. Morning analysis selects the highest-cost 2, 3, 4, and 5 hours. Each half-hour has equal weight; equal-cost ties keep the first window. Consecutive array entries are assumed to be contiguous half-hours without an explicit gap/duration check.
+Cheapest-window analysis considers period starts from now inclusive to the same London clock time the following day exclusive. This horizon follows the clock changes rather than truncating the daytime range on the autumn transition. Expensive morning and peak analysis use their full configured next-day ranges, including rates beyond that horizon: a 16:30 fetch must not truncate tomorrow's 16:00–19:00 peak to its first half-hour. Within each range, periods are sorted by start and sliding windows select the lowest average VAT-inclusive cost for 1, 2, 3, and 6 hours, or the highest for 2, 3, 4, and 5 hours. Every selected window must contain consecutive, non-overlapping 30-minute rates. Each half-hour has equal weight; equal-cost ties keep the first window.
+
+A three-hour peak cannot contain a four- or five-hour result. Empty, too-short or gapped results have a null average and an empty window, and the email shows an unavailable message instead of indexing a missing first entry or displaying an integer sentinel as a price. The peak table includes only rates actually returned; absent peak data is labelled explicitly. Missing peak/morning results do not prevent the email when the required cheapest control windows are available.
 
 `saveCheapestPeriods()` stores JSON in `settings.agile_schedule` with keys `cheapest_3_hours`, `cheapest_6_hours`, and `cosy`. The cheapest schedules each have overnight/daytime entries. Every entry contains `average_cost`, `start`, and `end`, with start/end as integer Unix seconds.
 
@@ -172,7 +175,7 @@ Cosy windows are generated through `TariffPeriods` from the editable daily **Eur
 
 Each Cosy entry has hard-coded `average_cost = 13.64`; the value is not used to authorise a boost. On a typical successful evening refresh, the morning and afternoon windows are tomorrow and the evening window is tonight. These dates are persisted and do not roll forward without generation or a tariff-form save.
 
-Initial regular schedule generation still depends on a successful Octopus response and enough rate periods for the cheapest-window indexing that runs first. Dated extra cheap offers and saving sessions are evaluated live and do not depend on this stored schedule or immediate rate retrieval. See [tariff periods](tariff-periods.md) for their precedence and hot-water behaviour. The email displays calculated cheapest/most-expensive windows; it does not display the adjusted Cosy control schedule.
+Initial regular schedule generation still depends on a successful Octopus response and complete cheapest three- and six-hour overnight/daytime windows. Missing required windows produce a descriptive error, preserve the previous schedule, and leave the success latch false for a later retry, rather than indexing missing entries. Dated extra cheap offers and saving sessions are evaluated live and do not depend on this stored schedule or immediate rate retrieval. See [tariff periods](tariff-periods.md) for their precedence and hot-water behaviour. The email displays calculated cheapest/most-expensive windows and the peak half-hour rates; it does not display the adjusted Cosy control schedule.
 
 ## Home Assistant / Hive
 
