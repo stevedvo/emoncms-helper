@@ -219,7 +219,8 @@
 				return;
 			}
 
-			[$opportunity, $reason] = $this->opportunity($charging['value'], $now, $heatingRequired);
+			$top = self::reading($points[40013] ?? null, $now);
+			[$opportunity, $reason] = $this->opportunity($charging['value'], $top['value'] ?? null, $now, $heatingRequired);
 
 			if ($opportunity === null)
 			{
@@ -236,11 +237,10 @@
 			$this->note($reason.' Charging '.$charging['value'].'°C; standard mode requested.');
 		}
 
-		private function opportunity(float $temperature, CarbonImmutable $now, callable $heatingRequired) : array
+		private function opportunity(float $temperature, ?float $topTemperature, CarbonImmutable $now, callable $heatingRequired) : array
 		{
 			$periods = TariffPeriods::settings();
 			$timings = $periods['hot_water'];
-			$urgent = $temperature < ControlSettings::get('nibe.hotWaterUrgentTemperature');
 
 			if (!$this->canStart($now))
 			{
@@ -260,9 +260,12 @@
 				return [null, ucfirst($period).' recharge opportunity already completed.'];
 			}
 
-			if ($urgent)
+			$urgentChargingThreshold = ControlSettings::get('nibe.hotWaterUrgentTemperature');
+			$urgentTopThreshold = ControlSettings::get('nibe.hotWaterUrgentTopTemperature');
+
+			if ($temperature < $urgentChargingThreshold && $topTemperature !== null && $topTemperature >= -5 && $topTemperature < $urgentTopThreshold)
 			{
-				return [$key, 'Urgent recharge below '.ControlSettings::get('nibe.hotWaterUrgentTemperature').'°C; peak check passed.'];
+				return [$key, 'Urgent recharge with charging below '.$urgentChargingThreshold.'°C and top '.$topTemperature.'°C below '.$urgentTopThreshold.'°C. Peak check passed.'];
 			}
 
 			$threshold = $overnight ? ControlSettings::get('nibe.hotWaterOvernightTemperature') : $this->afternoonThreshold($now);

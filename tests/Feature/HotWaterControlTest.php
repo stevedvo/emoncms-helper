@@ -547,7 +547,7 @@
 
 			if ($kind === 'missing')
 			{
-				array_pop($points);
+				unset($points[1]);
 			}
 			elseif ($kind === 'invalid')
 			{
@@ -703,6 +703,54 @@
 			$this->control->run($points, fn() => true);
 			$this->assertNull($this->state()['request']['startedAt']);
 			$this->assertSame([[47041 => 1]], $this->patches);
+		}
+
+		#[DataProvider('urgentTopReadings')]
+		public function test_urgent_recharge_requires_the_top_temperature_below_its_limit(mixed $top, ?float $limit, bool $starts) : void
+		{
+			if ($limit !== null)
+			{
+				Setting::create(['key' => 'control.nibe.hotWaterUrgentTopTemperature', 'value' => json_encode($limit)]);
+			}
+
+			$this->at('2026-11-06 19:00');
+			$points = $this->points(10, 19);
+			if ($top === null)
+			{
+				unset($points[2]);
+			}
+			else
+			{
+				$points[2]['value'] = $top;
+			}
+
+			$this->control->run($points, fn() => false);
+			$this->assertSame([[47041 => $starts ? 1 : 0]], $this->patches);
+			$this->assertSame($starts, $this->state()['request'] !== null);
+		}
+
+		public static function urgentTopReadings() : array
+		{
+			return
+			[
+				'below default limit' => [37.9, null, true],
+				'exactly at limit'    => [38.0, null, false],
+				'above limit'         => [39.0, null, false],
+				'missing top'         => [null, null, false],
+				'invalid top'         => ['unknown', null, false],
+				'implausible top'     => [-20.0, null, false],
+				'raised saved limit'  => [39.0, 39.5, true],
+			];
+		}
+
+		public function test_normal_overnight_recharge_can_start_without_a_top_reading() : void
+		{
+			$this->at('2026-11-06 22:00');
+			$points = $this->points(10, 19);
+			unset($points[2]);
+			$this->control->run($points, fn() => false);
+			$this->assertSame([[47041 => 1]], $this->patches);
+			$this->assertStringContainsString('Overnight recharge below 37°C', $this->state()['reason']);
 		}
 
 		public function test_urgent_recharge_can_override_a_used_opportunity_but_has_a_recovery_interval() : void
@@ -879,6 +927,7 @@
 			[
 				['parameterId' => 49994, 'value' => $priority, 'timestamp' => CarbonImmutable::now()->toIso8601String()],
 				['parameterId' => 40014, 'value' => $temperature, 'timestamp' => CarbonImmutable::now()->toIso8601String()],
+				['parameterId' => 40013, 'value' => max(37, $temperature), 'timestamp' => CarbonImmutable::now()->toIso8601String()],
 			];
 		}
 
