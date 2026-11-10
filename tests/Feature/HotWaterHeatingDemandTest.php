@@ -113,13 +113,18 @@
 			$this->assertNull(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
 		}
 
-		public function test_evening_decision_also_checks_the_following_morning_boost() : void
+		public function test_evening_window_prediction_distinguishes_morning_only_demand_from_evening_demand() : void
 		{
 			CarbonImmutable::setTestNow(CarbonImmutable::now()->setTime(22, 0));
 			DemandPredictionController::$rooms['UFH_temperature'] = 20.5;
 			$start = CarbonImmutable::now()->addDay()->setTime(3, 45);
 			Setting::where('key', 'agile_schedule')->update(['value' => json_encode(['cosy' => [['start' => $start->getTimestamp(), 'end' => $start->addHours(2)->getTimestamp()]]])]);
-			$this->assertTrue(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
+			$now = CarbonImmutable::now();
+			$evening = TariffPeriods::window($now, TariffPeriods::settings()['daily']['evening']);
+			$this->assertTrue(DemandPredictionController::predict($this->points(), $now));
+			$this->assertFalse(DemandPredictionController::predict($this->points(), $now, $evening));
+			Setting::where('key', 'agile_schedule')->update(['value' => json_encode(['cosy' => [['start' => $now->timestamp, 'end' => $now->addHour()->timestamp]]])]);
+			$this->assertTrue(DemandPredictionController::predict($this->points(), $now, $evening));
 		}
 
 		public function test_prediction_follows_an_edited_afternoon_cheap_period() : void
@@ -194,9 +199,9 @@
 	{
 		public static array $rooms;
 
-		public static function predict(array $points, CarbonImmutable $now) : ?bool
+		public static function predict(array $points, CarbonImmutable $now, ?array $window = null) : ?bool
 		{
-			return static::hotWaterHeatingRequired($points, $now);
+			return static::hotWaterHeatingRequired($points, $now, $window);
 		}
 
 		protected static function hotWaterRoomTemperature(string $feed) : ?float

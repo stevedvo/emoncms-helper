@@ -364,15 +364,73 @@
 			return ['below overnight threshold' => [36], 'below urgent threshold' => [19]];
 		}
 
-		public function test_overnight_start_does_not_depend_on_the_heating_prediction() : void
+		public function test_late_overnight_recharge_starts_even_when_it_will_overlap_morning_cosy() : void
 		{
-			$this->at('2026-10-24 23:00');
+			$this->at('2026-10-25 03:55');
 			$this->control->run($this->points(30, 36), function()
 			{
-				throw new RuntimeException('The overnight decision must not request a heating prediction.');
+				throw new RuntimeException('A recharge outside the evening window does not need a heating prediction.');
 			});
 			$this->assertSame([[47041 => 1]], $this->patches);
 			$this->assertSame(0, ActivityLog::where('level', 'error')->count());
+		}
+
+		#[DataProvider('reservedEveningScenarios')]
+		public function test_evening_heating_reserves_the_window_until_midnight(float $temperature, ?bool $demand) : void
+		{
+			$this->at('2026-11-06 22:00');
+			$this->poll(10, $temperature, false, $demand);
+			$this->assertSame([[47041 => 0]], $this->patches);
+			$this->assertStringContainsString('reserved for space heating until 00:00', $this->state()['reason']);
+			$this->at('2026-11-06 23:55');
+			$this->control = new HotWaterControl($this->api);
+			$this->poll(10, $temperature, false, false);
+			$this->assertNull($this->state()['request']);
+			$this->at('2026-11-07 00:00');
+			$this->poll(30, $temperature, true, true);
+			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
+			$this->assertSame('overnight:2026-11-07', $this->state()['request']['opportunity']);
+		}
+
+		public static function reservedEveningScenarios() : array
+		{
+			return
+			[
+				'normal recharge'   => [36, true],
+				'urgent recharge'   => [19, true],
+				'unknown heating'   => [36, null],
+			];
+		}
+
+		public function test_a_failed_post_peak_start_is_not_retried_into_the_reserved_evening_window() : void
+		{
+			config()->set('nibe.hotWaterDurationMinutes', 120);
+			$this->at('2026-11-06 20:00');
+			$this->failPatch = true;
+			$this->poll(30, 32.5, true, true);
+			$this->assertSame([[47041 => 1]], $this->patches);
+			$this->at('2026-11-06 20:05');
+			$this->failPatch = false;
+			$this->poll(30, 32.5, true, true);
+			$this->assertSame([[47041 => 1], [47041 => 0]], $this->patches);
+			$this->assertNull($this->state()['request']);
+			$this->assertStringContainsString('reserved for space heating until 00:00', $this->state()['reason']);
+		}
+
+		public function test_evening_reservation_follows_an_edited_window_that_ends_after_midnight() : void
+		{
+			$values = TariffPeriods::settings();
+			$values['daily']['evening'] = ['start' => '23:00', 'end' => '02:00'];
+			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($values)]);
+			$this->at('2026-11-06 22:00');
+			$this->poll(10, 36, false, true);
+			$this->assertNull($this->state()['request']);
+			$this->at('2026-11-07 01:55');
+			$this->poll(30, 36, false, true);
+			$this->assertStringContainsString('reserved for space heating until 02:00', $this->state()['reason']);
+			$this->at('2026-11-07 02:00');
+			$this->poll(30, 36, false, true);
+			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
 		}
 
 		public function test_late_overnight_recharge_continues_beyond_07_and_is_recorded_against_its_night() : void
@@ -916,9 +974,9 @@
 			$this->assertSame('overnight:2026-10-25', $this->state()['request']['opportunity']);
 		}
 
-		private function poll(int $priority, float $temperature, ?bool $heating = true) : void
+		private function poll(int $priority, float $temperature, ?bool $heating = true, ?bool $eveningHeating = false) : void
 		{
-			$this->control->run($this->points($priority, $temperature), fn() => $heating);
+			$this->control->run($this->points($priority, $temperature), fn($time, ?array $window = null) => $window === null ? $heating : $eveningHeating);
 		}
 
 		private function points(int $priority, float $temperature) : array

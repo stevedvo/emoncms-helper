@@ -180,14 +180,19 @@
 			if ($request !== null)
 			{
 				$timedOut = $now->getTimestamp() - $request['requestedAt'] >= 30 * 60;
-				$retryWouldEnterPeak = $this->state['pendingMode'] === 1 && !$this->canStart($now);
+				$retryBlock = null;
 
-				if (!$enabled || $timedOut || $retryWouldEnterPeak)
+				if ($enabled && !$timedOut && $this->state['pendingMode'] === 1)
+				{
+					$retryBlock = !$this->canStart($now) ? 'the tariff peak' : $this->eveningHeatingBlock($now, $heatingRequired);
+				}
+
+				if (!$enabled || $timedOut || $retryBlock !== null)
 				{
 					$this->setMode(0, $now);
 					$this->state['request'] = null;
 					$this->state['retryAfter'] = $now->addMinutes(30)->getTimestamp();
-					$this->note($timedOut ? 'Recharge did not start within 30 minutes; economy restored, retry delayed by 30 minutes.' : ($retryWouldEnterPeak ? 'Unconfirmed request cancelled to avoid the tariff peak; economy restored.' : 'Unstarted request cancelled because app-managed hot water was disabled.'), $timedOut ? 'warning' : 'info');
+					$this->note($timedOut ? 'Recharge did not start within 30 minutes; economy restored, retry delayed by 30 minutes.' : ($retryBlock !== null ? 'Unconfirmed request cancelled to avoid '.$retryBlock.'. Economy restored.' : 'Unstarted request cancelled because app-managed hot water was disabled.'), $timedOut ? 'warning' : 'info');
 				}
 				else
 				{
@@ -221,6 +226,12 @@
 
 			$top = self::reading($points[40013] ?? null, $now);
 			[$opportunity, $reason] = $this->opportunity($charging['value'], $top['value'] ?? null, $now, $heatingRequired);
+
+			if ($opportunity !== null && ($block = $this->eveningHeatingBlock($now, $heatingRequired)) !== null)
+			{
+				$opportunity = null;
+				$reason = 'Deferring hot water to avoid '.$block.'.';
+			}
 
 			if ($opportunity === null)
 			{
@@ -277,7 +288,7 @@
 
 			if ($overnight)
 			{
-				return [$key, 'Overnight recharge below '.$threshold.'°C; hot water takes priority throughout '.$timings['overnight']['start'].'–'.$timings['overnight']['end'].'.'];
+				return [$key, 'Overnight recharge below '.$threshold.'°C during '.$timings['overnight']['start'].'–'.$timings['overnight']['end'].'.'];
 			}
 
 			$peakEnd = TariffPeriods::clock($now, $periods['daily']['peak']['end']);
@@ -339,6 +350,41 @@
 		private function canStart(CarbonImmutable $now) : bool
 		{
 			return TariffPeriods::hotWaterCanFinish($now, ControlSettings::get('nibe.hotWaterDurationMinutes'));
+		}
+
+		private function eveningHeatingBlock(CarbonImmutable $now, callable $heatingRequired) : ?string
+		{
+			$from = $now->startOfMinute();
+			$until = $from->addMinutes(ControlSettings::get('nibe.hotWaterDurationMinutes'));
+			$evening = TariffPeriods::settings()['daily']['evening'];
+
+			foreach ([-1, 0, 1] as $day)
+			{
+				[$start, $end] = TariffPeriods::window($from->addDays($day), $evening);
+
+				if (!$from->isBefore($end) || !$until->isAfter($start))
+				{
+					continue;
+				}
+
+				if (($this->state['eveningHeatingHoldUntil'] ?? null) !== $end->getTimestamp())
+				{
+					if ($heatingRequired($now, [$start, $end]) === false)
+					{
+						continue;
+					}
+
+					// Once reserved during the window, keep it for heating until its actual end.
+					if ($from->greaterThanOrEqualTo($start))
+					{
+						$this->state['eveningHeatingHoldUntil'] = $end->getTimestamp();
+					}
+				}
+
+				return 'the evening Cosy window reserved for space heating until '.$end->format('H:i');
+			}
+
+			return null;
 		}
 
 		private function request(?string $opportunity, CarbonImmutable $now) : array

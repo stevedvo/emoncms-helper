@@ -300,7 +300,7 @@
 					{
 						if (HotWaterControl::handlesControl())
 						{
-							(new HotWaterControl($nibe))->run($parameterData->all(), fn(CarbonImmutable $time) => static::hotWaterHeatingRequired($parameterData->all(), $time), null, $polledAt);
+							(new HotWaterControl($nibe))->run($parameterData->all(), fn(CarbonImmutable $time, ?array $window = null) => static::hotWaterHeatingRequired($parameterData->all(), $time, $window), null, $polledAt);
 						}
 						else
 						{
@@ -1401,12 +1401,12 @@
 			return false;
 		}
 
-		protected static function hotWaterHeatingRequired(array $points, CarbonImmutable $now) : ?bool
+		protected static function hotWaterHeatingRequired(array $points, CarbonImmutable $now, ?array $window = null) : ?bool
 		{
 			$points = collect($points)->keyBy('parameterId');
 			$priority = HotWaterControl::reading($points->get(49994), $now);
 
-			if (($priority['value'] ?? null) === 30.0)
+			if (($priority['value'] ?? null) === 30.0 && ($window === null || ($now->greaterThanOrEqualTo($window[0]) && $now->isBefore($window[1]))))
 			{
 				return true;
 			}
@@ -1438,21 +1438,34 @@
 				return null;
 			}
 
-			// Check current demand and each part of the relevant cheap periods using today's room readings.
-			$times = [$now];
-			$timings = TariffPeriods::settings();
-			$local = $now->setTimezone(TariffPeriods::ZONE);
-			[$overnightStart, $overnightEnd] = TariffPeriods::window($local, $timings['hot_water']['overnight']);
-			$morningEnd = TariffPeriods::clock($local, $timings['hot_water']['overnight']['end']);
-			$until = $local->greaterThanOrEqualTo($overnightStart) ? $overnightEnd : ($local->isBefore($morningEnd) ? $morningEnd : $overnightStart);
-
-			foreach (TariffPeriods::cheapWindows($local, $until) as [$start, $end])
+			if ($window !== null)
 			{
-				for ($time = ($start->isBefore($local) ? $local : $start)->addMinute(); $time->isBefore($end) && $time->isBefore($until); $time = $time->addMinutes(5))
+				// Assess this tariff window using current readings, starting just inside its boundary.
+				[$start, $end] = $window;
+				$times = [];
+				for ($time = $now->max($start->addSecond()); $time->isBefore($end); $time = $time->addMinutes(5))
 				{
-					if ($time->greaterThanOrEqualTo($local))
+					$times[] = $time;
+				}
+			}
+			else
+			{
+				// Check current demand and each part of the relevant cheap periods using today's room readings.
+				$times = [$now];
+				$timings = TariffPeriods::settings();
+				$local = $now->setTimezone(TariffPeriods::ZONE);
+				[$overnightStart, $overnightEnd] = TariffPeriods::window($local, $timings['hot_water']['overnight']);
+				$morningEnd = TariffPeriods::clock($local, $timings['hot_water']['overnight']['end']);
+				$until = $local->greaterThanOrEqualTo($overnightStart) ? $overnightEnd : ($local->isBefore($morningEnd) ? $morningEnd : $overnightStart);
+
+				foreach (TariffPeriods::cheapWindows($local, $until) as [$start, $end])
+				{
+					for ($time = ($start->isBefore($local) ? $local : $start)->addMinute(); $time->isBefore($end) && $time->isBefore($until); $time = $time->addMinutes(5))
 					{
-						$times[] = $time;
+						if ($time->greaterThanOrEqualTo($local))
+						{
+							$times[] = $time;
+						}
 					}
 				}
 			}
