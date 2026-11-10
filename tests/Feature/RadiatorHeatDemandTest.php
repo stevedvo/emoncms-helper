@@ -118,6 +118,7 @@ class RadiatorHeatDemandTest extends TestCase
             'warm forecast keeps base threshold equality' => [21.5, 20.5, 10, false, false, 14, 'intermittent', true, 30],
             'cold forecast threshold equality' => [23.5, 20.5, 10, false, false, 2, 'intermittent', true, 30],
             'cold peak minimum must not create Rad demand' => [22, 20.5, 10, false, true, 2, 'intermittent', false, 16],
+            'cold peak minimum during wind-down' => [22, 20.5, 30, false, true, 2, 'intermittent', false, 16],
         ];
     }
 
@@ -334,8 +335,8 @@ class RadiatorHeatDemandTest extends TestCase
         {
             CarbonImmutable::setTestNow($start->addMinutes($minutes));
             ScheduledPeakNibeController::prepare(21.2, 20.5);
-            $this->assertSame('intermittent', ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
             $required = $minutes < 85;
+            $this->assertSame($required ? 'intermittent' : 'off', ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
             $this->assertSame($required, RadiatorHeatDemand::current());
             $this->assertHiveTarget(30, $required ? 30 : 16);
         }
@@ -353,6 +354,45 @@ class RadiatorHeatDemandTest extends TestCase
             $this->assertFalse(RadiatorHeatDemand::current());
             $this->assertHiveTarget(30, 16);
         }
+    }
+
+    public function test_satisfied_zones_wind_down_starting_thirty_minutes_before_the_adjusted_peak() : void
+    {
+        config()->set('nibe.peakImportStartOffsetMinutes', 20);
+        config()->set('nibe.dmTargetOff', 30);
+
+        foreach ([['15:49:59', 'intermittent'], ['15:50:00', 'off'], ['16:20:00', 'off'], ['18:35:01', 'intermittent']] as [$time, $expected])
+        {
+            CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-22 '.$time.' Europe/London'));
+            ScheduledPeakNibeController::prepare(23, 21.8);
+            $mode = ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10);
+            $this->assertSame($expected, $mode);
+            $this->assertFalse(RadiatorHeatDemand::current());
+            if ($mode === 'off')
+            {
+                $this->assertSame(30, NibeController::calculateTargetDm(30, $mode, 10));
+            }
+        }
+    }
+
+    #[DataProvider('demandNearPeak')]
+    public function test_peak_wind_down_requires_both_zones_to_be_satisfied(float $rad, ?float $ufh, bool $boost, string $mode) : void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-22 15:30:00 Europe/London'));
+        ScheduledPeakNibeController::prepare($rad, $ufh, $boost);
+        $this->assertSame($mode, ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
+    }
+
+    public static function demandNearPeak() : array
+    {
+        return [
+            'both zones satisfied'  => [24, 22, false, 'off'],
+            'radiator calling'      => [20.5, 22, false, 'on'],
+            'UFH calling'           => [24, 20, false, 'intermittent'],
+            'UFH needs more heat'   => [24, 19, false, 'on'],
+            'UFH preheat calling'   => [24, 20.8, true, 'intermittent'],
+            'UFH reading missing'  => [24, null, false, 'intermittent'],
+        ];
     }
 
     public function test_idle_radiator_mode_and_valve_demand_use_the_adjusted_threshold_without_hysteresis() : void
@@ -891,7 +931,7 @@ class ControlledNibeController extends NibeController
         return self::$boost;
     }
 
-    public static function isPeakImport(CarbonInterface $time): bool
+    public static function isPeakImport(CarbonInterface $time, int $leadMinutes = 0) : bool
     {
         return self::$peak;
     }
@@ -904,9 +944,9 @@ class ControlledNibeController extends NibeController
 
 class ScheduledPeakNibeController extends ControlledNibeController
 {
-    public static function isPeakImport(CarbonInterface $time) : bool
+    public static function isPeakImport(CarbonInterface $time, int $leadMinutes = 0) : bool
     {
-        return NibeController::isPeakImport($time);
+        return NibeController::isPeakImport($time, $leadMinutes);
     }
 }
 

@@ -158,6 +158,8 @@
 		{
 			$this->storeEvents([$this->event('peak', '2026-10-27T10:00', '2026-10-27T12:00')]);
 			$this->assertFalse(NibeController::isPeakImport($this->time('2026-10-27 09:59:59')));
+			$this->assertFalse(NibeController::isPeakImport($this->time('2026-10-27 09:29:59'), 30));
+			$this->assertTrue(NibeController::isPeakImport($this->time('2026-10-27 09:30:00'), 30));
 			$this->assertTrue(NibeController::isPeakImport($this->time('2026-10-27 10:00')));
 			$this->assertTrue(NibeController::isPeakImport($this->time('2026-10-27 11:34:59')));
 			$this->assertFalse(NibeController::isPeakImport($this->time('2026-10-27 11:35')));

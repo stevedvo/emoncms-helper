@@ -92,7 +92,7 @@
 			return $type;
 		}
 
-		public static function peakAt(CarbonInterface $time) : bool
+		public static function peakAt(CarbonInterface $time, int $leadMinutes = 0) : bool
 		{
 			$settings = self::settings();
 			$extra = self::extraHeatingTypeAt($time, $settings);
@@ -107,10 +107,29 @@
 			$startOffset = ControlSettings::get('nibe.peakImportStartOffsetMinutes');
 			$endOffset = ControlSettings::get('nibe.peakImportEndOffsetMinutes');
 
+			if ($leadMinutes > 0)
+			{
+				foreach ($settings['extra'] as $event)
+				{
+					if ($event['type'] !== 'peak')
+					{
+						continue;
+					}
+
+					$start = CarbonImmutable::parse($event['start'], self::ZONE)->addMinutes($startOffset);
+					$end = CarbonImmutable::parse($event['end'], self::ZONE)->addMinutes($endOffset);
+
+					if ($end->isAfter($start) && $local->greaterThanOrEqualTo($start->subMinutes($leadMinutes)) && $local->isBefore($start))
+					{
+						return true;
+					}
+				}
+			}
+
 			foreach ([-1, 0, 1] as $day)
 			{
 				[$start, $end] = self::window($local->addDays($day), $period);
-				$start = $start->addMinutes($startOffset);
+				$start = $start->addMinutes($startOffset - $leadMinutes);
 				$end = $end->addMinutes($endOffset);
 
 				if ($local->betweenIncluded($start, $end))

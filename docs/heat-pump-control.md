@@ -145,7 +145,7 @@ The decision and calculation time are saved at the end of each calculation, so h
 
 An independent **radiator boost hold** keeps Hive's radiator circuit open once the temperature decision is true during an active scheduled boost and NIBE priority is heating (`30`). It lasts until that occurrence's actual cheap-period end, or its adjusted boost end if that is later. With the default morning period and -100-minute end offset, boost adjustments finish at **05:20**, but an armed radiator hold lasts until **07:00**. UFH-only heat cannot arm the hold. Radiators can join later in the boost if their own temperature decision becomes true.
 
-The stored temperature decision continues to follow the adjusted targets and hysteresis during this hold. It can become false and select `off`; the existing priority-30 cycle-preservation rule then keeps the overall mode at least `intermittent`. The valve hold itself never promotes the mode or starts an idle pump. Hive still uses its off target during hot water or idle operation, and its existing cooling target during cooling.
+The stored temperature decision continues to follow the adjusted targets and hysteresis during this hold. It can become false and select `off`. The cycle-preservation rule below determines whether to keep the heat pump at `intermittent` or let it wind down. The valve hold itself never promotes the mode or starts an idle pump. Hive still uses its off target during hot water or idle operation, and its existing cooling target during cooling.
 
 The hold expires at the exact end timestamp, checked by Hive's minute task, without waiting for another mode calculation. Peak/saving-session controls cancel it, except that an actual dated cheap offer can retain its valve hold through its full cheap interval inside the normal daily peak. Dated peak controls still take precedence. Unknown temperature demand, disabled compensation/DM override, cooling, or an expired decision clears the hold at the next calculation. Normal freshness safeguards apply throughout. The expiry is captured when the hold is armed; repeated raw false decisions do not extend it. Continuous forecast-disabled boost branches have no finite window and do not arm a timed hold.
 
@@ -167,11 +167,7 @@ When room compensation is disabled or usable Rad data is unavailable, `allowBoos
 
 This retains the pre-room-compensation behaviour when room control cannot be used. Merely enabling load compensation is not enough to suppress fallback promotion: the Rad lookup must also allow it. The fallback still respects the promotion setting and active-window check, and records the `Boost is active` log message when it runs.
 
-### 5. Preserve a running heating cycle
-
-If the calculated mode is `off` but priority is `30` (already heating), change to `intermittent`. This avoids deliberately shortening the current heating cycle. It is not an unconditional minimum runtime.
-
-### 6. Protect a cool UFH zone and preheat during boost windows
+### 5. Protect a cool UFH zone and preheat during boost windows
 
 When radiator-based load compensation is allowed, read `UFH_temperature` using the configured room-sensor history (default 180 minutes). The normal UFH thresholds remain minimum comfort protection, including during expensive periods. With the default editable UFH thresholds:
 
@@ -197,7 +193,13 @@ Preheating uses the existing boost-window decision, including its weather/schedu
 
 This read uses `updateSettings = false`; it neither falls back to saved UFH temperature nor changes `allowLoadCompensation`. Missing UFH data skips this step. UFH raises the overall mode to at least `intermittent`, `on` or `boost`, preserving higher radiator/boost demand and the independent radiator valve decision. Log messages report the measured UFH temperature, effective threshold and preheat margin; shortfall-based boost also records the target, shortfall and configured X. Later defrost/cooling rules retain their existing precedence.
 
-When a valid UFH temperature is above the effective allow-heating threshold, an information-level message containing `no independent demand` records the temperature, preheat margin and unchanged mode at this stage. This means UFH is not requesting heat independently; it does not mean the ASHP is off, since other rules may already have requested heating. The later peak, defrost and cooling checks can still change the mode.
+When a valid UFH temperature is above the effective allow-heating threshold, an information-level message containing `no independent demand` records the temperature, preheat margin and mode at this stage. The later cycle-preservation, peak, defrost and cooling checks can still change the mode.
+
+### 6. Preserve or wind down a running heating cycle
+
+After the radiator and UFH checks, an `off` decision while priority is `30` normally becomes `intermittent` to let the current cycle continue. From **30 minutes before the configured heating peak start** through the heating peak finish, keep `off` when both zones have usable readings and neither requests heat. With the default peak offsets that gives a **15:30–18:35** wind-down window. This uses the active room thresholds, so the radiator peak reduction and suppression of UFH preheat still begin at 16:00 by default. Dated saving sessions use the same lead relative to their adjusted start, and an active dated cheap override can take precedence before the saving session starts.
+
+When `off` is the final mode, the flow-temperature controller steers towards `dmTargetOff` (default **+30 DM**) so the heat pump can wind down sooner. Either zone can still request heating at its current threshold. Missing room data retains the usual cycle-preservation behaviour. The separate cold-forecast peak minimum can still select `intermittent`.
 
 ### 7. Apply the remaining peak-period rule
 

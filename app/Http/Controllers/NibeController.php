@@ -821,6 +821,7 @@
 		{
 			static::initConfig();
 			$radiatorHeatRequired = null;
+			$ufhSatisfied = false;
 
 			// default starting point
 			$htgMode = "intermittent";
@@ -932,7 +933,8 @@
 			}
 
 			$boostActive = static::isBoostActive($outdoorTemp, $avgOutdoorTemp);
-			$peakImport = static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London"));
+			$now = CarbonImmutable::now(TariffPeriods::ZONE);
+			$peakImport = static::isPeakImport($now);
 
 			// need to hit this method first to set the Setting to true/false
 			static::getRoomTemperature("Rad_temperature");
@@ -1088,23 +1090,6 @@
 
 			if (true)
 			{
-				// if we have determined that htgMode should be "off", but we are currently heating let's nudge it up so that we're not artifically shortening the heating cycle
-				if ($htgMode == "off" && $priority == 30)
-				{
-					$htgMode = static::nudgeHeatingModeUp($htgMode);
-
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => '$htgMode was "off" but currently heating so changed to "'.$htgMode.'"',
-					]);
-				}
-			}
-
-			if (true)
-			{
 				// Keep the UFH comfort thresholds as minimums; preheat during boost windows outside peak import.
 				if ($loadCompensationActive)
 				{
@@ -1158,6 +1143,8 @@
 						}
 						else
 						{
+							$ufhSatisfied = is_finite($ufhTemperature);
+
 							ActivityLog::create(
 							[
 								'controller' => __CLASS__,
@@ -1168,6 +1155,25 @@
 						}
 					}
 				}
+			}
+
+			// Preserve a running cycle unless both zones are satisfied near or during peak.
+			if ($htgMode === "off" && $priority === 30)
+			{
+				$windDown = $radiatorHeatRequired === false && $ufhSatisfied && ($peakImport || static::isPeakImport($now, 30));
+
+				if (!$windDown)
+				{
+					$htgMode = "intermittent";
+				}
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => $windDown ? 'Both zones are satisfied near or during peak. Allowing the heating cycle to wind down in off mode.' : '$htgMode was "off" but currently heating so changed to "intermittent"',
+				]);
 			}
 
 			// adjustment check 6: nudge $htgMode down if we're in the peak [expensive] window
@@ -1621,11 +1627,11 @@
 			return 0;
 		}
 
-		public static function isPeakImport(CarbonInterface $time) : bool
+		public static function isPeakImport(CarbonInterface $time, int $leadMinutes = 0) : bool
 		{
 			try
 			{
-				return TariffPeriods::peakAt($time);
+				return TariffPeriods::peakAt($time, $leadMinutes);
 			}
 			catch (Throwable $e)
 			{
