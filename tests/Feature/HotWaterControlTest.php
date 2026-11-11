@@ -4,7 +4,6 @@
 	use App\APIs\NibeAPI;
 	use App\Http\Controllers\NibeController;
 	use App\Models\ActivityLog;
-	use App\Models\NibeFeedItem;
 	use App\Models\Setting;
 	use App\Services\HotWaterControl;
 	use App\Services\TariffPeriods;
@@ -52,14 +51,9 @@
 		}
 
 		#[DataProvider('startWindows')]
-		public function test_start_windows_thresholds_and_peak_admission(string $time, float $temperature, ?bool $heating, bool $start, bool $lowBeforePeak = false) : void
+		public function test_start_windows_thresholds_and_peak_admission(string $time, float $temperature, ?bool $heating, bool $start) : void
 		{
 			$this->at($time);
-			if ($lowBeforePeak)
-			{
-				$this->recordCharging($temperature, CarbonImmutable::now('Europe/London')->setTime(18, 55));
-			}
-
 			$this->poll(10, $temperature, $heating);
 			$this->assertSame([[47041 => $start ? 1 : 0]], $this->patches);
 			$this->assertSame($start, $this->state()['request'] !== null);
@@ -95,17 +89,18 @@
 				'urgent last fitting start'       => ['2026-10-24 13:00', 19, true, true],
 				'urgent too close to peak'       => ['2026-10-24 14:30', 19, true, false],
 				'urgent during peak'             => ['2026-10-24 18:55', 19, true, false],
-				'urgent after actual peak'       => ['2026-10-24 19:00', 19, true, true],
-				'normal after actual peak'       => ['2026-11-03 19:00', 32.5, true, true, true],
-				'quiet post-peak waits'          => ['2026-11-03 19:00', 32.5, false, false, true],
-				'unknown post-peak demand'       => ['2026-11-03 19:00', 32.5, null, true, true],
+				'urgent waits for heating'       => ['2026-10-24 19:00', 19, true, false],
+				'urgent unknown demand waits'    => ['2026-10-24 19:00', 19, null, false],
+				'normal after actual peak'       => ['2026-11-03 19:00', 32.5, true, false],
+				'quiet post-peak waits'          => ['2026-11-03 19:00', 32.5, false, false],
+				'unknown post-peak demand'       => ['2026-11-03 19:00', 32.5, null, false],
 				'normal before actual peak end'  => ['2026-11-03 18:55', 32.5, false, false],
 				'post-peak strict threshold'     => ['2026-11-03 19:00', 33, true, false],
-				'post-peak before overnight'     => ['2026-11-03 21:55', 32.5, true, true, true],
+				'post-peak before overnight'     => ['2026-11-03 21:55', 32.5, true, false],
 				'quiet waits until overnight'    => ['2026-11-03 21:55', 32.5, false, false],
 				'quiet below day threshold'      => ['2026-11-03 22:00', 32.5, false, true],
 				'post-peak below overnight only' => ['2026-11-03 21:55', 36, true, false],
-				'Sunday post-peak threshold'     => ['2026-11-08 19:00', 36.5, true, true, true],
+				'Sunday post-peak threshold'     => ['2026-11-08 19:00', 36.5, true, false],
 				'Sunday fresh drop after peak'   => ['2026-11-08 19:05', 36.5, true, false],
 				'Sunday quiet post-peak waits'   => ['2026-11-08 19:00', 36.5, false, false],
 				'urgent quiet early afternoon'   => ['2026-11-03 10:00', 19, false, true],
@@ -187,7 +182,7 @@
 			$this->assertSame([[47041 => 1]], $this->patches);
 		}
 
-		public function test_a_drop_after_the_daytime_cutoff_starts_a_normal_recharge_when_peak_ends() : void
+		public function test_a_drop_after_the_daytime_cutoff_waits_until_evening_heating_finishes() : void
 		{
 			config()->set('nibe.hotWaterDurationMinutes', 120);
 			$this->at('2026-11-03 14:00');
@@ -201,9 +196,14 @@
 			$this->at('2026-11-03 19:00');
 			$this->control = new HotWaterControl($this->api);
 			$this->poll(30, 32.5);
+			$this->assertNull($this->state()['request']);
+			$this->at('2026-11-03 22:00');
+			$this->poll(30, 32.5, true, true);
+			$this->assertNull($this->state()['request']);
+			$this->at('2026-11-04 00:00');
+			$this->poll(30, 32.5, true, true);
 			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
-			$this->assertSame('afternoon:2026-11-03', $this->state()['request']['opportunity']);
-			$this->assertStringContainsString('Post-peak recharge below 33°C', $this->state()['reason']);
+			$this->assertSame('overnight:2026-11-04', $this->state()['request']['opportunity']);
 			$this->assertSame(0, ActivityLog::where('level', 'error')->count());
 		}
 
@@ -253,23 +253,14 @@
 			$this->assertSame('overnight:2026-11-11', $this->state()['request']['opportunity']);
 		}
 
-		public function test_a_recovery_above_the_threshold_ends_eligibility_for_catch_up() : void
+		public function test_urgent_post_peak_starts_are_allowed_only_when_heating_is_not_expected() : void
 		{
-			$this->recordCharging(32.5, CarbonImmutable::parse('2026-11-06 18:55 Europe/London'));
-			$this->recordCharging(33, CarbonImmutable::parse('2026-11-06 19:05 Europe/London'));
-			$this->at('2026-11-06 19:10');
-			$this->poll(30, 32.5);
-			$this->assertSame([[47041 => 0]], $this->patches);
-			$this->assertNull($this->state()['request']);
-		}
-
-		public function test_post_peak_demand_is_rechecked_when_the_heating_prediction_changes() : void
-		{
-			$this->recordCharging(32.5, CarbonImmutable::parse('2026-11-06 18:55 Europe/London'));
 			$this->at('2026-11-06 19:00');
-			$this->poll(10, 32.5, false);
+			$this->poll(30, 19, true);
+			$this->assertNull($this->state()['request']);
+			$this->assertStringContainsString('post-peak space heating', $this->state()['reason']);
 			$this->at('2026-11-06 19:05');
-			$this->poll(10, 32.5, true);
+			$this->poll(10, 19, false);
 			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
 			$this->assertSame('afternoon:2026-11-06', $this->state()['request']['opportunity']);
 		}
@@ -288,7 +279,7 @@
 			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
 		}
 
-		public function test_post_peak_catch_up_is_available_after_an_earlier_afternoon_recharge() : void
+		public function test_an_earlier_afternoon_recharge_does_not_enable_a_post_peak_top_up() : void
 		{
 			$this->at('2026-11-03 10:00');
 			$this->poll(10, 32);
@@ -297,18 +288,17 @@
 			$this->at('2026-11-03 12:00');
 			$this->poll(10, 40);
 			$this->assertSame('2026-11-03', $this->state()['completed']['afternoon']);
-			$this->recordCharging(32.5, CarbonImmutable::parse('2026-11-03 18:55 Europe/London'));
 			$this->at('2026-11-03 19:00');
 			$this->poll(10, 32.5, false);
 			$this->assertNull($this->state()['request']);
 			$this->assertSame([[47041 => 1], [47041 => 0]], $this->patches);
 			$this->at('2026-11-03 19:05');
 			$this->poll(30, 32.5);
-			$this->assertSame([[47041 => 1], [47041 => 0], [47041 => 1]], $this->patches);
-			$this->assertSame('afternoon:2026-11-03', $this->state()['request']['opportunity']);
+			$this->assertSame([[47041 => 1], [47041 => 0]], $this->patches);
+			$this->assertNull($this->state()['request']);
 		}
 
-		public function test_post_peak_catch_up_uses_configured_actual_peak_end_and_overnight_start() : void
+		public function test_post_peak_wait_uses_configured_actual_peak_end_and_overnight_start() : void
 		{
 			$values = TariffPeriods::settings();
 			$values['daily']['peak']['end'] = '20:00';
@@ -320,49 +310,41 @@
 			$this->assertNull($this->state()['request']);
 			$this->at('2026-11-03 20:00');
 			$this->poll(10, 32.5);
-			$this->assertSame('afternoon:2026-11-03', $this->state()['request']['opportunity']);
-			$this->at('2026-11-03 20:05');
-			$this->poll(20, 33);
-			$this->at('2026-11-03 20:20');
-			$this->poll(10, 40);
+			$this->assertNull($this->state()['request']);
 			$this->at('2026-11-03 21:00');
 			$this->poll(10, 34);
-			$this->assertSame([[47041 => 0], [47041 => 1], [47041 => 0], [47041 => 1]], $this->patches);
+			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
 			$this->assertSame('overnight:2026-11-04', $this->state()['request']['opportunity']);
 		}
 
-		public function test_a_saving_session_blocks_post_peak_catch_up_until_a_start_can_fit() : void
+		public function test_a_saving_session_blocks_an_urgent_post_peak_start_until_it_can_fit() : void
 		{
 			config()->set('nibe.hotWaterDurationMinutes', 120);
 			$values = TariffPeriods::settings();
 			$values['extra'] = [['name' => 'Evening saving', 'type' => 'peak', 'start' => '2026-11-03T20:00', 'end' => '2026-11-03T21:00']];
 			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($values)]);
-			$this->recordCharging(32.5, CarbonImmutable::parse('2026-11-03 18:55 Europe/London'));
 			$this->at('2026-11-03 19:00');
-			$this->poll(10, 32.5);
+			$this->poll(10, 19, false);
 			$this->assertNull($this->state()['request']);
 			$this->at('2026-11-03 21:00');
-			$this->poll(30, 32.5);
+			$this->poll(10, 19, false);
 			$this->assertSame([[47041 => 0], [47041 => 1]], $this->patches);
 		}
 
-		public function test_a_running_post_peak_recharge_is_not_stopped_at_the_overnight_boundary() : void
+		public function test_a_manual_post_peak_recharge_finishes_and_returns_to_economy() : void
 		{
 			config()->set('nibe.hotWaterDurationMinutes', 120);
-			$this->recordCharging(32.5, CarbonImmutable::parse('2026-11-03 18:55 Europe/London'));
 			$this->at('2026-11-03 19:00');
-			$this->poll(10, 32.5);
-			$this->at('2026-11-03 19:05');
-			$this->poll(20, 33);
+			$this->poll(20, 32.5);
 			$this->at('2026-11-03 22:00');
 			$this->poll(20, 36);
 			$this->at('2026-11-03 22:15');
 			$this->poll(20, 38);
-			$this->assertSame([[47041 => 1]], $this->patches);
+			$this->assertSame([], $this->patches);
 			$this->assertStringContainsString('still running beyond its expected duration', $this->state()['reason']);
 			$this->at('2026-11-03 22:20');
 			$this->poll(30, 40);
-			$this->assertSame([[47041 => 1], [47041 => 0]], $this->patches);
+			$this->assertSame([[47041 => 0]], $this->patches);
 			$this->assertArrayNotHasKey('overnight', $this->state()['completed']);
 		}
 
@@ -452,20 +434,25 @@
 			];
 		}
 
-		public function test_a_failed_post_peak_start_is_not_retried_into_the_reserved_evening_window() : void
+		#[DataProvider('unstartedRequestResponses')]
+		public function test_an_urgent_post_peak_request_is_cancelled_if_heating_becomes_required_before_it_starts(bool $failedPatch) : void
 		{
 			config()->set('nibe.hotWaterDurationMinutes', 120);
-			$this->recordCharging(32.5, CarbonImmutable::parse('2026-11-06 18:55 Europe/London'));
 			$this->at('2026-11-06 20:00');
-			$this->failPatch = true;
-			$this->poll(30, 32.5, true, true);
+			$this->failPatch = $failedPatch;
+			$this->poll(10, 19, false, false);
 			$this->assertSame([[47041 => 1]], $this->patches);
 			$this->at('2026-11-06 20:05');
 			$this->failPatch = false;
-			$this->poll(30, 32.5, true, true);
+			$this->poll(30, 19, true, true);
 			$this->assertSame([[47041 => 1], [47041 => 0]], $this->patches);
 			$this->assertNull($this->state()['request']);
-			$this->assertStringContainsString('reserved for space heating until 00:00', $this->state()['reason']);
+			$this->assertStringContainsString('post-peak space heating', $this->state()['reason']);
+		}
+
+		public static function unstartedRequestResponses() : array
+		{
+			return ['accepted request' => [false], 'ambiguous response' => [true]];
 		}
 
 		public function test_evening_reservation_follows_an_edited_window_that_ends_after_midnight() : void
@@ -1027,13 +1014,7 @@
 
 		private function poll(int $priority, float $temperature, ?bool $heating = true, ?bool $eveningHeating = false) : void
 		{
-			$this->recordCharging($temperature, CarbonImmutable::now());
 			$this->control->run($this->points($priority, $temperature), fn($time, ?array $window = null) => $window === null ? $heating : $eveningHeating);
-		}
-
-		private function recordCharging(float $temperature, CarbonImmutable $time) : void
-		{
-			NibeFeedItem::firstOrCreate(['parameterId' => 40014, 'timestamp' => $time->getTimestamp()], ['rawValue' => $temperature, 'syncStatus' => 'pending']);
 		}
 
 		private function points(int $priority, float $temperature) : array
