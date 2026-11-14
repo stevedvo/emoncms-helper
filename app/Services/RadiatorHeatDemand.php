@@ -86,6 +86,11 @@
 		 */
 		public static function current() : ?bool
 		{
+			if (!ControlSettings::get('nibe.heatRadZone'))
+			{
+				return false;
+			}
+
 			$reason = null;
 
 			if (ControlSettings::get('nibe.dmOverride') === false || ControlSettings::get('nibe.loadCompensationOn') === false)

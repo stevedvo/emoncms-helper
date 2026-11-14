@@ -13,6 +13,14 @@ The owner clarified the following installation details on **20 October 2026**:
 
 These compressor stages explain the intent of the checked-in DM targets: normal `on` targets **-180**, `boost` targets **-360** to encourage the first higher stage, and `extraBoost` targets **-450** to encourage the next. The helper steers DM through flow-temperature settings rather than writing DM or frequency directly, and NIBE retains control of the actual compressor response. A UFH shortfall requesting `boost` therefore participates in the same deliberate compressor-staging strategy as radiator demand.
 
+## Manual UFH-only operation
+
+**Settings → Heating → Heat Rad Zone** defaults to on. Turn it off when the main building is being heated by the log burner and the ASHP should supply the UFH circuit. The mode calculation evaluates and logs the normal room, forecast, boost, peak and cooling rules, then overrides the result with fixed `intermittent`. The override log includes the calculated mode. Final radiator demand is saved once as false and any radiator boost hold is cleared.
+
+On every Hive control run, once a minute, the app requests the configured radiator off target (default **16°C**) through Home Assistant. Repeating the request covers failures between Home Assistant and Hive even when the app's call to Home Assistant succeeds. Turning Heat Rad Zone back on resumes normal target selection. The switch is read live and defaults to on for existing installations.
+
+The heating offset continues to use the existing intermittent DM calculation and dynamic limits, so it can move above or below zero. The fixed mode requests intermittent heating even when room readings are warm or unavailable. Hot-water scheduling treats this as expected space-heating demand without using radiator temperatures or the weather forecast to make that decision.
+
 ## The control loop
 
 `nibe:getData` calls `getNibeData()` every minute. It obtains all myUplink device points, stores recognised readings, and sends new or previously unsuccessful readings to Emoncms. When the current minute is divisible by five, it also runs these operations, in order:

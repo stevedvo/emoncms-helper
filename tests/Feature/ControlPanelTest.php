@@ -124,6 +124,18 @@ class ControlPanelTest extends TestCase
 		Http::assertNothingSent();
 	}
 
+	public function test_heat_rad_zone_defaults_on_and_can_be_toggled_without_restarting() : void
+	{
+		$this->actingAs(User::factory()->create());
+		$this->get('/settings')->assertOk()->assertSee('Heat Rad Zone');
+		$this->assertTrue(ControlSettings::get('nibe.heatRadZone'));
+		$this->put('/settings', $this->payload(['nibe__heatRadZone' => '0']))->assertSessionHasNoErrors();
+		$this->assertFalse(ControlSettings::get('nibe.heatRadZone'));
+		$this->put('/settings', $this->payload(['nibe__heatRadZone' => '1']))->assertSessionHasNoErrors();
+		$this->assertTrue(ControlSettings::get('nibe.heatRadZone'));
+		Http::assertNothingSent();
+	}
+
 	public function test_saved_values_are_typed_audited_and_used_without_restarting_the_process(): void
 	{
 		$user = User::factory()->create();

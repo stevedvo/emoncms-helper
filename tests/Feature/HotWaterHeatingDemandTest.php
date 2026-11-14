@@ -93,6 +93,16 @@
 			$this->assertTrue(DemandPredictionController::predict($points, CarbonImmutable::now()));
 		}
 
+		public function test_heat_rad_zone_off_predicts_fixed_ufh_heating_without_room_or_forecast_data() : void
+		{
+			Setting::create(['key' => 'control.nibe.heatRadZone', 'value' => 'false']);
+			Setting::whereIn('key', ['weather_data', 'agile_schedule'])->delete();
+			DemandPredictionController::$rooms = ['Rad_temperature' => null, 'UFH_temperature' => null];
+			$now = CarbonImmutable::now();
+			$this->assertTrue(DemandPredictionController::predict([], $now));
+			$this->assertTrue(DemandPredictionController::predict([], $now, TariffPeriods::window($now, ['start' => '22:00', 'end' => '00:00'])));
+		}
+
 		public function test_uncompensated_forecast_and_scheduled_promotion_match_the_heating_rules() : void
 		{
 			config()->set('nibe.loadCompensationOn', false);

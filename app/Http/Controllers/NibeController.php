@@ -820,6 +820,7 @@
 		public static function calculateHeatingMode(int $priority, float $outdoorTemp, float $avgOutdoorTemp) : string
 		{
 			static::initConfig();
+
 			$radiatorHeatRequired = null;
 			$ufhSatisfied = false;
 
@@ -1249,7 +1250,24 @@
 				}
 			}
 
-			$cancelRadiatorBoostHold = !$loadCompensationActive || RadiatorHeatDemand::peakBlocksHold(CarbonImmutable::now(), $peakImport) || $htgMode === 'cooling' || ControlSettings::get('nibe.dmOverride') === false;
+			$heatRadZone = ControlSettings::get('nibe.heatRadZone');
+
+			if (!$heatRadZone)
+			{
+				$radiatorHeatRequired = false;
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => 'info',
+					'message'    => 'Heat Rad Zone is off. Calculated mode "'.$htgMode.'" overridden with "intermittent" for UFH heating.',
+				]);
+
+				$htgMode = "intermittent";
+			}
+
+			$cancelRadiatorBoostHold = !$heatRadZone || !$loadCompensationActive || RadiatorHeatDemand::peakBlocksHold(CarbonImmutable::now(), $peakImport) || $htgMode === 'cooling' || ControlSettings::get('nibe.dmOverride') === false;
 			$radiatorBoostHoldUntil = null;
 
 			if (!$cancelRadiatorBoostHold && $radiatorHeatRequired === true && $boostActive && $priority === 30)
@@ -1409,6 +1427,11 @@
 
 		protected static function hotWaterHeatingRequired(array $points, CarbonImmutable $now, ?array $window = null) : ?bool
 		{
+			if (!ControlSettings::get('nibe.heatRadZone'))
+			{
+				return true;
+			}
+
 			$points = collect($points)->keyBy('parameterId');
 			$priority = HotWaterControl::reading($points->get(49994), $now);
 

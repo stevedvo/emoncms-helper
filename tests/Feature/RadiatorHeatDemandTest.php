@@ -868,6 +868,66 @@ class RadiatorHeatDemandTest extends TestCase
         $this->assertSame(0, ActivityLog::where('level', 'warning')->count());
     }
 
+    public function test_heat_rad_zone_off_fixes_the_mode_and_clears_a_boost_hold() : void
+    {
+        RadiatorHeatDemand::record(true, CarbonImmutable::now()->addHour());
+        $setting = Setting::create(['key' => 'control.nibe.heatRadZone', 'value' => 'false']);
+        ControlledNibeController::prepare(17, 18, true, true);
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(30, -5, -5));
+        $this->assertFalse(RadiatorHeatDemand::current());
+        $decision = json_decode(Setting::where('key', RadiatorHeatDemand::SETTING_KEY)->value('value'), true);
+        $this->assertNull($decision['boostHoldUntil']);
+        $this->assertSame(1, ActivityLog::where('message', 'like', 'Radiator boost hold active until%')->count());
+        $this->assertStringContainsString('Calculated mode extraBoost overridden with intermittent', ActivityLog::where('message', 'like', 'Heat Rad Zone is off.%')->latest('id')->first()->message);
+
+        ControlledNibeController::prepare(null, null, true, false);
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(60, 25, 25));
+
+        $setting->update(['value' => 'true']);
+        ControlledNibeController::prepare(17, 18);
+        $this->assertSame('extraBoost', ControlledNibeController::calculateHeatingMode(30, -5, -5));
+        $this->assertTrue(RadiatorHeatDemand::current());
+    }
+
+    public function test_heat_rad_zone_off_repeats_the_off_target_and_resumes_after_reenabling() : void
+    {
+        config()->set('nibe.heatRadZone', false);
+        Setting::create(['key' => 'hiveRadiatorOffTarget', 'value' => '16']);
+        $api = Mockery::mock(HomeAssistantAPI::class);
+        $api->shouldReceive('adjustHiveThermostat')->twice()->with(16);
+        $this->app->instance(HomeAssistantAPI::class, $api);
+        HomeAssistantController::adjustHiveThermostat();
+        HomeAssistantController::adjustHiveThermostat();
+
+        config()->set('nibe.heatRadZone', true);
+        RadiatorHeatDemand::record(true);
+        $this->assertHiveTarget(30, 30);
+        $this->assertSame(0, ActivityLog::where('level', 'error')->count());
+    }
+
+    public function test_heat_rad_zone_off_continues_sending_after_a_failed_off_command() : void
+    {
+        config()->set('nibe.heatRadZone', false);
+        $attempts = 0;
+        $api = Mockery::mock(HomeAssistantAPI::class);
+        $api->shouldReceive('adjustHiveThermostat')->times(3)->with(16)->andReturnUsing(function() use (&$attempts)
+        {
+            $attempts++;
+            if ($attempts === 1)
+            {
+                throw new \RuntimeException('Simulated Hive failure.');
+            }
+        });
+        $this->app->instance(HomeAssistantAPI::class, $api);
+        HomeAssistantController::adjustHiveThermostat();
+        $this->assertNull(Setting::where('key', 'hiveRadiatorOffTarget')->value('value'));
+        HomeAssistantController::adjustHiveThermostat();
+        HomeAssistantController::adjustHiveThermostat();
+        $this->assertSame(3, $attempts);
+        $this->assertNull(Setting::where('key', 'hiveRadiatorOffTarget')->value('value'));
+    }
+
     public function test_a_missing_initial_room_fallback_disables_compensation_without_throwing(): void
     {
         $this->assertNull(RoomTemperatureProbe::read());

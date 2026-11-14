@@ -179,6 +179,8 @@ Initial regular schedule generation still depends on a successful Octopus respon
 
 ## Home Assistant / Hive
 
+When **Heat Rad Zone** is off, the Hive task requests the configured off target (default 16°C) through Home Assistant on every run, once a minute. A successful Home Assistant response still leaves the request eligible to be repeated because delivery to Hive can fail further along the chain. This path works even if a priority reading is unavailable. The heating-mode calculation separately selects fixed intermittent UFH operation and clears radiator boost holds.
+
 Each minute, `adjustHiveThermostat()` reads the latest inserted NIBE priority and requests:
 
 | Priority | Radiator heat demand | Hive target default |
