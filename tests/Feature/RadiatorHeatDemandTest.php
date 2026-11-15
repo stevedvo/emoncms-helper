@@ -868,26 +868,59 @@ class RadiatorHeatDemandTest extends TestCase
         $this->assertSame(0, ActivityLog::where('level', 'warning')->count());
     }
 
-    public function test_heat_rad_zone_off_fixes_the_mode_and_clears_a_boost_hold() : void
+    public function test_heat_rad_zone_off_resets_the_baseline_and_clears_a_boost_hold() : void
     {
         RadiatorHeatDemand::record(true, CarbonImmutable::now()->addHour());
         $setting = Setting::create(['key' => 'control.nibe.heatRadZone', 'value' => 'false']);
         ControlledNibeController::prepare(17, 18, true, true);
-        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(30, -5, -5));
+        $this->assertSame('boost', ControlledNibeController::calculateHeatingMode(30, -5, -5));
         $this->assertFalse(RadiatorHeatDemand::current());
         $decision = json_decode(Setting::where('key', RadiatorHeatDemand::SETTING_KEY)->value('value'), true);
         $this->assertNull($decision['boostHoldUntil']);
         $this->assertSame(1, ActivityLog::where('message', 'like', 'Radiator boost hold active until%')->count());
-        $this->assertStringContainsString('Calculated mode extraBoost overridden with intermittent', ActivityLog::where('message', 'like', 'Heat Rad Zone is off.%')->latest('id')->first()->message);
+        $this->assertStringContainsString('Calculated mode "extraBoost" overridden with "intermittent"', ActivityLog::where('message', 'like', 'Heat Rad Zone is off.%')->latest('id')->first()->message);
 
         ControlledNibeController::prepare(null, null, true, false);
         $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
-        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(60, 25, 25));
+        $this->assertSame('cooling', ControlledNibeController::calculateHeatingMode(60, 25, 25));
 
         $setting->update(['value' => 'true']);
         ControlledNibeController::prepare(17, 18);
         $this->assertSame('extraBoost', ControlledNibeController::calculateHeatingMode(30, -5, -5));
         $this->assertTrue(RadiatorHeatDemand::current());
+    }
+
+    #[DataProvider('ufhOnlyScenarios')]
+    public function test_heat_rad_zone_off_uses_ufh_demand_independently_of_radiator_data(
+        ?float $rad, ?float $ufh, bool $boost, bool $peak, bool $defrost, string $expectedMode
+    ) : void
+    {
+        config()->set('nibe.heatRadZone', false);
+        config()->set('nibe.ufhTempIntermittent', 20);
+        config()->set('nibe.ufhTempOn', 19.5);
+        config()->set('nibe.ufhBoostTempAdjust', 1);
+        config()->set('nibe.ufhBoostTempShortfall', 1);
+        ControlledNibeController::prepare($rad, $ufh, $boost, $peak, $defrost);
+
+        $this->assertSame($expectedMode, ControlledNibeController::calculateHeatingMode(30, 10, 10));
+        $this->assertFalse(RadiatorHeatDemand::current());
+        $this->assertHiveTarget(30, 16);
+    }
+
+    public static function ufhOnlyScenarios() : array
+    {
+        return [
+            'warm UFH keeps baseline despite cold radiators'   => [17, 22, false, false, false, 'intermittent'],
+            'UFH on threshold'                                 => [17, 19.5, false, false, false, 'on'],
+            'exact boost shortfall stays on'                   => [17, 19, false, false, false, 'on'],
+            'larger shortfall requests boost'                  => [17, 18.9, false, false, false, 'boost'],
+            'cheap window preheats UFH'                        => [17, 20.5, true, false, false, 'on'],
+            'peak suppresses preheat'                          => [17, 20.5, true, true, false, 'intermittent'],
+            'defrost limit still applies'                      => [17, 18.9, false, false, true, 'on'],
+            'missing radiator reading still permits UFH on'    => [null, 19.5, false, false, false, 'on'],
+            'missing radiator reading still permits UFH boost' => [null, 18.9, false, false, false, 'boost'],
+            'missing room readings keep baseline'              => [null, null, true, false, false, 'intermittent'],
+        ];
     }
 
     public function test_heat_rad_zone_off_repeats_the_off_target_and_resumes_after_reenabling() : void

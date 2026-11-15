@@ -93,7 +93,7 @@
 			$this->assertTrue(DemandPredictionController::predict($points, CarbonImmutable::now()));
 		}
 
-		public function test_heat_rad_zone_off_predicts_fixed_ufh_heating_without_room_or_forecast_data() : void
+		public function test_heat_rad_zone_off_predicts_baseline_ufh_heating_without_room_or_forecast_data() : void
 		{
 			Setting::create(['key' => 'control.nibe.heatRadZone', 'value' => 'false']);
 			Setting::whereIn('key', ['weather_data', 'agile_schedule'])->delete();

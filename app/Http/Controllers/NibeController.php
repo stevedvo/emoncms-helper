@@ -1089,10 +1089,28 @@
 				]);
 			}
 
+			$heatRadZone = ControlSettings::get('nibe.heatRadZone');
+
+			if (!$heatRadZone)
+			{
+				$radiatorHeatRequired = false;
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => 'info',
+					'message'    => 'Heat Rad Zone is off. Calculated mode "'.$htgMode.'" overridden with "intermittent" for UFH heating.',
+				]);
+
+				$htgMode = "intermittent";
+			}
+
 			if (true)
 			{
 				// Keep the UFH comfort thresholds as minimums; preheat during boost windows outside peak import.
-				if ($loadCompensationActive)
+				// Manual UFH-only operation must not depend on a usable radiator reading.
+				if ($loadCompensationActive || !$heatRadZone)
 				{
 					$ufhTemperature = static::getRoomTemperature("UFH_temperature", false);
 
@@ -1248,23 +1266,6 @@
 				{
 					$htgMode = "cooling";
 				}
-			}
-
-			$heatRadZone = ControlSettings::get('nibe.heatRadZone');
-
-			if (!$heatRadZone)
-			{
-				$radiatorHeatRequired = false;
-
-				ActivityLog::create(
-				[
-					'controller' => __CLASS__,
-					'method'     => __FUNCTION__,
-					'level'      => 'info',
-					'message'    => 'Heat Rad Zone is off. Calculated mode "'.$htgMode.'" overridden with "intermittent" for UFH heating.',
-				]);
-
-				$htgMode = "intermittent";
 			}
 
 			$cancelRadiatorBoostHold = !$heatRadZone || !$loadCompensationActive || RadiatorHeatDemand::peakBlocksHold(CarbonImmutable::now(), $peakImport) || $htgMode === 'cooling' || ControlSettings::get('nibe.dmOverride') === false;

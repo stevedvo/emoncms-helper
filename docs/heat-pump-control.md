@@ -15,11 +15,11 @@ These compressor stages explain the intent of the checked-in DM targets: normal 
 
 ## Manual UFH-only operation
 
-**Settings → Heating → Heat Rad Zone** defaults to on. Turn it off when the main building is being heated by the log burner and the ASHP should supply the UFH circuit. The mode calculation evaluates and logs the normal room, forecast, boost, peak and cooling rules, then overrides the result with fixed `intermittent`. The override log includes the calculated mode. Final radiator demand is saved once as false and any radiator boost hold is cleared.
+**Settings → Heating → Heat Rad Zone** defaults to on. Turn it off when the main building is being heated by the log burner and the ASHP should supply the UFH circuit. The mode calculation evaluates and logs the normal radiator, forecast and scheduled boost rules, then resets the mode to an `intermittent` baseline before applying UFH demand. The override log includes the mode calculated before this reset. UFH temperature thresholds, cheap-window preheating and the boost-shortfall rule can then raise the mode to `on` or `boost`, independently of whether a usable radiator reading is available. The later defrost cap and outdoor-temperature cooling rule still apply. Final radiator demand is saved once as false and any radiator boost hold is cleared.
 
 On every Hive control run, once a minute, the app requests the configured radiator off target (default **16°C**) through Home Assistant. Repeating the request covers failures between Home Assistant and Hive even when the app's call to Home Assistant succeeds. Turning Heat Rad Zone back on resumes normal target selection. The switch is read live and defaults to on for existing installations.
 
-The heating offset continues to use the existing intermittent DM calculation and dynamic limits, so it can move above or below zero. The fixed mode requests intermittent heating even when room readings are warm or unavailable. Hot-water scheduling treats this as expected space-heating demand without using radiator temperatures or the weather forecast to make that decision.
+The heating offset and DM target follow the resulting mode. At the `intermittent` baseline, the offset still uses the existing DM calculation and dynamic limits, so it can move above or below zero; a UFH request for `on` or `boost` selects that mode's controls instead. Warm or unavailable UFH readings leave the baseline at `intermittent`, rather than selecting `off`. Hot-water scheduling treats this as expected space-heating demand without using radiator temperatures or the weather forecast to make that decision.
 
 ## The control loop
 
