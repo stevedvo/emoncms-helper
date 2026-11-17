@@ -92,6 +92,45 @@
 			return $type;
 		}
 
+		// Actual tariff boundaries, without the offsets used by heating temperature controls.
+		public static function actualPeakAt(CarbonInterface $time) : bool
+		{
+			$settings = self::settings();
+			$extraCheap = false;
+
+			foreach ($settings['extra'] as $event)
+			{
+				if ($time->greaterThanOrEqualTo(CarbonImmutable::parse($event['start'], self::ZONE)) && $time->isBefore(CarbonImmutable::parse($event['end'], self::ZONE)))
+				{
+					if ($event['type'] === 'peak')
+					{
+						return true;
+					}
+
+					$extraCheap = true;
+				}
+			}
+
+			if ($extraCheap)
+			{
+				return false;
+			}
+
+			$local = CarbonImmutable::instance($time)->setTimezone(self::ZONE);
+
+			foreach ([-1, 0, 1] as $day)
+			{
+				[$start, $end] = self::window($local->addDays($day), $settings['daily']['peak']);
+
+				if ($local->greaterThanOrEqualTo($start) && $local->isBefore($end))
+				{
+					return true;
+				}
+			}
+
+			return false;
+		}
+
 		public static function peakAt(CarbonInterface $time, int $leadMinutes = 0) : bool
 		{
 			$settings = self::settings();

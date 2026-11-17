@@ -117,8 +117,8 @@ class RadiatorHeatDemandTest extends TestCase
             'warm forecast keeps radiator demand' => [21, 19.8, 10, false, false, 14, 'on', true, 30],
             'warm forecast keeps base threshold equality' => [21.5, 20.5, 10, false, false, 14, 'intermittent', true, 30],
             'cold forecast threshold equality' => [23.5, 20.5, 10, false, false, 2, 'intermittent', true, 30],
-            'cold peak minimum must not create Rad demand' => [22, 20.5, 10, false, true, 2, 'intermittent', false, 16],
-            'cold peak minimum during wind-down' => [22, 20.5, 30, false, true, 2, 'intermittent', false, 16],
+            'cold forecast must not restart satisfied zones in peak' => [22, 20.5, 10, false, true, 2, 'off', false, 16],
+            'cold forecast must not prevent peak wind-down'           => [22, 20.5, 30, false, true, 2, 'off', false, 16],
         ];
     }
 
@@ -208,9 +208,15 @@ class RadiatorHeatDemandTest extends TestCase
 
         foreach ([false, true] as $cooling)
         {
+            CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 04:10:00', TariffPeriods::ZONE));
             ScheduledBoostNibeController::prepare(21.5, 21.2);
             ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10);
             $this->assertTrue(RadiatorHeatDemand::current());
+            if (!$cooling)
+            {
+                CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 16:00:00', TariffPeriods::ZONE));
+                RadiatorHeatDemand::record(true, CarbonImmutable::now()->addHour());
+            }
             ControlledNibeController::prepare(26, 21.2, false, !$cooling);
             ControlledNibeController::calculateHeatingMode($cooling ? 60 : 30, $cooling ? 25 : 10, $cooling ? 25 : 10);
             $this->assertFalse(RadiatorHeatDemand::current());
@@ -356,14 +362,16 @@ class RadiatorHeatDemandTest extends TestCase
         }
     }
 
-    public function test_satisfied_zones_wind_down_starting_thirty_minutes_before_the_adjusted_peak() : void
+    #[DataProvider('peakWindDownOffsets')]
+    public function test_satisfied_zones_wind_down_at_the_adjusted_peak_without_an_extra_lead(int $offset) : void
     {
-        config()->set('nibe.peakImportStartOffsetMinutes', 20);
+        config()->set('nibe.peakImportStartOffsetMinutes', $offset);
         config()->set('nibe.dmTargetOff', 30);
+        $start = CarbonImmutable::parse('2026-10-22 16:00:00 Europe/London')->addMinutes($offset);
 
-        foreach ([['15:49:59', 'intermittent'], ['15:50:00', 'off'], ['16:20:00', 'off'], ['18:35:01', 'intermittent']] as [$time, $expected])
+        foreach ([[$start->subMinute(), 'intermittent'], [$start->subSecond(), 'intermittent'], [$start, 'off'], [$start->addMinutes(5), 'off']] as [$time, $expected])
         {
-            CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-22 '.$time.' Europe/London'));
+            CarbonImmutable::setTestNow($time);
             ScheduledPeakNibeController::prepare(23, 21.8);
             $mode = ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10);
             $this->assertSame($expected, $mode);
@@ -373,11 +381,76 @@ class RadiatorHeatDemandTest extends TestCase
                 $this->assertSame(30, NibeController::calculateTargetDm(30, $mode, 10));
             }
         }
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-22 18:35:01 Europe/London'));
+        ScheduledPeakNibeController::prepare(23, 21.8);
+        $this->assertSame('intermittent', ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
+    }
+
+    public static function peakWindDownOffsets() : array
+    {
+        return [
+            'no early adjustment' => [0],
+            '45-minute lead'      => [-45],
+            '50-minute lead'      => [-50],
+            '55-minute lead'      => [-55],
+            'later peak controls' => [20],
+        ];
+    }
+
+    public function test_early_peak_wind_down_keeps_an_active_radiator_hold_until_the_actual_peak() : void
+    {
+        config()->set('nibe.peakImportStartOffsetMinutes', -45);
+        $start = CarbonImmutable::parse('2026-10-31 13:00:00', TariffPeriods::ZONE);
+        CarbonImmutable::setTestNow($start);
+        $this->setForecast(2);
+        Setting::create(['key' => 'agile_schedule', 'value' => json_encode(['cosy' => TariffPeriods::nextCosyWindows($start, true)])]);
+        ScheduledBoostNibeController::prepare(21.5, 21.2);
+        ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10);
+        $this->assertHiveTarget(30, 30);
+
+        // Keep the stored decision fresh at the normal five-minute cadence through the early boost finish.
+        for ($minutes = 5; $minutes < 180; $minutes += 5)
+        {
+            CarbonImmutable::setTestNow($start->addMinutes($minutes));
+            ScheduledBoostNibeController::prepare(25, 21.2);
+            $mode = ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10);
+            $this->assertSame($minutes < 135 ? 'intermittent' : 'off', $mode);
+            $this->assertFalse(RadiatorHeatDemand::previous());
+            $this->assertHiveTarget(30, 30);
+        }
+
+        CarbonImmutable::setTestNow($start->addHours(3));
+        $this->assertHiveTarget(30, 16);
+        ScheduledBoostNibeController::prepare(25, 21.2);
+        $this->assertSame('off', ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10));
+        $decision = json_decode(Setting::where('key', RadiatorHeatDemand::SETTING_KEY)->value('value'), true);
+        $this->assertNull($decision['boostHoldUntil']);
+    }
+
+    public function test_idle_during_early_peak_controls_closes_hive_without_restarting_satisfied_zones() : void
+    {
+        config()->set('nibe.peakImportStartOffsetMinutes', -45);
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 15:20:00', TariffPeriods::ZONE));
+        $this->setForecast(2);
+        RadiatorHeatDemand::record(true, CarbonImmutable::now()->addMinutes(40));
+        ScheduledPeakNibeController::prepare(22.5, 21.2);
+
+        $this->assertSame('off', ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
+        $this->assertHiveTarget(30, 30);
+        $this->assertSame('off', ScheduledPeakNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertHiveTarget(10, 16);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(5));
+        ScheduledPeakNibeController::prepare(22.5, 21.2);
+        $this->assertSame('off', ScheduledPeakNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertHiveTarget(10, 16);
     }
 
     #[DataProvider('demandNearPeak')]
     public function test_peak_wind_down_requires_both_zones_to_be_satisfied(float $rad, ?float $ufh, bool $boost, string $mode) : void
     {
+        config()->set('nibe.peakImportStartOffsetMinutes', -45);
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-22 15:30:00 Europe/London'));
         ScheduledPeakNibeController::prepare($rad, $ufh, $boost);
         $this->assertSame($mode, ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
@@ -386,12 +459,12 @@ class RadiatorHeatDemandTest extends TestCase
     public static function demandNearPeak() : array
     {
         return [
-            'both zones satisfied'  => [24, 22, false, 'off'],
-            'radiator calling'      => [20.5, 22, false, 'on'],
-            'UFH calling'           => [24, 20, false, 'intermittent'],
-            'UFH needs more heat'   => [24, 19, false, 'on'],
-            'UFH preheat calling'   => [24, 20.8, true, 'intermittent'],
-            'UFH reading missing'  => [24, null, false, 'intermittent'],
+            'both zones satisfied'       => [24, 22, false, 'off'],
+            'radiator calling'           => [18.5, 22, false, 'on'],
+            'UFH calling'                => [24, 20, false, 'intermittent'],
+            'UFH needs more heat'        => [24, 19, false, 'on'],
+            'UFH preheat suppressed'     => [24, 20.8, true, 'off'],
+            'UFH reading missing'        => [24, null, false, 'intermittent'],
         ];
     }
 

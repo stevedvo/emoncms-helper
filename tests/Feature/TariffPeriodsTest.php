@@ -101,6 +101,33 @@
 			$this->assertSame($this->time('2026-10-27 12:45')->timestamp, TariffPeriods::nextCosyWindows(CarbonImmutable::now(), true)[1]['start']);
 		}
 
+		public function test_actual_peak_boundaries_ignore_heating_offsets_and_follow_dated_offers() : void
+		{
+			config()->set('nibe.peakImportStartOffsetMinutes', -45);
+			config()->set('nibe.peakImportEndOffsetMinutes', -25);
+			$this->storeEvents([
+				$this->event('cheap', '2026-10-27T16:30', '2026-10-27T17:30'),
+				$this->event('peak', '2026-10-27T22:30', '2026-10-28T00:30'),
+			]);
+
+			foreach ([['2026-10-27 15:15', false], ['2026-10-27 16:00', true], ['2026-10-27 16:30', false], ['2026-10-27 17:30', true], ['2026-10-27 18:36', true], ['2026-10-27 19:00', false], ['2026-10-27 21:45', false], ['2026-10-27 22:30', true], ['2026-10-28 00:29:59', true], ['2026-10-28 00:30', false]] as [$clock, $expected])
+			{
+				$this->assertSame($expected, TariffPeriods::actualPeakAt($this->time($clock)), $clock);
+			}
+		}
+
+		public function test_actual_daily_peak_supports_a_cross_midnight_window() : void
+		{
+			$settings = TariffPeriods::settings();
+			$settings['daily']['peak'] = ['start' => '23:00', 'end' => '01:00'];
+			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($settings)]);
+
+			foreach ([['2026-10-27 22:59:59', false], ['2026-10-27 23:00', true], ['2026-10-28 00:59:59', true], ['2026-10-28 01:00', false]] as [$clock, $expected])
+			{
+				$this->assertSame($expected, TariffPeriods::actualPeakAt($this->time($clock)), $clock);
+			}
+		}
+
 		public function test_zero_offsets_keep_dated_heating_boundaries_at_the_actual_tariff_times() : void
 		{
 			config()->set('octopus.offsetToOn', 0);

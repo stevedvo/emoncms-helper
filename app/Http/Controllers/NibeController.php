@@ -1176,11 +1176,12 @@
 				}
 			}
 
-			// Preserve a running cycle unless both zones are satisfied near or during peak.
+			// The peak start offset supplies the wind-down lead; do not add a second early window.
+			$windDown = $peakImport && $radiatorHeatRequired === false && $ufhSatisfied;
+
+			// Preserve a running cycle unless both zones are satisfied during peak controls.
 			if ($htgMode === "off" && $priority === 30)
 			{
-				$windDown = $radiatorHeatRequired === false && $ufhSatisfied && ($peakImport || static::isPeakImport($now, 30));
-
 				if (!$windDown)
 				{
 					$htgMode = "intermittent";
@@ -1191,14 +1192,14 @@
 					'controller' => __CLASS__,
 					'method'     => __FUNCTION__,
 					'level'      => "info",
-					'message'    => $windDown ? 'Both zones are satisfied near or during peak. Allowing the heating cycle to wind down in off mode.' : '$htgMode was "off" but currently heating so changed to "intermittent"',
+					'message'    => $windDown ? 'Both zones are satisfied during peak controls. Allowing the heating cycle to wind down in off mode.' : '$htgMode was "off" but currently heating so changed to "intermittent"',
 				]);
 			}
 
 			// adjustment check 6: nudge $htgMode down if we're in the peak [expensive] window
 			if (true)
 			{
-				if ($peakImport)
+				if ($peakImport && !$windDown)
 				{
 					if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < ControlSettings::get('nibe.dmTargetBoostTemp'))
 					{
@@ -1268,7 +1269,7 @@
 				}
 			}
 
-			$cancelRadiatorBoostHold = !$heatRadZone || !$loadCompensationActive || RadiatorHeatDemand::peakBlocksHold(CarbonImmutable::now(), $peakImport) || $htgMode === 'cooling' || ControlSettings::get('nibe.dmOverride') === false;
+			$cancelRadiatorBoostHold = !$heatRadZone || !$loadCompensationActive || RadiatorHeatDemand::peakBlocksHold(CarbonImmutable::now()) || $htgMode === 'cooling' || ControlSettings::get('nibe.dmOverride') === false;
 			$radiatorBoostHoldUntil = null;
 
 			if (!$cancelRadiatorBoostHold && $radiatorHeatRequired === true && $boostActive && $priority === 30)

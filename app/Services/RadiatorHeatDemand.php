@@ -123,10 +123,10 @@
 			return null;
 		}
 
-		public static function peakBlocksHold(CarbonImmutable $time, ?bool $peakImport = null) : bool
+		public static function peakBlocksHold(CarbonImmutable $time) : bool
 		{
-			// A dated cheap offer can outlast its early boost finish inside the normal daily peak.
-			return ($peakImport ?? TariffPeriods::peakAt($time)) && (TariffPeriods::extraHeatingTypeAt($time) === 'peak' || TariffPeriods::extraTypeAt($time) !== 'cheap');
+			// Early temperature adjustments must not close radiators that are still winding down.
+			return TariffPeriods::actualPeakAt($time);
 		}
 
 		private static function storedDemand(?string &$reason, ?array &$decision = null) : ?bool
