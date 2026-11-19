@@ -5,6 +5,7 @@
 	use App\Models\Setting;
 	use App\Services\HeatingBoostSchedule;
 	use App\Services\RadiatorHeatDemand;
+	use App\Services\TariffPeriods;
 	use Carbon\CarbonImmutable;
 	use PHPUnit\Framework\Attributes\DataProvider;
 	use Tests\Support\ControlPanelDatabase;
@@ -63,9 +64,21 @@
 				'both rooms warm'           => [24, 22, false],
 				'radiator demand now'       => [20, 22, true],
 				'radiator boost demand'     => [22, 22, true],
+				'idle boost threshold'     => [22.5, 22, true],
 				'UFH preheat demand'        => [24, 20.5, true],
 				'missing Rad uses fallback' => [null, 22, false],
 			];
+		}
+
+		public function test_prediction_uses_saved_radiator_adjustments_without_recording_live_demand() : void
+		{
+			DemandPredictionController::$rooms['Rad_temperature'] = 22.5;
+			$adjustment = Setting::create(['key' => 'control.nibe.radBoostTempAdjust', 'value' => '0']);
+			$this->assertFalse(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
+			$adjustment->update(['value' => '1']);
+			$before = Setting::pluck('value', 'key')->all();
+			$this->assertTrue(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
+			$this->assertSame($before, Setting::pluck('value', 'key')->all());
 		}
 
 		public function test_missing_ufh_data_is_unknown_when_radiators_are_satisfied() : void
@@ -78,6 +91,16 @@
 		{
 			$points = [['parameterId' => 49994, 'value' => 30, 'timestamp' => CarbonImmutable::now()->toIso8601String()]];
 			$this->assertTrue(DemandPredictionController::predict($points, CarbonImmutable::now()));
+		}
+
+		public function test_heat_rad_zone_off_predicts_baseline_ufh_heating_without_room_or_forecast_data() : void
+		{
+			Setting::create(['key' => 'control.nibe.heatRadZone', 'value' => 'false']);
+			Setting::whereIn('key', ['weather_data', 'agile_schedule'])->delete();
+			DemandPredictionController::$rooms = ['Rad_temperature' => null, 'UFH_temperature' => null];
+			$now = CarbonImmutable::now();
+			$this->assertTrue(DemandPredictionController::predict([], $now));
+			$this->assertTrue(DemandPredictionController::predict([], $now, TariffPeriods::window($now, ['start' => '22:00', 'end' => '00:00'])));
 		}
 
 		public function test_uncompensated_forecast_and_scheduled_promotion_match_the_heating_rules() : void
@@ -100,12 +123,41 @@
 			$this->assertNull(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
 		}
 
-		public function test_evening_decision_also_checks_the_following_morning_boost() : void
+		public function test_evening_window_prediction_distinguishes_morning_only_demand_from_evening_demand() : void
 		{
 			CarbonImmutable::setTestNow(CarbonImmutable::now()->setTime(22, 0));
 			DemandPredictionController::$rooms['UFH_temperature'] = 20.5;
 			$start = CarbonImmutable::now()->addDay()->setTime(3, 45);
 			Setting::where('key', 'agile_schedule')->update(['value' => json_encode(['cosy' => [['start' => $start->getTimestamp(), 'end' => $start->addHours(2)->getTimestamp()]]])]);
+			$now = CarbonImmutable::now();
+			$evening = TariffPeriods::window($now, TariffPeriods::settings()['daily']['evening']);
+			$this->assertTrue(DemandPredictionController::predict($this->points(), $now));
+			$this->assertFalse(DemandPredictionController::predict($this->points(), $now, $evening));
+			Setting::where('key', 'agile_schedule')->update(['value' => json_encode(['cosy' => [['start' => $now->timestamp, 'end' => $now->addHour()->timestamp]]])]);
+			$this->assertTrue(DemandPredictionController::predict($this->points(), $now, $evening));
+		}
+
+		public function test_prediction_follows_an_edited_afternoon_cheap_period() : void
+		{
+			DemandPredictionController::$rooms['Rad_temperature'] = 22;
+			$values = TariffPeriods::settings();
+			$values['daily']['afternoon'] = ['start' => '17:00', 'end' => '20:00'];
+			$values['daily']['peak'] = ['start' => '20:00', 'end' => '23:00'];
+			$values['daily']['evening'] = ['start' => '23:00', 'end' => '02:00'];
+			TariffPeriods::save($values, TariffPeriods::revision(TariffPeriods::settings()), 1);
+			$this->assertTrue(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
+		}
+
+		public function test_prediction_includes_dated_cheap_offers_and_saving_sessions() : void
+		{
+			DemandPredictionController::$rooms['Rad_temperature'] = 22;
+			$values = TariffPeriods::settings();
+			$values['extra'] = [['name' => 'Saving session', 'type' => 'peak', 'start' => '2026-10-24T12:30', 'end' => '2026-10-24T16:00']];
+			Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($values)]);
+			$this->assertFalse(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
+			// The adjusted 10:15–10:20 heating window precedes the actual 10:30 tariff start.
+			$values['extra'][] = ['name' => 'Extra cheap morning', 'type' => 'cheap', 'start' => '2026-10-24T10:30', 'end' => '2026-10-24T12:00'];
+			Setting::where('key', TariffPeriods::KEY)->update(['value' => json_encode($values)]);
 			$this->assertTrue(DemandPredictionController::predict($this->points(), CarbonImmutable::now()));
 		}
 
@@ -157,9 +209,9 @@
 	{
 		public static array $rooms;
 
-		public static function predict(array $points, CarbonImmutable $now) : ?bool
+		public static function predict(array $points, CarbonImmutable $now, ?array $window = null) : ?bool
 		{
-			return static::hotWaterHeatingRequired($points, $now);
+			return static::hotWaterHeatingRequired($points, $now, $window);
 		}
 
 		protected static function hotWaterRoomTemperature(string $feed) : ?float

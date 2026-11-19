@@ -15,9 +15,7 @@
 		private const LIVE_PARAMETERS = [40004, 40014, 40067, 40071, 40940, 43009, 44270, 44363, 49994];
 		private array $state;
 
-		public function __construct(private NibeAPI $nibe)
-		{
-		}
+		public function __construct(private NibeAPI $nibe) { }
 
 		public static function handlesControl() : bool
 		{
@@ -182,14 +180,19 @@
 			if ($request !== null)
 			{
 				$timedOut = $now->getTimestamp() - $request['requestedAt'] >= 30 * 60;
-				$retryWouldEnterPeak = $this->state['pendingMode'] === 1 && !$this->canStart($now);
+				$retryBlock = null;
 
-				if (!$enabled || $timedOut || $retryWouldEnterPeak)
+				if ($enabled && !$timedOut)
+				{
+					$retryBlock = !$this->canStart($now) ? 'the tariff peak' : $this->spaceHeatingBlock($now, $heatingRequired);
+				}
+
+				if (!$enabled || $timedOut || $retryBlock !== null)
 				{
 					$this->setMode(0, $now);
 					$this->state['request'] = null;
 					$this->state['retryAfter'] = $now->addMinutes(30)->getTimestamp();
-					$this->note($timedOut ? 'Recharge did not start within 30 minutes; economy restored, retry delayed by 30 minutes.' : ($retryWouldEnterPeak ? 'Unconfirmed request cancelled to avoid the tariff peak; economy restored.' : 'Unstarted request cancelled because app-managed hot water was disabled.'), $timedOut ? 'warning' : 'info');
+					$this->note($timedOut ? 'Recharge did not start within 30 minutes; economy restored, retry delayed by 30 minutes.' : ($retryBlock !== null ? 'Unconfirmed request cancelled to avoid '.$retryBlock.'. Economy restored.' : 'Unstarted request cancelled because app-managed hot water was disabled.'), $timedOut ? 'warning' : 'info');
 				}
 				else
 				{
@@ -221,7 +224,14 @@
 				return;
 			}
 
-			[$opportunity, $reason] = $this->opportunity($charging['value'], $now, $heatingRequired);
+			$top = self::reading($points[40013] ?? null, $now);
+			[$opportunity, $reason] = $this->opportunity($charging['value'], $top['value'] ?? null, $now, $heatingRequired);
+
+			if ($opportunity !== null && ($block = $this->spaceHeatingBlock($now, $heatingRequired)) !== null)
+			{
+				$opportunity = null;
+				$reason = 'Deferring hot water to avoid '.$block.'.';
+			}
 
 			if ($opportunity === null)
 			{
@@ -238,19 +248,21 @@
 			$this->note($reason.' Charging '.$charging['value'].'°C; standard mode requested.');
 		}
 
-		private function opportunity(float $temperature, CarbonImmutable $now, callable $heatingRequired) : array
+		private function opportunity(float $temperature, ?float $topTemperature, CarbonImmutable $now, callable $heatingRequired) : array
 		{
-			$minute = $now->hour * 60 + $now->minute;
-			$urgent = $temperature < ControlSettings::get('nibe.hotWaterUrgentTemperature');
+			$periods = TariffPeriods::settings();
+			$timings = $periods['hot_water'];
 
 			if (!$this->canStart($now))
 			{
-				return [null, 'Deferring new hot water production to avoid the 16:00–19:00 tariff peak.'];
+				return [null, 'Deferring new hot water production to avoid a tariff peak or saving session.'];
 			}
 
-			$overnight = $minute < 7 * 60 || $minute >= 22 * 60;
+			$overnightStart = TariffPeriods::clock($now, $timings['overnight']['start']);
+			$overnightEnd = TariffPeriods::clock($now, $timings['overnight']['end']);
+			$overnight = $now->isBefore($overnightEnd) || $now->greaterThanOrEqualTo($overnightStart);
 			$period = $overnight ? 'overnight' : 'afternoon';
-			$date = ($minute >= 22 * 60 ? $now->addDay() : $now)->toDateString();
+			$date = ($now->greaterThanOrEqualTo($overnightStart) ? $now->addDay() : $now)->toDateString();
 			$key = $period.':'.$date;
 
 			// A completed overnight recharge is never repeated, including after an early shower.
@@ -259,9 +271,12 @@
 				return [null, ucfirst($period).' recharge opportunity already completed.'];
 			}
 
-			if ($urgent)
+			$urgentChargingThreshold = ControlSettings::get('nibe.hotWaterUrgentTemperature');
+			$urgentTopThreshold = ControlSettings::get('nibe.hotWaterUrgentTopTemperature');
+
+			if ($temperature < $urgentChargingThreshold && $topTemperature !== null && $topTemperature >= -5 && $topTemperature < $urgentTopThreshold)
 			{
-				return [$key, 'Urgent recharge below '.ControlSettings::get('nibe.hotWaterUrgentTemperature').'°C; peak check passed.'];
+				return [$key, 'Urgent recharge with charging below '.$urgentChargingThreshold.'°C and top '.$topTemperature.'°C below '.$urgentTopThreshold.'°C. Peak check passed.'];
 			}
 
 			$threshold = $overnight ? ControlSettings::get('nibe.hotWaterOvernightTemperature') : $this->afternoonThreshold($now);
@@ -273,15 +288,39 @@
 
 			if ($overnight)
 			{
-				return [$key, 'Overnight recharge below '.$threshold.'°C; hot water takes priority throughout 22:00–07:00.'];
+				return [$key, 'Overnight recharge below '.$threshold.'°C during '.$timings['overnight']['start'].'–'.$timings['overnight']['end'].'.'];
+			}
+
+			$peakEnd = TariffPeriods::window($now, $periods['daily']['peak'])[1];
+
+			// Normal daytime starts end at the duration-based cutoff. Resume at the overnight window.
+			if ($now->greaterThanOrEqualTo($peakEnd) && $now->isBefore($overnightStart))
+			{
+				return [null, 'Normal hot water recharge waiting until '.$timings['overnight']['start'].' for the overnight window.'];
 			}
 
 			if (($this->state['completed']['afternoon'] ?? null) === $date)
 			{
-				return $this->afternoonTopUp($now) ? [$key, 'Afternoon top-up below '.$threshold.'°C after an earlier recharge; peak check passed.'] : [null, 'Afternoon recharge already completed; additional normal top-ups close at 14:00.'];
+				if (!$this->afternoonTopUp($now))
+				{
+					return [null, 'Afternoon recharge already completed; additional normal top-ups must start by '.TariffPeriods::hotWaterLatestDaytimeStart($now)->format('H:i').'.'];
+				}
+
+				if ($now->isBefore(TariffPeriods::clock($now, $timings['quiet']['start'])) && $heatingRequired($now) === false)
+				{
+					return [null, 'No space heating demand expected; waiting until '.$timings['quiet']['start'].' for an afternoon hot water top-up.'];
+				}
+
+				return [$key, 'Afternoon top-up below '.$threshold.'°C after an earlier recharge; peak check passed.'];
 			}
 
-			if (!($minute >= 600 && $minute <= 840))
+			$controlTime = $now->startOfMinute();
+			$latestStart = TariffPeriods::hotWaterLatestDaytimeStart($now);
+			$early = $controlTime->greaterThanOrEqualTo(TariffPeriods::clock($now, $timings['early']['start'])) && $controlTime->lessThanOrEqualTo($latestStart);
+			$quiet = $controlTime->greaterThanOrEqualTo(TariffPeriods::clock($now, $timings['quiet']['start'])) && $controlTime->lessThanOrEqualTo($latestStart);
+			$extraCheap = TariffPeriods::extraTypeAt($now) === 'cheap';
+
+			if (!$early && !$quiet && !$extraCheap)
 			{
 				return [null, 'Waiting for the next hot water start window.'];
 			}
@@ -289,14 +328,16 @@
 			$demand = $heatingRequired($now);
 			// Unknown room/forecast demand conservatively reserves the afternoon cheap window for heating.
 			$reserveHeating = $demand !== false;
-			$allowed = $reserveHeating ? $minute >= 600 && $minute <= 720 : $minute >= 780 && $minute <= 840;
+			$allowed = $reserveHeating ? $early : ($quiet || $extraCheap);
 
-			return $allowed ? [$key, $reserveHeating ? 'Recharging ahead of space heating'.($demand === null ? ' (heating demand unavailable).' : '.') : 'Using a cheap period because no space heating demand is expected.'] : [null, $reserveHeating ? 'Reserving cheap periods for space heating; waiting for the earlier hot water window.' : 'No space heating demand expected; waiting for a cheap hot water window.'];
+			return $allowed ? [$key, $reserveHeating ? 'Recharging as soon as possible because space heating needs the cheap period'.($demand === null ? ' (heating demand unavailable).' : '.') : 'Using a cheap period because no space heating demand is expected.'] : [null, $reserveHeating ? 'Outside the normal early hot water start window; space heating needs the cheap period.' : 'No space heating demand expected; waiting for a cheap hot water window.'];
 		}
 
 		private function afternoonTopUp(CarbonImmutable $now) : bool
 		{
-			return $now->hour >= 7 && $now->hour < 14 && ($this->state['completed']['afternoon'] ?? null) === $now->toDateString();
+			$timings = TariffPeriods::settings()['hot_water'];
+
+			return $now->greaterThanOrEqualTo(TariffPeriods::clock($now, $timings['overnight']['end'])) && $now->startOfMinute()->lessThanOrEqualTo(TariffPeriods::hotWaterLatestDaytimeStart($now)) && ($this->state['completed']['afternoon'] ?? null) === $now->toDateString();
 		}
 
 		private function afternoonThreshold(CarbonImmutable $now) : float
@@ -306,12 +347,50 @@
 
 		private function canStart(CarbonImmutable $now) : bool
 		{
-			$peakStart = $now->setTime(16, 0);
-			$peakEnd = $now->setTime(19, 0);
-			// Use the control interval's minute so a few seconds of scheduler latency do not exclude 13:00.
-			$estimatedFinish = $now->startOfMinute()->addMinutes(ControlSettings::get('nibe.hotWaterDurationMinutes'));
+			return TariffPeriods::hotWaterCanFinish($now, ControlSettings::get('nibe.hotWaterDurationMinutes'));
+		}
 
-			return $now->greaterThanOrEqualTo($peakEnd) || ($now->lessThan($peakStart) && $estimatedFinish->lessThanOrEqualTo($peakStart));
+		private function spaceHeatingBlock(CarbonImmutable $now, callable $heatingRequired) : ?string
+		{
+			$from = $now->startOfMinute();
+			$until = $from->addMinutes(ControlSettings::get('nibe.hotWaterDurationMinutes'));
+			$periods = TariffPeriods::settings();
+			$evening = $periods['daily']['evening'];
+			$peakEnd = TariffPeriods::window($from, $periods['daily']['peak'])[1];
+			$overnightStart = TariffPeriods::clock($from, $periods['hot_water']['overnight']['start']);
+
+			if ($from->greaterThanOrEqualTo($peakEnd) && $from->isBefore($overnightStart) && $heatingRequired($now) !== false)
+			{
+				return 'post-peak space heating before the overnight hot water window at '.$overnightStart->format('H:i');
+			}
+
+			foreach ([-1, 0, 1] as $day)
+			{
+				[$start, $end] = TariffPeriods::window($from->addDays($day), $evening);
+
+				if (!$from->isBefore($end) || !$until->isAfter($start))
+				{
+					continue;
+				}
+
+				if (($this->state['eveningHeatingHoldUntil'] ?? null) !== $end->getTimestamp())
+				{
+					if ($heatingRequired($now, [$start, $end]) === false)
+					{
+						continue;
+					}
+
+					// Once reserved during the window, keep it for heating until its actual end.
+					if ($from->greaterThanOrEqualTo($start))
+					{
+						$this->state['eveningHeatingHoldUntil'] = $end->getTimestamp();
+					}
+				}
+
+				return 'the evening Cosy window reserved for space heating until '.$end->format('H:i');
+			}
+
+			return null;
 		}
 
 		private function request(?string $opportunity, CarbonImmutable $now) : array

@@ -2,19 +2,24 @@
 	@foreach ($cheapestPeriods as $timeLabel => $periods)
 		<p>{{ ucfirst($timeLabel) }}</p>
 
-		<p>Cheapest 1-Hour Period [{{ $periods['cheapest_1_hour']['average_cost'] }} p/kWh] Starts at {{ $periods['cheapest_1_hour']['window'][0]['valid_from_formatted'] }}</p>
-		<p>Cheapest 2-Hour Period [{{ $periods['cheapest_2_hours']['average_cost'] }} p/kWh] Starts at {{ $periods['cheapest_2_hours']['window'][0]['valid_from_formatted'] }}</p>
-		<p>Cheapest 3-Hour Period [{{ $periods['cheapest_3_hours']['average_cost'] }} p/kWh] Starts at {{ $periods['cheapest_3_hours']['window'][0]['valid_from_formatted'] }}</p>
-		<p>Cheapest 6-Hour Period [{{ $periods['cheapest_6_hours']['average_cost'] }} p/kWh] Starts at {{ $periods['cheapest_6_hours']['window'][0]['valid_from_formatted'] }}</p>
+		@foreach (['cheapest_1_hour' => '1-Hour', 'cheapest_2_hours' => '2-Hour', 'cheapest_3_hours' => '3-Hour', 'cheapest_6_hours' => '6-Hour'] as $key => $duration)
+			@if (!empty($periods[$key]['window']))
+				<p>Cheapest {{ $duration }} Period [{{ $periods[$key]['average_cost'] }} p/kWh] Starts at {{ $periods[$key]['window'][0]['valid_from_formatted'] }}</p>
+			@else
+				<p>Cheapest {{ $duration }} Period: unavailable — not enough consecutive half-hour rates.</p>
+			@endif
+		@endforeach
 		<br />
 	@endforeach
 
 	@foreach ($expensivePeriods as $timeLabel => $periods)
 		<p>{{ ucfirst($timeLabel) }}</p>
 
-		<p>Most Expensive 2-Hour Period [{{ $periods['most_expensive_2_hours']['average_cost'] }} p/kWh] Starts at {{ $periods['most_expensive_2_hours']['window'][0]['valid_from_formatted'] }}</p>
-		<p>Most Expensive 3-Hour Period [{{ $periods['most_expensive_3_hours']['average_cost'] }} p/kWh] Starts at {{ $periods['most_expensive_3_hours']['window'][0]['valid_from_formatted'] }}</p>
-		<p>Most Expensive 4-Hour Period [{{ $periods['most_expensive_4_hours']['average_cost'] }} p/kWh] Starts at {{ $periods['most_expensive_4_hours']['window'][0]['valid_from_formatted'] }}</p>
-		<p>Most Expensive 5-Hour Period [{{ $periods['most_expensive_5_hours']['average_cost'] }} p/kWh] Starts at {{ $periods['most_expensive_5_hours']['window'][0]['valid_from_formatted'] }}</p>
+		@foreach (['most_expensive_2_hours' => '2-Hour', 'most_expensive_3_hours' => '3-Hour', 'most_expensive_4_hours' => '4-Hour', 'most_expensive_5_hours' => '5-Hour'] as $key => $duration)
+			@if (!empty($periods[$key]['window']))
+				<p>Most Expensive {{ $duration }} Period [{{ $periods[$key]['average_cost'] }} p/kWh] Starts at {{ $periods[$key]['window'][0]['valid_from_formatted'] }}</p>
+			@endif
+		@endforeach
+		<br />
 	@endforeach
 </div>

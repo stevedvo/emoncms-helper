@@ -9,9 +9,17 @@ This guide describes the active code in [NibeController.php](../app/Http/Control
 The owner clarified the following installation details on **20 October 2026**:
 
 - The UFH wall thermostat is set to **23°C**, so at the usual room temperatures it is effectively always calling for heat and holding the UFH zone valve open. It has no Internet connection and locally controls only whether that valve is open or closed. It can still close the valve when its own setpoint is satisfied. The helper's UFH thresholds and preheat target govern the requested ASHP heating mode; they do not adjust this thermostat or directly operate its valve. The helper does not receive the valve's position.
-- The NIBE has an owner-configured compressor curve. Observed behaviour is that degree minutes below approximately **-300** cause a higher compressor stage, typically about **+30Hz** above the speed otherwise selected from the curve. Below approximately **-420**, a further stage adds roughly another **30Hz**. The owner is less certain of the second threshold; both are installation observations, not verified universal NIBE specifications.
+- The NIBE has an owner-configured compressor curve. The experimental description was refined on **5 November 2026**: higher stages are requested near **-320 DM** and **-420 DM**, with reductions on recovery near **-320** and **-220 DM**. Stored requests show **25 → 55 → 85 Hz**, but historical March cycles also show **35 → 60 → 85 Hz** and **45 → 65 → 85 Hz**. The stages therefore do not consistently mean +30 Hz or a fixed 55 Hz first higher request. See the [compressor staging observations](compressor-staging-observations.md) for the dated evidence, a provisional midpoint interpretation and the limits of manufacturer corroboration. This supersedes the earlier approximate -300 DM first-stage estimate; it is not a universal NIBE specification.
 
 These compressor stages explain the intent of the checked-in DM targets: normal `on` targets **-180**, `boost` targets **-360** to encourage the first higher stage, and `extraBoost` targets **-450** to encourage the next. The helper steers DM through flow-temperature settings rather than writing DM or frequency directly, and NIBE retains control of the actual compressor response. A UFH shortfall requesting `boost` therefore participates in the same deliberate compressor-staging strategy as radiator demand.
+
+## Manual UFH-only operation
+
+**Settings → Heating → Heat Rad Zone** defaults to on. Turn it off when the main building is being heated by the log burner and the ASHP should supply the UFH circuit. The mode calculation evaluates and logs the normal radiator, forecast and scheduled boost rules, then resets the mode to an `intermittent` baseline before applying UFH demand. The override log includes the mode calculated before this reset. UFH temperature thresholds, cheap-window preheating and the boost-shortfall rule can then raise the mode to `on` or `boost`, independently of whether a usable radiator reading is available. The later defrost cap and outdoor-temperature cooling rule still apply. Final radiator demand is saved once as false and any radiator boost hold is cleared.
+
+On every Hive control run, once a minute, the app requests the configured radiator off target (default **16°C**) through Home Assistant. Repeating the request covers failures between Home Assistant and Hive even when the app's call to Home Assistant succeeds. Turning Heat Rad Zone back on resumes normal target selection. The switch is read live and defaults to on for existing installations.
+
+The heating offset and DM target follow the resulting mode. At the `intermittent` baseline, the offset still uses the existing DM calculation and dynamic limits, so it can move above or below zero; a UFH request for `on` or `boost` selects that mode's controls instead. Warm or unavailable UFH readings leave the baseline at `intermittent`, rather than selecting `off`. Hot-water scheduling treats this as expected space-heating demand without using radiator temperatures or the weather forecast to make that decision.
 
 ## The control loop
 
@@ -85,9 +93,9 @@ The **22 October 2026 trial** disables only the separate -1°C radiator room-ban
 
 `isPeakImport()` uses **16:00 through 18:35 inclusive, Europe/London** by default. The former 80-minute early start has been removed, so the -2°C radiator peak adjustment no longer applies from 14:40. The 25-minute early finish is preserved.
 
-Both boundaries are editable under **Settings → Weather and boosts**: **Peak window: start offset** (`nibe.peakImportStartOffsetMinutes`, default 0) is added to 16:00, and **Peak window: end offset** (`nibe.peakImportEndOffsetMinutes`, default -25) is added to 19:00. Negative values move a boundary earlier; positive values move it later. Whole-minute offsets from -180 to +180 are allowed, provided the resulting window has positive duration. Input times are converted to London time without changing the caller's time object, so the window follows British summer/winter time.
+Both boundaries are editable under **Settings → Weather and boosts**: **Peak window: start offset** (`nibe.peakImportStartOffsetMinutes`, default 0) is added to the daily peak start (default 16:00), and **Peak window: end offset** (`nibe.peakImportEndOffsetMinutes`, default -25) is added to the daily peak finish (default 19:00). Negative values move a boundary earlier; positive values move it later. Whole-minute offsets from -180 to +180 are allowed, provided the resulting window has positive duration. Input times are converted to London time without changing the caller's time object, so the window follows British summer/winter time.
 
-The offsets are read at each evaluation, so saved changes apply at the next control calculation without a restart or schedule regeneration. The same peak flag controls the radiator -2°C adjustment, suppression of UFH preheating, and the cold-forecast peak minimum-mode rule. This remains a fixed clock window rather than a lookup of actual prices. The separate Octopus boost-window offsets still determine when the +1°C radiator boost adjustment and UFH preheat margin are eligible; changing peak offsets does not extend those stored boost windows.
+The peak offsets are read at each evaluation, so saved changes apply at the next control calculation without a restart or schedule regeneration. The same peak flag controls the radiator -2°C adjustment, suppression of UFH preheating, and satisfied-zone wind-down. The cold-forecast peak minimum applies only when both zones are not confirmed satisfied. The underlying daily tariff times are editable separately under **Tariff periods**. Dated saving sessions use the same peak-control offsets; dated cheap offers use the boost offsets, overriding the daily heating peak and enabling boost eligibility during their adjusted interval. Dated peak controls take priority if the adjusted windows overlap. Radiator boost-hold cancellation and hot-water admission use actual tariff times rather than the heating offsets. See [tariff periods](tariff-periods.md). The Octopus boost-window offsets also determine stored daily Cosy windows; changing peak offsets does not extend those stored boost windows.
 
 ### 3. Apply radiator-zone load compensation
 
@@ -99,19 +107,21 @@ Every band boundary is shifted by the same adjustment `A`:
 
 | Condition | Addition to A |
 | --- | ---: |
-| In the peak window | -2°C |
+| In the peak window | `radPeakTempAdjust` (default -2°C) |
 | Warm forecast | 0°C during the 22 October trial; the previous -1°C assignment is commented out. |
-| Boost window active, including during a warm forecast | +1°C |
-| Low-six forecast average < `dmTargetBoostTemp` (default 3°C), including with a warm high forecast during the current trial | +2°C |
-| Otherwise low-six forecast average < hard-coded 3°C, including with a warm high forecast during the current trial | +1°C |
+| Boost window active, including during a warm forecast | `radBoostTempAdjust` (default +1°C) |
+| Low-six forecast average < `dmTargetBoostTemp` (default 3°C), including with a warm high forecast during the current trial | `radColdForecastTempAdjust` (default +2°C) |
+| Otherwise low-six forecast average < `radCoolForecastTemp` (default 3°C), including with a warm high forecast during the current trial | `radCoolForecastTempAdjust` (default +1°C) |
 
-With the defaults, the +1°C cold-forecast branch cannot be reached: both cold comparisons use 3°C, so the +2°C branch wins. Changing `dmTargetBoostTemp` below 3°C makes a +1°C band possible.
+All five `nibe.rad...` parameters are editable under **Settings → Room temperatures** and read live by `HeatingDemand::radiatorAdjustments()`. The same calculation is used for heating mode selection and hot-water heating-demand prediction. Forecast thresholds use strict `<` comparisons. The colder branch is checked first; the cold and cool adjustments are alternatives, while boost and peak additions accumulate independently. A missing low forecast contributes zero forecast adjustment.
 
-The boost-window +1°C adjustment is based on `boostActive` even if `allowBoosts` is false. That flag controls fallback scheduled mode promotion when room compensation is inactive; active room compensation selects intensity from the adjusted room targets without a second scheduled promotion. During the current trial, a warm forecast contributes zero to the room-band adjustment, so the full +1°C boost adjustment applies. For a base radiator off threshold of 21.5°C, with no peak or cold-forecast adjustment, the adjusted centre is therefore 22.5°C inside a boost window and 21.5°C outside it, before hysteresis is applied.
+With the defaults, the +1°C cool-forecast branch cannot be reached: both forecast comparisons use 3°C, so the +2°C branch wins below 3°C. Raise `radCoolForecastTemp` above the existing cold threshold, or lower `dmTargetBoostTemp`, to create a separate cool band. No new ordering restriction is imposed on existing settings. Boost and forecast additions accept 0–5°C; the peak adjustment accepts -5–0°C; the new cool forecast threshold accepts -30–20°C. Fractional values are supported, and zero disables an individual addition without changing window selection or other mode rules.
 
-The cold-forecast additions are guarded by `highForecastRoomTempAdjust === 0`. Since the trial sets that value to zero for both warm and cool high forecasts, this guard now always passes: a cold low-six average can raise the radiator bands even if the high-six average exceeds `runLevel1Temp`. This is a consequence of disabling the warm room-band adjustment.
+The boost-window adjustment is based on `boostActive` even if `allowBoosts` is false. That flag controls fallback scheduled mode promotion when room compensation is inactive; active room compensation selects intensity from the adjusted room targets without a second scheduled promotion. During the current trial, a warm forecast contributes zero to the room-band adjustment, so the configured boost adjustment still applies. With the default +1°C addition and a base radiator off threshold of 21.5°C, with no peak or cold-forecast adjustment, the adjusted centre is therefore 22.5°C inside a boost window and 21.5°C outside it, before hysteresis is applied.
 
-The original -1°C assignment remains commented out for possible reinstatement. Restoring it and raising `nibe.runLevel1Temp` would move the warm-forecast cut-off; changing that setting alone during this trial does not restore the room-band reduction. The setting still affects the initial mode nudge and forecast-disabled boost selection.
+The warm room-band adjustment remains zero during the current trial. A cold low-six average can therefore apply its configured addition even if the high-six average exceeds `runLevel1Temp`.
+
+Changing `nibe.runLevel1Temp` alone does not restore the disabled warm room-band reduction. The setting still affects the initial mode nudge and forecast-disabled boost selection; the new radiator settings do not re-enable that reduction.
 
 The radiator temperature is tested against these bands in descending order:
 
@@ -123,9 +133,11 @@ The radiator temperature is tested against these bands in descending order:
 | 19 + A < T <= 20 + A | Ensure at least `boost`. |
 | T <= 19 + A | Set `extraBoost`. |
 
-Equality falls into the colder, more demanding band. A positive adjustment requests warmer rooms; a negative adjustment permits cooler rooms. The intensity bands have no separate deadband or mode-persistence timer. The radiator demand on/off decision uses the hysteresis below before these intensity bands are applied.
+Equality falls into the colder, more demanding band. A positive adjustment requests warmer rooms; a negative adjustment permits cooler rooms. The intensity bands have no separate deadband or mode-persistence timer. Before applying these bands, the radiator demand on/off decision uses the adjusted threshold directly unless NIBE is currently space heating (priority `30`).
 
-Let `C = loadCompTempOff + A` and `H = hive.radiatorHysteresis` (default **0.5°C each side**). A fresh previous radiator-demand decision is read from the settings table:
+Let `C = loadCompTempOff + A` and `H = hive.radiatorHysteresis` (default **0.5°C each side**). When priority is anything other than `30`, demand is simply `T <= C`, regardless of the previous decision. This allows an idle heat pump to request at least `intermittent` at the adjusted threshold, without waiting for an additional temperature drop. For example, at a 20.5°C threshold, a previously off radiator requests heat at 20.5°C while NIBE is idle, rather than waiting for 20.0°C.
+
+While priority is `30`, a fresh previous radiator-demand decision is read from the settings table and hysteresis protects the valve from frequent switching during a heating cycle:
 
 | Previous radiator demand | New decision |
 | --- | --- |
@@ -133,11 +145,17 @@ Let `C = loadCompTempOff + A` and `H = hive.radiatorHysteresis` (default **0.5°
 | On | Switch off at `T >= C + H`; otherwise remain on. |
 | Missing, unknown, invalid, stale or future-dated | Initialise using the original comparison `T <= C`. |
 
-For an adjusted threshold of **19.5°C**, an established off decision remains off until **19.0°C**, and an established on decision remains on until **20.0°C**. Between these boundaries, keep the previous decision. This is a 1°C total band. Zero margin restores the original `T <= C` comparison, including equality. Fractional switching boundaries are rounded to six decimal places. The current peak, boost and forecast adjustments move the centre of the band on each calculation.
+During space heating, for an adjusted threshold of **19.5°C**, an established off decision remains off until **19.0°C**, and an established on decision remains on until **20.0°C**. Between these boundaries, keep the previous decision. This is a 1°C total band. Zero margin restores the original `T <= C` comparison, including equality. Fractional switching boundaries are rounded to six decimal places. The current peak, boost and forecast adjustments move the centre of the band on each calculation. Once an idle threshold decision starts heating, that true decision becomes the previous state for subsequent priority-30 hysteresis calculations.
 
-If this retained radiator decision is false, the radiator stage selects `off`. If true, the existing intermittent/on/boost/extraBoost intensity comparisons apply, with at least intermittent even above `C` while demand is retained. This keeps the ASHP's radiator demand consistent with its valve demand: a radiator whose valve is held off cannot alone start a heating cycle. Cycle preservation, UFH demand, and peak minimum-mode rules can raise the overall heat-pump mode without changing the radiator decision. If the room bands cannot be evaluated, radiator demand is null (unknown).
+If this retained radiator decision is false, the radiator stage selects `off`. If true, the existing intermittent/on/boost/extraBoost intensity comparisons apply, with at least intermittent even above `C` while demand is retained. A radiator whose valve is held off cannot alone start a heating cycle. Cycle preservation, UFH demand, and peak minimum-mode rules can raise the overall heat-pump mode without changing the temperature decision. If the room bands cannot be evaluated, radiator demand is null (unknown).
 
-The decision and calculation time are saved at the end of each calculation, so hysteresis persists between scheduler invocations. The existing decision-age limit applies to the previous state (default ten minutes, inclusive); after a longer gap the next valid temperature initialises a new decision. Activity logs show the temperature, adjusted centre, margin, switching boundaries, previous state and result. The margin is editable under **Settings → Hive** and applies at the next control calculation without a scheduler restart.
+The decision and calculation time are saved at the end of each calculation, so hysteresis persists between scheduler invocations while heating. The existing decision-age limit applies to the previous state (default ten minutes, inclusive); after a longer gap the next valid temperature initialises a new decision. Activity logs show the temperature, adjusted centre, applied margin, switching boundaries, priority, previous state and result. At non-heating priorities, the applied margin is logged as zero and both boundaries equal the adjusted threshold. The configured margin is editable under **Settings → Hive** and applies at the next control calculation without a scheduler restart.
+
+An independent **radiator boost hold** keeps Hive's radiator circuit open once the temperature decision is true during an active scheduled boost and NIBE priority is heating (`30`). It lasts until that occurrence's actual cheap-period end, or its adjusted boost end if that is later. With the default morning period and -100-minute end offset, boost adjustments finish at **05:20**, but an armed radiator hold lasts until **07:00**. UFH-only heat cannot arm the hold. Radiators can join later in the boost if their own temperature decision becomes true.
+
+The stored temperature decision continues to follow the adjusted targets and hysteresis during this hold. It can become false and select `off`. The cycle-preservation rule below determines whether to keep the heat pump at `intermittent` or let it wind down. The valve hold itself never promotes the mode or starts an idle pump. Hive still uses its off target during hot water or idle operation, and its existing cooling target during cooling.
+
+The hold expires at the exact end timestamp, checked by Hive's minute task, without waiting for another mode calculation. Actual tariff peaks and dated saving sessions cancel it; their heating-control offsets do not. For example, a -45-minute peak start offset can select `off` at 15:15 while an existing hold keeps the radiators open during priority-30 wind-down until the actual 16:00 boundary. Idle or hot-water priority still uses Hive's off target immediately. An actual dated cheap offer can retain its valve hold through its full cheap interval inside the normal daily peak; actual dated peaks take precedence. Unknown temperature demand, disabled compensation/DM override, cooling, or an expired decision clears the hold at the next calculation. Normal freshness safeguards apply throughout. The expiry is captured when the hold is armed; repeated raw false decisions do not extend it. Continuous forecast-disabled boost branches have no finite window and do not arm a timed hold.
 
 ### 4. Promote the mode during an allowed boost
 
@@ -157,11 +175,7 @@ When room compensation is disabled or usable Rad data is unavailable, `allowBoos
 
 This retains the pre-room-compensation behaviour when room control cannot be used. Merely enabling load compensation is not enough to suppress fallback promotion: the Rad lookup must also allow it. The fallback still respects the promotion setting and active-window check, and records the `Boost is active` log message when it runs.
 
-### 5. Preserve a running heating cycle
-
-If the calculated mode is `off` but priority is `30` (already heating), change to `intermittent`. This avoids deliberately shortening the current heating cycle. It is not an unconditional minimum runtime.
-
-### 6. Protect a cool UFH zone and preheat during boost windows
+### 5. Protect a cool UFH zone and preheat during boost windows
 
 When radiator-based load compensation is allowed, read `UFH_temperature` using the configured room-sensor history (default 180 minutes). The normal UFH thresholds remain minimum comfort protection, including during expensive periods. With the default editable UFH thresholds:
 
@@ -187,11 +201,17 @@ Preheating uses the existing boost-window decision, including its weather/schedu
 
 This read uses `updateSettings = false`; it neither falls back to saved UFH temperature nor changes `allowLoadCompensation`. Missing UFH data skips this step. UFH raises the overall mode to at least `intermittent`, `on` or `boost`, preserving higher radiator/boost demand and the independent radiator valve decision. Log messages report the measured UFH temperature, effective threshold and preheat margin; shortfall-based boost also records the target, shortfall and configured X. Later defrost/cooling rules retain their existing precedence.
 
-When a valid UFH temperature is above the effective allow-heating threshold, an information-level message containing `no independent demand` records the temperature, preheat margin and unchanged mode at this stage. This means UFH is not requesting heat independently; it does not mean the ASHP is off, since other rules may already have requested heating. The later peak, defrost and cooling checks can still change the mode.
+When a valid UFH temperature is above the effective allow-heating threshold, an information-level message containing `no independent demand` records the temperature, preheat margin and mode at this stage. The later cycle-preservation, peak, defrost and cooling checks can still change the mode.
+
+### 6. Preserve or wind down a running heating cycle
+
+After the radiator and UFH checks, an `off` decision while priority is `30` normally becomes `intermittent` to let the current cycle continue. During the offset-adjusted peak-control window, keep `off` when both zones have usable readings and neither requests heat. **Peak window: start offset** supplies the complete wind-down lead; there is no additional hard-coded 30 minutes. Defaults remain 0/-25 minutes, giving a **16:00–18:35** window. Setting the start offset to **-45** starts peak temperature adjustments, UFH preheat suppression and satisfied-zone wind-down at **15:15**; -50 or -55 starts them at 15:10 or 15:05. Dated saving sessions use the same offsets, and dated cheap overrides retain their existing precedence.
+
+When `off` is the final mode, the flow-temperature controller steers towards `dmTargetOff` (default **+30 DM**) so the heat pump can wind down sooner. An existing radiator hold remains available during early wind-down until its expiry or the actual tariff peak; it never promotes the mode. When priority changes to idle, Hive immediately uses its off target and the adjusted room thresholds continue to govern restarting. Either zone can still request heating at its current threshold. Missing room data retains the usual cycle-preservation behaviour. The cold-forecast peak minimum cannot restore `intermittent` while both zones are confirmed satisfied, including when priority is already idle. The lead provides time for DM recovery rather than guaranteeing a compressor stop by the tariff boundary. Manual UFH-only operation retains its separately selected intermittent baseline.
 
 ### 7. Apply the remaining peak-period rule
 
-During the peak window, if the low-six forecast average is below `dmTargetBoostTemp`, ensure at least `intermittent`. The other peak branches only log: their downward mode nudges are commented out. The active peak reduction mainly comes from the -2°C room-band adjustment in step 3.
+During the peak-control window, if the low-six forecast average is below `dmTargetBoostTemp`, ensure at least `intermittent` unless both zones are confirmed satisfied. Confirmed satisfaction takes precedence so a cold forecast alone cannot prevent wind-down or restart an idle pump. Missing room data retains this forecast minimum. The other peak branches only log: their downward mode nudges are commented out. The active peak reduction mainly comes from the -2°C room-band adjustment in step 3.
 
 ### 8. Cap demand when reducing defrosts
 
@@ -206,7 +226,7 @@ True caps `boost` or `extraBoost` at `on`; lower modes stay unchanged. Missing e
 
 If NIBE's average outdoor temperature is strictly above `coolingStartTemp` (default 24°C), return `cooling`. This final rule overrides all heating decisions, including the defrost cap. Forecast-based pre-emptive cooling is commented out.
 
-At the end of a successful mode calculation, `RadiatorHeatDemand::record()` stores the separate radiator decision and calculation timestamp in `settings.radiatorHeatDemand`. This happens on every calculation, including unchanged or unknown decisions, before the offset calculation or any possible early return in that later work. Hive uses a fresh decision to gate heating of the radiator zone; see [Home Assistant / Hive](integrations-and-data.md#home-assistant--hive).
+At the end of a successful mode calculation, `RadiatorHeatDemand::record()` stores the separate radiator temperature decision, calculation timestamp and any boost-hold expiry in `settings.radiatorHeatDemand`. This happens on every calculation, including unchanged or unknown decisions, before the offset calculation or any possible early return in that later work. Hive uses a fresh decision together with the unexpired hold to gate heating of the radiator zone; see [Home Assistant / Hive](integrations-and-data.md#home-assistant--hive).
 
 The overall result is logged and saved as `settings.htgMode` before calculating and sending temperature changes. A later write failure can leave that setting describing a mode whose requested settings were not applied.
 

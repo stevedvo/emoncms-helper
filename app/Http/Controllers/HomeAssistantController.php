@@ -15,6 +15,22 @@
 		{
 			try
 			{
+				if (!ControlSettings::get('nibe.heatRadZone'))
+				{
+					$targetTemp = ControlSettings::get('hive.targetOffTemp');
+					app(HomeAssistantAPI::class)->adjustHiveThermostat($targetTemp);
+					RadiatorHeatDemand::record(false, null, true);
+					ActivityLog::create(
+					[
+						'controller' => __CLASS__,
+						'method'     => __FUNCTION__,
+						'level'      => 'info',
+						'message'    => 'Heat Rad Zone is off. Requested Hive target '.$targetTemp.'degC through Home Assistant.',
+					]);
+
+					return;
+				}
+
 				$latestPriorityNibeFeedItem = NibeFeedItem::where('parameterId', "49994")->orderBy('id', "desc")->first();
 
 				if (!($latestPriorityNibeFeedItem instanceof NibeFeedItem))

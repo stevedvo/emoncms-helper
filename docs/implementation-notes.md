@@ -15,13 +15,13 @@ These observations explain the checked-in implementation, including radiator dem
 | The warm-forecast -1°C radiator adjustment is disabled for the 22 October 2026 trial. | `calculateHeatingMode` | The initial warm-forecast mode nudge remains active. The zero adjustment also lets the cold-forecast additions pass their guard even with a warm high forecast. Raising `runLevel1Temp` alone does not restore the disabled room-band reduction. |
 | Scheduled boost promotion is a fallback when room compensation is inactive. | `calculateHeatingMode` | An enabled setting and usable Rad data make room compensation active. Adjusted room targets then select the mode without a second scheduled promotion. When compensation is disabled or data unavailable, the legacy promotion still requires `allowBoosts` and an active window. |
 | Boost permission does not gate room-temperature adjustments. | `calculateHeatingMode` | A boost window can still shift room bands +1°C with `allowBoosts = false`. Room demand can independently select boost/extraBoost. |
-| Peak downward nudges are commented out. | `calculateHeatingMode` | Peak reduction mainly comes from the -2°C room-band shift; the remaining cold-forecast peak rule can impose a minimum intermittent mode. |
-| Peak controls default to 16:00–18:35 London time. | `isPeakImport`, live peak-offset settings | The former 14:40 early reduction is removed. The same window suppresses UFH preheating and enables the cold-forecast peak minimum. Both offsets are editable independently of boost schedule generation. |
+| Peak downward nudges are commented out. | `calculateHeatingMode` | Peak reduction mainly comes from the -2°C room-band shift; the remaining cold-forecast peak rule can impose a minimum intermittent mode only when both zones are not confirmed satisfied. |
+| Peak controls default to 16:00–18:35 London time. | `isPeakImport`, live peak-offset settings | The same window suppresses UFH preheating and permits satisfied-zone wind-down. The start offset supplies the entire lead; -45 gives a 15:15 start, without an additional 30 minutes. Radiator hold cancellation uses actual tariff peaks. Both offsets are editable independently of boost schedule generation. |
 | Default cold comparisons both use 3°C. | `calculateHeatingMode`, `config/nibe.php` | The +2°C room adjustment wins below 3°C; the +1°C cold adjustment is unreachable with defaults. |
 | Default UFH comparisons are <=19.5°C and <=20°C. | `calculateHeatingMode` | The two thresholds are now database-backed settings, and logs report their current values. |
 | Forecast-average lookahead is a starting offset. | `WeatherController::getForecastAverageTemperature` | The value summarises data from six hours ahead onward, not the coming six hours. |
 | UFH forecast temperature is not used to select Hive's target. | `HomeAssistantController::adjustHiveThermostat` | Recorded priority and a fresh radiator-demand decision select the target; the unused prediction lookup/disabled experiments have been removed from this method. |
-| Radiator demand is captured before later mode rules. | `calculateHeatingMode`, `RadiatorHeatDemand` | Preserving a running cycle or a UFH minimum can keep NIBE heating while Hive keeps a warm radiator zone off. |
+| Radiator temperature demand is captured before later mode rules. | `calculateHeatingMode`, `RadiatorHeatDemand` | UFH-only heat does not open a warm radiator zone. Once radiators join a scheduled boost during space heating, a separate valve hold retains them through the full cheap period without raising the mode. |
 | Disabling DM override does not disable other NIBE writes. | `getNibeData`, `checkHotWaterRequirement` | The five-minute hot-water schedule routine remains active. |
 
 ## Unfinished or unused pieces
@@ -49,7 +49,7 @@ The implementation relies on expected incoming data without checking age everywh
 - Local NIBE upload failures are retried only when the API returns that reading again; there is no independent full backlog drain. A title-keyed outgoing collection can also replace an earlier candidate for that title. Remote upload status is not stored.
 - The offline alert counts empty outgoing collections rather than failed network calls. Its text and counter should not be interpreted as proof that NIBE has been offline for exactly 15 minutes.
 - The hot-water flag is undated. Missing an evening reset can leave the flag set across days, and a later reset changes the current day's schedule entry rather than necessarily restoring the originally changed entry.
-- The rates success latch resets during a pre-16:30 invocation. If the runner misses that entire part of the day, a stale true latch can prevent a later fetch. Stored schedules also have no automatic expiry/renewal fallback.
+- The rates success latch resets before the configured fetch cutoff (default 16:30). If the runner misses that entire part of the day, a stale true latch can prevent a later fetch. Stored regular schedules have no automatic renewal fallback, though tariff-form saves refresh existing Cosy entries. Dated extra windows are evaluated independently and stop applying at their finish.
 
 ## Boundary and provisioning details
 
@@ -73,6 +73,6 @@ The weather POST endpoint accepts unvalidated, unauthenticated input under the o
 
 Caught integration errors commonly leave a successful command exit status and an end marker. For priority sync, stored local success reflects the last binary-input post rather than all three posts. For DM steering, `htgMode` is saved before PATCH confirmation. Hive sends every minute without checking whether the target changed or reading it back.
 
-Daily schedules use UTC by default, while peak/hot-water/Cosy/fetch-cutoff rules explicitly use London time. Tariff window searches use application time and the email displays London labels. The summer-time difference is documented in the operations guide; this review did not normalise it.
+Daily scheduler jobs use UTC by default. Shared tariff timing, including rate searches, peak/hot-water/Cosy decisions, dated offers and the fetch cutoff, uses London time. This removes the former summer-time mismatch between rate-search ranges and emailed London labels. See [tariff periods](tariff-periods.md).
 
 Automated tests now cover radiator-demand capture, overall mode selection for the new zone-control scenarios, persistence/freshness, and Hive targets using controlled inputs and a mocked Home Assistant API, alongside the existing reporting tests. This is regression evidence for those paths, not validation of the physical control strategy. Other integration/data limitations above remain.

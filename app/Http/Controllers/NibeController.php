@@ -17,6 +17,7 @@
 	use App\Services\HeatingDemand;
 	use App\Services\HeatingBoostSchedule;
 	use App\Services\HotWaterControl;
+	use App\Services\TariffPeriods;
 	use Carbon\CarbonImmutable;
 	use Carbon\CarbonInterface;
 	use Illuminate\Database\Eloquent\Collection;
@@ -26,6 +27,9 @@
 
 	class NibeController extends Controller
 	{
+		// populate collection with values for outdoor temp, avg outdoor temp, external flow temp, degree-minutes, calculated flow temp, heating curve, heating offset, min. flow line temp., priority, calculated flow temp cooling, cooling offset
+		protected const DM_OVERRIDE_PARAMETER_IDS = [40004, 40067, 40071, 40940, 43009, 47007, 47011, 47015, 49994, 44270, 48739];
+
 		protected static $defrostDewpointMin;
 		protected static $defrostDewpointMax;
 		protected static $defrostEvaporatorMax;
@@ -161,6 +165,7 @@
 				{
 					return $item['parameterId'].$item['timestamp'].$item['value'];
 				});
+
 				$polledAt = CarbonImmutable::now();
 
 				// Log::info($parameterData);
@@ -208,8 +213,7 @@
 						}
 					}
 
-					// populate collection with values for outdoor temp, avg outdoor temp, external flow temp, degree-minutes, calculated flow temp, heating curve, heating offset, min. flow line temp., priority, calculated flow temp cooling, cooling offset
-					if (in_array($datum['parameterId'], [40004, 40067, 40071, 40940, 43009, 47007, 47011, 47015, 49994, 44270, 48739]))
+					if (in_array($datum['parameterId'], static::DM_OVERRIDE_PARAMETER_IDS))
 					{
 						$dmOverrideCollection->put($datum['parameterId'], $datum['value']);
 					}
@@ -255,6 +259,28 @@
 				// if (true)
 				if ($now->format("i") % 5 == 0)
 				{
+					$receivedParameterIds = $parameterData->pluck('parameterId')->unique()->sort(SORT_NUMERIC)->values();
+					$missingDmParameterIds = collect(static::DM_OVERRIDE_PARAMETER_IDS)->diff($dmOverrideCollection->keys())->sort(SORT_NUMERIC)->values();
+
+					if (!$missingDmParameterIds->isEmpty())
+					{
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => 'info',
+							'message'    => 'NIBE poll received '.$parameterData->count().' points; parameter IDs ('.$receivedParameterIds->count().'): ['.$receivedParameterIds->implode(', ').']',
+						]);
+
+						ActivityLog::create(
+						[
+							'controller' => __CLASS__,
+							'method'     => __FUNCTION__,
+							'level'      => 'warning',
+							'message'    => 'Missing DM override parameter IDs: ['.$missingDmParameterIds->implode(', ').'].',
+						]);
+					}
+
 					if (ControlSettings::get('nibe.dmOverride') !== false)
 					{
 						static::dmOverride($dmOverrideCollection);
@@ -274,7 +300,7 @@
 					{
 						if (HotWaterControl::handlesControl())
 						{
-							(new HotWaterControl($nibe))->run($parameterData->all(), fn(CarbonImmutable $time) => static::hotWaterHeatingRequired($parameterData->all(), $time), null, $polledAt);
+							(new HotWaterControl($nibe))->run($parameterData->all(), fn(CarbonImmutable $time, ?array $window = null) => static::hotWaterHeatingRequired($parameterData->all(), $time, $window), null, $polledAt);
 						}
 						else
 						{
@@ -794,7 +820,9 @@
 		public static function calculateHeatingMode(int $priority, float $outdoorTemp, float $avgOutdoorTemp) : string
 		{
 			static::initConfig();
+
 			$radiatorHeatRequired = null;
+			$ufhSatisfied = false;
 
 			// default starting point
 			$htgMode = "intermittent";
@@ -906,7 +934,8 @@
 			}
 
 			$boostActive = static::isBoostActive($outdoorTemp, $avgOutdoorTemp);
-			$peakImport = static::isPeakImport(CarbonImmutable::now()->setTimezone("Europe/London"));
+			$now = CarbonImmutable::now(TariffPeriods::ZONE);
+			$peakImport = static::isPeakImport($now);
 
 			// need to hit this method first to set the Setting to true/false
 			static::getRoomTemperature("Rad_temperature");
@@ -926,9 +955,9 @@
 					$sumAdjustments = $defrostRoomTempAdjust + $boostRoomTempAdjust + $peakRoomTempAdjust + $highForecastRoomTempAdjust;
 					$adjustmentsString = '('.$defrostRoomTempAdjust.')+('.$boostRoomTempAdjust.')+('.$peakRoomTempAdjust.')+('.$highForecastRoomTempAdjust.')';
 
-					// Retain radiator demand through the hysteresis band before later rules can raise the overall mode.
+					// Use hysteresis while space heating; otherwise allow a new request at the adjusted threshold.
 					$radiatorThreshold = static::$loadCompTempOff + $sumAdjustments;
-					$radiatorHeatRequired = RadiatorHeatDemand::calculate(static::getRoomTemperature("Rad_temperature"), $radiatorThreshold);
+					$radiatorHeatRequired = RadiatorHeatDemand::calculate(static::getRoomTemperature("Rad_temperature"), $radiatorThreshold, $priority);
 
 					if (!$radiatorHeatRequired)
 					{
@@ -1060,27 +1089,28 @@
 				]);
 			}
 
-			if (true)
-			{
-				// if we have determined that htgMode should be "off", but we are currently heating let's nudge it up so that we're not artifically shortening the heating cycle
-				if ($htgMode == "off" && $priority == 30)
-				{
-					$htgMode = static::nudgeHeatingModeUp($htgMode);
+			$heatRadZone = ControlSettings::get('nibe.heatRadZone');
 
-					ActivityLog::create(
-					[
-						'controller' => __CLASS__,
-						'method'     => __FUNCTION__,
-						'level'      => "info",
-						'message'    => '$htgMode was "off" but currently heating so changed to "'.$htgMode.'"',
-					]);
-				}
+			if (!$heatRadZone)
+			{
+				$radiatorHeatRequired = false;
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => 'info',
+					'message'    => 'Heat Rad Zone is off. Calculated mode "'.$htgMode.'" overridden with "intermittent" for UFH heating.',
+				]);
+
+				$htgMode = "intermittent";
 			}
 
 			if (true)
 			{
 				// Keep the UFH comfort thresholds as minimums; preheat during boost windows outside peak import.
-				if ($loadCompensationActive)
+				// Manual UFH-only operation must not depend on a usable radiator reading.
+				if ($loadCompensationActive || !$heatRadZone)
 				{
 					$ufhTemperature = static::getRoomTemperature("UFH_temperature", false);
 
@@ -1132,6 +1162,8 @@
 						}
 						else
 						{
+							$ufhSatisfied = is_finite($ufhTemperature);
+
 							ActivityLog::create(
 							[
 								'controller' => __CLASS__,
@@ -1144,10 +1176,30 @@
 				}
 			}
 
+			// The peak start offset supplies the wind-down lead; do not add a second early window.
+			$windDown = $peakImport && $radiatorHeatRequired === false && $ufhSatisfied;
+
+			// Preserve a running cycle unless both zones are satisfied during peak controls.
+			if ($htgMode === "off" && $priority === 30)
+			{
+				if (!$windDown)
+				{
+					$htgMode = "intermittent";
+				}
+
+				ActivityLog::create(
+				[
+					'controller' => __CLASS__,
+					'method'     => __FUNCTION__,
+					'level'      => "info",
+					'message'    => $windDown ? 'Both zones are satisfied during peak controls. Allowing the heating cycle to wind down in off mode.' : '$htgMode was "off" but currently heating so changed to "intermittent"',
+				]);
+			}
+
 			// adjustment check 6: nudge $htgMode down if we're in the peak [expensive] window
 			if (true)
 			{
-				if ($peakImport)
+				if ($peakImport && !$windDown)
 				{
 					if (!is_null($nextDayLowTemperatureAverage) && $nextDayLowTemperatureAverage < ControlSettings::get('nibe.dmTargetBoostTemp'))
 					{
@@ -1217,7 +1269,17 @@
 				}
 			}
 
-			RadiatorHeatDemand::record($radiatorHeatRequired);
+			$cancelRadiatorBoostHold = !$heatRadZone || !$loadCompensationActive || RadiatorHeatDemand::peakBlocksHold(CarbonImmutable::now()) || $htgMode === 'cooling' || ControlSettings::get('nibe.dmOverride') === false;
+			$radiatorBoostHoldUntil = null;
+
+			if (!$cancelRadiatorBoostHold && $radiatorHeatRequired === true && $boostActive && $priority === 30)
+			{
+				$schedules = json_decode(Setting::firstWhere('key', 'agile_schedule')?->value ?? 'null', true);
+				$radiatorBoostHoldUntil = HeatingBoostSchedule::radiatorHoldUntilAt(is_array($schedules) ? $schedules : [], $outdoorTemp, $avgOutdoorTemp, CarbonImmutable::now());
+			}
+
+			// Keep the temperature decision separate: the valve hold must not promote the heating mode.
+			RadiatorHeatDemand::record($radiatorHeatRequired, $radiatorBoostHoldUntil, $cancelRadiatorBoostHold);
 
 			return $htgMode;
 		}
@@ -1330,6 +1392,13 @@
 		{
 			try
 			{
+				$extra = TariffPeriods::extraHeatingTypeAt(CarbonImmutable::now());
+
+				if ($extra !== null)
+				{
+					return $extra === 'cheap';
+				}
+
 				if (ControlSettings::get('weather.useForecast') && WeatherController::getForecastAverageTemperature() === null)
 				{
 					throw new Exception('$forecastTemperature is null');
@@ -1358,12 +1427,17 @@
 			return false;
 		}
 
-		protected static function hotWaterHeatingRequired(array $points, CarbonImmutable $now) : ?bool
+		protected static function hotWaterHeatingRequired(array $points, CarbonImmutable $now, ?array $window = null) : ?bool
 		{
+			if (!ControlSettings::get('nibe.heatRadZone'))
+			{
+				return true;
+			}
+
 			$points = collect($points)->keyBy('parameterId');
 			$priority = HotWaterControl::reading($points->get(49994), $now);
 
-			if (($priority['value'] ?? null) === 30.0)
+			if (($priority['value'] ?? null) === 30.0 && ($window === null || ($now->greaterThanOrEqualTo($window[0]) && $now->isBefore($window[1]))))
 			{
 				return true;
 			}
@@ -1395,17 +1469,35 @@
 				return null;
 			}
 
-			// Check current demand and each part of the relevant cheap periods using today's room readings.
-			$times = [$now];
-			$windows = $now->hour >= 22 ? [[$now, 22, 2], [$now->addDay(), 4, 3]] : [[$now, $now->hour < 7 ? 4 : 13, 3]];
-
-			foreach ($windows as [$date, $hour, $hours])
+			if ($window !== null)
 			{
-				$start = $date->setTime($hour, 0);
-
-				for ($minutes = 1; $minutes < $hours * 60; $minutes += 5)
+				// Assess this tariff window using current readings, starting just inside its boundary.
+				[$start, $end] = $window;
+				$times = [];
+				for ($time = $now->max($start->addSecond()); $time->isBefore($end); $time = $time->addMinutes(5))
 				{
-					$times[] = $start->addMinutes($minutes);
+					$times[] = $time;
+				}
+			}
+			else
+			{
+				// Check current demand and each part of the relevant cheap periods using today's room readings.
+				$times = [$now];
+				$timings = TariffPeriods::settings();
+				$local = $now->setTimezone(TariffPeriods::ZONE);
+				[$overnightStart, $overnightEnd] = TariffPeriods::window($local, $timings['hot_water']['overnight']);
+				$morningEnd = TariffPeriods::clock($local, $timings['hot_water']['overnight']['end']);
+				$until = $local->greaterThanOrEqualTo($overnightStart) ? $overnightEnd : ($local->isBefore($morningEnd) ? $morningEnd : $overnightStart);
+
+				foreach (TariffPeriods::cheapWindows($local, $until) as [$start, $end])
+				{
+					for ($time = ($start->isBefore($local) ? $local : $start)->addMinute(); $time->isBefore($end) && $time->isBefore($until); $time = $time->addMinutes(5))
+					{
+						if ($time->greaterThanOrEqualTo($local))
+						{
+							$times[] = $time;
+						}
+					}
 				}
 			}
 
@@ -1421,11 +1513,12 @@
 				{
 					return null;
 				}
+
 				$peak = static::isPeakImport($time);
 
 				if ($loadCompensation)
 				{
-					$required = HeatingDemand::required($rad, $ufh, $low, $boost, $peak, $previous);
+					$required = HeatingDemand::required($rad, $ufh, $low, $boost, $peak, $previous, (int)($priority['value'] ?? 10));
 				}
 				else
 				{
@@ -1559,18 +1652,11 @@
 			return 0;
 		}
 
-		public static function isPeakImport(CarbonInterface $time) : bool
+		public static function isPeakImport(CarbonInterface $time, int $leadMinutes = 0) : bool
 		{
 			try
 			{
-				$startOffset = ControlSettings::get('nibe.peakImportStartOffsetMinutes');
-				$endOffset = ControlSettings::get('nibe.peakImportEndOffsetMinutes');
-				$localTime = $time->copy()->setTimezone("Europe/London");
-
-				$startPeak = $localTime->copy()->setTime(16, 0)->addMinutes($startOffset);
-				$endPeak   = $localTime->copy()->setTime(19, 0)->addMinutes($endOffset);
-
-				return ($localTime->betweenIncluded($startPeak, $endPeak));
+				return TariffPeriods::peakAt($time, $leadMinutes);
 			}
 			catch (Throwable $e)
 			{
@@ -1832,7 +1918,7 @@
 			{
 				$threshold = 15;
 
-				DB::transaction(function () use ($threshold)
+				DB::transaction(function() use ($threshold)
 				{
 					// Ensure the counter exists.
 					$setting = Setting::firstOrCreate(['key' => 'nibeEmptyDataCount'], ['value' => 0]);
@@ -1841,7 +1927,7 @@
 					Setting::where('key', 'nibeEmptyDataCount')->increment('value');
 
 					// Re-read the current value (inside the same transaction).
-					$currentCount = (int) Setting::where('key', 'nibeEmptyDataCount')->value('value');
+					$currentCount = (int)Setting::where('key', 'nibeEmptyDataCount')->value('value');
 
 					// Fire exactly once when hitting the threshold.
 					if ($currentCount === $threshold)

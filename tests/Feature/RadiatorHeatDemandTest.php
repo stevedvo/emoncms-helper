@@ -9,6 +9,8 @@ use App\Models\ActivityLog;
 use App\Models\NibeFeedItem;
 use App\Models\Setting;
 use App\Services\RadiatorHeatDemand;
+use App\Services\HeatingBoostSchedule;
+use App\Services\TariffPeriods;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Schema\Blueprint;
@@ -115,7 +117,8 @@ class RadiatorHeatDemandTest extends TestCase
             'warm forecast keeps radiator demand' => [21, 19.8, 10, false, false, 14, 'on', true, 30],
             'warm forecast keeps base threshold equality' => [21.5, 20.5, 10, false, false, 14, 'intermittent', true, 30],
             'cold forecast threshold equality' => [23.5, 20.5, 10, false, false, 2, 'intermittent', true, 30],
-            'cold peak minimum must not create Rad demand' => [22, 20.5, 10, false, true, 2, 'intermittent', false, 16],
+            'cold forecast must not restart satisfied zones in peak' => [22, 20.5, 10, false, true, 2, 'off', false, 16],
+            'cold forecast must not prevent peak wind-down'           => [22, 20.5, 30, false, true, 2, 'off', false, 16],
         ];
     }
 
@@ -139,6 +142,159 @@ class RadiatorHeatDemandTest extends TestCase
             $this->assertHiveTarget(30, $target);
             CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(5));
         }
+    }
+
+    public function test_radiator_boost_hold_survives_the_0520_cutoff_without_promoting_the_mode() : void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 04:00:00', TariffPeriods::ZONE));
+        $this->setForecast(10);
+        Setting::create(['key' => 'agile_schedule', 'value' => json_encode(['cosy' => TariffPeriods::nextCosyWindows(CarbonImmutable::now(), true)])]);
+        ScheduledBoostNibeController::prepare(22.2, 21.2);
+        $this->assertSame('intermittent', ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10));
+        $this->assertHiveTarget(30, 30);
+
+        // Run through the early boost finish at 05:20 with the normal five-minute cadence.
+        for ($minute = 5; $minute <= 175; $minute += 5)
+        {
+            CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 04:00:00', TariffPeriods::ZONE)->addMinutes($minute));
+            ScheduledBoostNibeController::prepare(24, 21.2);
+            $this->assertSame('intermittent', ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10));
+            $this->assertFalse(RadiatorHeatDemand::previous());
+            $this->assertTrue(RadiatorHeatDemand::current());
+            $this->assertHiveTarget(30, 30);
+        }
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 06:59:59', TariffPeriods::ZONE));
+        $this->assertHiveTarget(30, 30);
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 07:00:00', TariffPeriods::ZONE));
+        $this->assertHiveTarget(30, 16);
+        $this->assertSame(1, ActivityLog::where('message', 'like', 'Radiator boost hold active until%')->count());
+    }
+
+    public function test_ufh_only_boost_does_not_latch_radiators_but_they_can_join_later() : void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 04:00:00', TariffPeriods::ZONE));
+        $this->setForecast(10);
+        Setting::create(['key' => 'agile_schedule', 'value' => json_encode(['cosy' => TariffPeriods::nextCosyWindows(CarbonImmutable::now(), true)])]);
+        ScheduledBoostNibeController::prepare(26, 19.8);
+        $this->assertSame('boost', ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10));
+        $this->assertHiveTarget(30, 16);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(5));
+        ScheduledBoostNibeController::prepare(21.5, 19.8);
+        ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10);
+        $this->assertHiveTarget(30, 30);
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(5));
+        ScheduledBoostNibeController::prepare(26, 21.2);
+        $this->assertSame('intermittent', ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10));
+        $this->assertHiveTarget(30, 30);
+        $this->assertFalse(RadiatorHeatDemand::previous());
+        $this->assertHiveTarget(20, 16);
+        $this->assertHiveTarget(10, 16);
+        $this->assertHiveTarget(30, 30);
+    }
+
+    public function test_radiator_boost_hold_requires_actual_space_heating_and_is_cancelled_by_peak_or_cooling() : void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 04:00:00', TariffPeriods::ZONE));
+        $this->setForecast(10);
+        Setting::create(['key' => 'agile_schedule', 'value' => json_encode(['cosy' => TariffPeriods::nextCosyWindows(CarbonImmutable::now(), true)])]);
+        ScheduledBoostNibeController::prepare(21.5, 21.2);
+        ScheduledBoostNibeController::calculateHeatingMode(10, 10, 10);
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(5));
+        ScheduledBoostNibeController::prepare(26, 21.2);
+        ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10);
+        $this->assertHiveTarget(30, 16);
+
+        foreach ([false, true] as $cooling)
+        {
+            CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 04:10:00', TariffPeriods::ZONE));
+            ScheduledBoostNibeController::prepare(21.5, 21.2);
+            ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10);
+            $this->assertTrue(RadiatorHeatDemand::current());
+            if (!$cooling)
+            {
+                CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 16:00:00', TariffPeriods::ZONE));
+                RadiatorHeatDemand::record(true, CarbonImmutable::now()->addHour());
+            }
+            ControlledNibeController::prepare(26, 21.2, false, !$cooling);
+            ControlledNibeController::calculateHeatingMode($cooling ? 60 : 30, $cooling ? 25 : 10, $cooling ? 25 : 10);
+            $this->assertFalse(RadiatorHeatDemand::current());
+            $this->assertNull(json_decode(Setting::firstWhere('key', RadiatorHeatDemand::SETTING_KEY)->value, true)['boostHoldUntil']);
+        }
+    }
+
+    public function test_hold_deadlines_follow_dated_offers_and_cross_midnight() : void
+    {
+        $time = CarbonImmutable::parse('2026-10-31 23:00:00', TariffPeriods::ZONE);
+        CarbonImmutable::setTestNow($time);
+        $settings = TariffPeriods::settings();
+        $settings['extra'] =
+        [
+            ['type' => 'cheap', 'start' => '2026-10-31T23:00', 'end' => '2026-11-01T02:00'],
+        ];
+        Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($settings)]);
+        $deadline = HeatingBoostSchedule::radiatorHoldUntilAt([], 10, 10, $time);
+        $this->assertSame('2026-11-01 02:00', $deadline->setTimezone(TariffPeriods::ZONE)->format('Y-m-d H:i'));
+        RadiatorHeatDemand::record(true, $deadline);
+        CarbonImmutable::setTestNow($time->addMinutes(5));
+        RadiatorHeatDemand::record(false);
+        $this->assertTrue(RadiatorHeatDemand::current());
+        $this->assertFalse(RadiatorHeatDemand::previous());
+
+        $settings['extra'][] = ['type' => 'peak', 'start' => '2026-10-31T23:05', 'end' => '2026-11-01T00:00'];
+        Setting::where('key', TariffPeriods::KEY)->update(['value' => json_encode($settings)]);
+        $this->assertFalse(RadiatorHeatDemand::current());
+        $this->assertNull(HeatingBoostSchedule::radiatorHoldUntilAt([], 10, 10, CarbonImmutable::now()));
+    }
+
+    public function test_stale_unknown_and_cancelled_decisions_do_not_reuse_a_boost_hold() : void
+    {
+        RadiatorHeatDemand::record(true, CarbonImmutable::now()->addHour());
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(11));
+        RadiatorHeatDemand::record(false);
+        $this->assertFalse(RadiatorHeatDemand::current());
+
+        foreach ([null, false] as $required)
+        {
+            RadiatorHeatDemand::record(true, CarbonImmutable::now()->addHour());
+            RadiatorHeatDemand::record($required, null, true);
+            $this->assertNull(json_decode(Setting::firstWhere('key', RadiatorHeatDemand::SETTING_KEY)->value, true)['boostHoldUntil']);
+        }
+
+        RadiatorHeatDemand::record(true, CarbonImmutable::now()->addHour());
+        RadiatorHeatDemand::record(null);
+        $this->assertNull(json_decode(Setting::firstWhere('key', RadiatorHeatDemand::SETTING_KEY)->value, true)['boostHoldUntil']);
+    }
+
+    public function test_a_dated_offer_holds_through_its_early_finish_inside_the_daily_peak() : void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 16:30:00', TariffPeriods::ZONE));
+        $settings = TariffPeriods::settings();
+        $settings['extra'] = [['type' => 'cheap', 'start' => '2026-10-31T16:30', 'end' => '2026-10-31T18:30']];
+        Setting::create(['key' => TariffPeriods::KEY, 'value' => json_encode($settings)]);
+        ScheduledBoostNibeController::prepare(21.5, 21.2);
+        ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10);
+        $this->assertHiveTarget(30, 30);
+
+        for ($minute = 5; $minute <= 120; $minute += 5)
+        {
+            CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 16:30:00', TariffPeriods::ZONE)->addMinutes($minute));
+            ScheduledBoostNibeController::prepare(26, 21.2);
+            ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10);
+            $this->assertHiveTarget(30, $minute < 120 ? 30 : 16);
+        }
+    }
+
+    public function test_hold_deadlines_support_legacy_schedules_and_preserve_saved_actual_ends_after_offset_edits() : void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 04:30:00', TariffPeriods::ZONE));
+        config()->set('weather.useForecast', true);
+        $schedule = ['cosy' => [['start' => CarbonImmutable::now()->subHour()->timestamp, 'end' => CarbonImmutable::now()->addMinutes(50)->timestamp]]];
+        $this->assertSame('07:00', HeatingBoostSchedule::radiatorHoldUntilAt($schedule, 10, 10, CarbonImmutable::now())->setTimezone(TariffPeriods::ZONE)->format('H:i'));
+        $schedule['cosy'][0]['tariff_end'] = CarbonImmutable::parse('2026-10-31 07:00:00', TariffPeriods::ZONE)->timestamp;
+        config()->set('octopus.offsetToOff', 0);
+        $this->assertSame('07:00', HeatingBoostSchedule::radiatorHoldUntilAt($schedule, 10, 10, CarbonImmutable::now())->setTimezone(TariffPeriods::ZONE)->format('H:i'));
     }
 
     public function test_peak_adjusted_radiator_demand_holds_its_state_between_both_boundaries() : void
@@ -185,8 +341,8 @@ class RadiatorHeatDemandTest extends TestCase
         {
             CarbonImmutable::setTestNow($start->addMinutes($minutes));
             ScheduledPeakNibeController::prepare(21.2, 20.5);
-            $this->assertSame('intermittent', ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
             $required = $minutes < 85;
+            $this->assertSame($required ? 'intermittent' : 'off', ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
             $this->assertSame($required, RadiatorHeatDemand::current());
             $this->assertHiveTarget(30, $required ? 30 : 16);
         }
@@ -206,10 +362,116 @@ class RadiatorHeatDemandTest extends TestCase
         }
     }
 
-    public function test_radiator_mode_demand_and_valve_demand_use_the_same_hysteresis() : void
+    #[DataProvider('peakWindDownOffsets')]
+    public function test_satisfied_zones_wind_down_at_the_adjusted_peak_without_an_extra_lead(int $offset) : void
+    {
+        config()->set('nibe.peakImportStartOffsetMinutes', $offset);
+        config()->set('nibe.dmTargetOff', 30);
+        $start = CarbonImmutable::parse('2026-10-22 16:00:00 Europe/London')->addMinutes($offset);
+
+        foreach ([[$start->subMinute(), 'intermittent'], [$start->subSecond(), 'intermittent'], [$start, 'off'], [$start->addMinutes(5), 'off']] as [$time, $expected])
+        {
+            CarbonImmutable::setTestNow($time);
+            ScheduledPeakNibeController::prepare(23, 21.8);
+            $mode = ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10);
+            $this->assertSame($expected, $mode);
+            $this->assertFalse(RadiatorHeatDemand::current());
+            if ($mode === 'off')
+            {
+                $this->assertSame(30, NibeController::calculateTargetDm(30, $mode, 10));
+            }
+        }
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-22 18:35:01 Europe/London'));
+        ScheduledPeakNibeController::prepare(23, 21.8);
+        $this->assertSame('intermittent', ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
+    }
+
+    public static function peakWindDownOffsets() : array
+    {
+        return [
+            'no early adjustment' => [0],
+            '45-minute lead'      => [-45],
+            '50-minute lead'      => [-50],
+            '55-minute lead'      => [-55],
+            'later peak controls' => [20],
+        ];
+    }
+
+    public function test_early_peak_wind_down_keeps_an_active_radiator_hold_until_the_actual_peak() : void
+    {
+        config()->set('nibe.peakImportStartOffsetMinutes', -45);
+        $start = CarbonImmutable::parse('2026-10-31 13:00:00', TariffPeriods::ZONE);
+        CarbonImmutable::setTestNow($start);
+        $this->setForecast(2);
+        Setting::create(['key' => 'agile_schedule', 'value' => json_encode(['cosy' => TariffPeriods::nextCosyWindows($start, true)])]);
+        ScheduledBoostNibeController::prepare(21.5, 21.2);
+        ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10);
+        $this->assertHiveTarget(30, 30);
+
+        // Keep the stored decision fresh at the normal five-minute cadence through the early boost finish.
+        for ($minutes = 5; $minutes < 180; $minutes += 5)
+        {
+            CarbonImmutable::setTestNow($start->addMinutes($minutes));
+            ScheduledBoostNibeController::prepare(25, 21.2);
+            $mode = ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10);
+            $this->assertSame($minutes < 135 ? 'intermittent' : 'off', $mode);
+            $this->assertFalse(RadiatorHeatDemand::previous());
+            $this->assertHiveTarget(30, 30);
+        }
+
+        CarbonImmutable::setTestNow($start->addHours(3));
+        $this->assertHiveTarget(30, 16);
+        ScheduledBoostNibeController::prepare(25, 21.2);
+        $this->assertSame('off', ScheduledBoostNibeController::calculateHeatingMode(30, 10, 10));
+        $decision = json_decode(Setting::where('key', RadiatorHeatDemand::SETTING_KEY)->value('value'), true);
+        $this->assertNull($decision['boostHoldUntil']);
+    }
+
+    public function test_idle_during_early_peak_controls_closes_hive_without_restarting_satisfied_zones() : void
+    {
+        config()->set('nibe.peakImportStartOffsetMinutes', -45);
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 15:20:00', TariffPeriods::ZONE));
+        $this->setForecast(2);
+        RadiatorHeatDemand::record(true, CarbonImmutable::now()->addMinutes(40));
+        ScheduledPeakNibeController::prepare(22.5, 21.2);
+
+        $this->assertSame('off', ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
+        $this->assertHiveTarget(30, 30);
+        $this->assertSame('off', ScheduledPeakNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertHiveTarget(10, 16);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(5));
+        ScheduledPeakNibeController::prepare(22.5, 21.2);
+        $this->assertSame('off', ScheduledPeakNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertHiveTarget(10, 16);
+    }
+
+    #[DataProvider('demandNearPeak')]
+    public function test_peak_wind_down_requires_both_zones_to_be_satisfied(float $rad, ?float $ufh, bool $boost, string $mode) : void
+    {
+        config()->set('nibe.peakImportStartOffsetMinutes', -45);
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-22 15:30:00 Europe/London'));
+        ScheduledPeakNibeController::prepare($rad, $ufh, $boost);
+        $this->assertSame($mode, ScheduledPeakNibeController::calculateHeatingMode(30, 10, 10));
+    }
+
+    public static function demandNearPeak() : array
+    {
+        return [
+            'both zones satisfied'       => [24, 22, false, 'off'],
+            'radiator calling'           => [18.5, 22, false, 'on'],
+            'UFH calling'                => [24, 20, false, 'intermittent'],
+            'UFH needs more heat'        => [24, 19, false, 'on'],
+            'UFH preheat suppressed'     => [24, 20.8, true, 'off'],
+            'UFH reading missing'        => [24, null, false, 'intermittent'],
+        ];
+    }
+
+    public function test_idle_radiator_mode_and_valve_demand_use_the_adjusted_threshold_without_hysteresis() : void
     {
         RadiatorHeatDemand::record(false);
-        foreach ([[21.2, 'off', false], [21, 'on', true], [21.6, 'intermittent', true], [22, 'off', false]] as [$rad, $mode, $required])
+        foreach ([[21.6, 'off', false], [21.5, 'intermittent', true], [21, 'on', true], [21.6, 'off', false], [22, 'off', false]] as [$rad, $mode, $required])
         {
             ControlledNibeController::prepare($rad, 20.5);
             $this->assertSame($mode, ControlledNibeController::calculateHeatingMode(10, 10, 10));
@@ -217,29 +479,108 @@ class RadiatorHeatDemandTest extends TestCase
         }
     }
 
+    #[DataProvider('priorityHysteresisScenarios')]
+    public function test_hysteresis_only_applies_while_priority_is_space_heating(int $priority, bool $previous, float $temperature, string $mode, bool $required) : void
+    {
+        config()->set('nibe.loadCompTempOff', 20.5);
+        config()->set('nibe.loadCompTempIntermittent', 20);
+        RadiatorHeatDemand::record($previous);
+        ControlledNibeController::prepare($temperature, 22);
+        $this->assertSame($mode, ControlledNibeController::calculateHeatingMode($priority, 10, 10));
+        $this->assertSame($required, RadiatorHeatDemand::previous());
+        $this->assertHiveTarget(30, $required ? 30 : 16);
+        $message = ActivityLog::where('controller', RadiatorHeatDemand::class)->where('method', 'calculate')->latest('id')->first()->message;
+        $this->assertStringContainsString('; priority '.$priority.';', $message);
+        $this->assertStringContainsString('hysteresis +/-'.($priority === 30 ? '0.5' : '0').';', $message);
+    }
+
+    public static function priorityHysteresisScenarios() : array
+    {
+        return
+        [
+            'idle at threshold starts demand'           => [10, false, 20.5, 'intermittent', true],
+            'hot water at threshold starts demand'      => [20, false, 20.5, 'intermittent', true],
+            'cooling priority at threshold uses target' => [60, false, 20.5, 'intermittent', true],
+            'idle below threshold starts demand'        => [10, false, 20.4, 'intermittent', true],
+            'idle above threshold drops old demand'     => [10, true, 20.6, 'off', false],
+            'heating retains off at centre'             => [30, false, 20.5, 'intermittent', false],
+            'heating retains on above centre'           => [30, true, 20.6, 'intermittent', true],
+            'heating closes at upper boundary'          => [30, true, 21.0, 'intermittent', false],
+        ];
+    }
+
+    public function test_an_idle_threshold_start_then_retains_the_radiator_valve_during_heating() : void
+    {
+        config()->set('nibe.loadCompTempOff', 20.5);
+        config()->set('nibe.loadCompTempIntermittent', 20);
+        RadiatorHeatDemand::record(false);
+
+        foreach ([[10, 20.6, 'off', false], [10, 20.5, 'intermittent', true], [30, 20.6, 'intermittent', true], [30, 20.5, 'intermittent', true], [30, 21.0, 'intermittent', false], [10, 20.6, 'off', false], [10, 20.5, 'intermittent', true]] as [$priority, $temperature, $mode, $required])
+        {
+            ControlledNibeController::prepare($temperature, 22);
+            $this->assertSame($mode, ControlledNibeController::calculateHeatingMode($priority, 10, 10));
+            $this->assertSame($required, RadiatorHeatDemand::previous());
+            $this->assertHiveTarget($priority, $priority === 30 && $required ? 30 : 16);
+            CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(5));
+        }
+    }
+
+    #[DataProvider('editableRadiatorAdjustments')]
+    public function test_live_radiator_adjustments_change_the_heating_mode_and_hive_demand(string $key, float $before, float $after, ?float $forecast, float $temperature, bool $boost, bool $peak) : void
+    {
+        config()->set('nibe.dmTargetBoostTemp', 0);
+
+        if ($forecast !== null)
+        {
+            $this->setForecast($forecast);
+        }
+
+        $setting = Setting::create(['key' => 'control.'.$key, 'value' => json_encode($before)]);
+        ControlledNibeController::prepare($temperature, 26, $boost, $peak);
+        $this->assertSame('off', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertFalse(RadiatorHeatDemand::current());
+        $setting->update(['value' => json_encode($after)]);
+        ControlledNibeController::prepare($temperature, 26, $boost, $peak);
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertTrue(RadiatorHeatDemand::current());
+        $this->assertHiveTarget(30, 30);
+    }
+
+    public static function editableRadiatorAdjustments() : array
+    {
+        return
+        [
+            'boost amount'    => ['nibe.radBoostTempAdjust', 0, 1, null, 22.2, true, false],
+            'peak amount'     => ['nibe.radPeakTempAdjust', -2, -0.5, null, 21.0, false, true],
+            'cold amount'     => ['nibe.radColdForecastTempAdjust', 0, 1, -1, 22.2, false, false],
+            'cool amount'     => ['nibe.radCoolForecastTempAdjust', 0, 1, 2, 22.2, false, false],
+            'cool threshold'  => ['nibe.radCoolForecastTemp', 3, 5, 4, 22.2, false, false],
+        ];
+    }
+
     public function test_hysteresis_margin_is_live_and_zero_restores_the_original_comparison() : void
     {
         RadiatorHeatDemand::record(false);
-        $this->assertFalse(RadiatorHeatDemand::calculate(19.2, 19.5));
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.2, 19.5, 30));
         $margin = Setting::create(['key' => 'control.hive.radiatorHysteresis', 'value' => '0.2']);
-        $this->assertTrue(RadiatorHeatDemand::calculate(19.2, 19.5));
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.2, 19.5, 30));
         RadiatorHeatDemand::record(true);
-        $this->assertTrue(RadiatorHeatDemand::calculate(19.6, 19.5));
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.6, 19.5, 30));
 
         $margin->update(['value' => '0']);
-        $this->assertFalse(RadiatorHeatDemand::calculate(19.6, 19.5));
-        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5));
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.6, 19.5, 30));
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5, 30));
         RadiatorHeatDemand::record(false);
-        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5));
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5, 30));
     }
 
     public function test_fractional_hysteresis_boundaries_are_inclusive() : void
     {
         Setting::create(['key' => 'control.hive.radiatorHysteresis', 'value' => '0.1']);
         RadiatorHeatDemand::record(false);
-        $this->assertTrue(RadiatorHeatDemand::calculate(19.2, 19.3));
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.2, 19.3, 30));
         RadiatorHeatDemand::record(true);
-        $this->assertFalse(RadiatorHeatDemand::calculate(19.4, 19.3));
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.4, 19.3, 30));
     }
 
     #[DataProvider('invalidDecisions')]
@@ -250,8 +591,8 @@ class RadiatorHeatDemandTest extends TestCase
             Setting::create(['key' => RadiatorHeatDemand::SETTING_KEY, 'value' => $stored]);
         }
 
-        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5));
-        $this->assertFalse(RadiatorHeatDemand::calculate(19.6, 19.5));
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5, 30));
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.6, 19.5, 30));
         $this->assertSame(0, ActivityLog::where('level', 'warning')->count());
     }
 
@@ -259,13 +600,13 @@ class RadiatorHeatDemandTest extends TestCase
     {
         RadiatorHeatDemand::record(false);
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addMinutes(10));
-        $this->assertFalse(RadiatorHeatDemand::calculate(19.5, 19.5));
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.5, 19.5, 30));
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
-        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5));
+        $this->assertTrue(RadiatorHeatDemand::calculate(19.5, 19.5, 30));
 
         RadiatorHeatDemand::record(true);
         CarbonImmutable::setTestNow(CarbonImmutable::now()->subSecond());
-        $this->assertFalse(RadiatorHeatDemand::calculate(19.6, 19.5));
+        $this->assertFalse(RadiatorHeatDemand::calculate(19.6, 19.5, 30));
     }
 
     #[DataProvider('roomBoostScenarios')]
@@ -600,6 +941,99 @@ class RadiatorHeatDemandTest extends TestCase
         $this->assertSame(0, ActivityLog::where('level', 'warning')->count());
     }
 
+    public function test_heat_rad_zone_off_resets_the_baseline_and_clears_a_boost_hold() : void
+    {
+        RadiatorHeatDemand::record(true, CarbonImmutable::now()->addHour());
+        $setting = Setting::create(['key' => 'control.nibe.heatRadZone', 'value' => 'false']);
+        ControlledNibeController::prepare(17, 18, true, true);
+        $this->assertSame('boost', ControlledNibeController::calculateHeatingMode(30, -5, -5));
+        $this->assertFalse(RadiatorHeatDemand::current());
+        $decision = json_decode(Setting::where('key', RadiatorHeatDemand::SETTING_KEY)->value('value'), true);
+        $this->assertNull($decision['boostHoldUntil']);
+        $this->assertSame(1, ActivityLog::where('message', 'like', 'Radiator boost hold active until%')->count());
+        $this->assertStringContainsString('Calculated mode "extraBoost" overridden with "intermittent"', ActivityLog::where('message', 'like', 'Heat Rad Zone is off.%')->latest('id')->first()->message);
+
+        ControlledNibeController::prepare(null, null, true, false);
+        $this->assertSame('intermittent', ControlledNibeController::calculateHeatingMode(10, 10, 10));
+        $this->assertSame('cooling', ControlledNibeController::calculateHeatingMode(60, 25, 25));
+
+        $setting->update(['value' => 'true']);
+        ControlledNibeController::prepare(17, 18);
+        $this->assertSame('extraBoost', ControlledNibeController::calculateHeatingMode(30, -5, -5));
+        $this->assertTrue(RadiatorHeatDemand::current());
+    }
+
+    #[DataProvider('ufhOnlyScenarios')]
+    public function test_heat_rad_zone_off_uses_ufh_demand_independently_of_radiator_data(
+        ?float $rad, ?float $ufh, bool $boost, bool $peak, bool $defrost, string $expectedMode
+    ) : void
+    {
+        config()->set('nibe.heatRadZone', false);
+        config()->set('nibe.ufhTempIntermittent', 20);
+        config()->set('nibe.ufhTempOn', 19.5);
+        config()->set('nibe.ufhBoostTempAdjust', 1);
+        config()->set('nibe.ufhBoostTempShortfall', 1);
+        ControlledNibeController::prepare($rad, $ufh, $boost, $peak, $defrost);
+
+        $this->assertSame($expectedMode, ControlledNibeController::calculateHeatingMode(30, 10, 10));
+        $this->assertFalse(RadiatorHeatDemand::current());
+        $this->assertHiveTarget(30, 16);
+    }
+
+    public static function ufhOnlyScenarios() : array
+    {
+        return [
+            'warm UFH keeps baseline despite cold radiators'   => [17, 22, false, false, false, 'intermittent'],
+            'UFH on threshold'                                 => [17, 19.5, false, false, false, 'on'],
+            'exact boost shortfall stays on'                   => [17, 19, false, false, false, 'on'],
+            'larger shortfall requests boost'                  => [17, 18.9, false, false, false, 'boost'],
+            'cheap window preheats UFH'                        => [17, 20.5, true, false, false, 'on'],
+            'peak suppresses preheat'                          => [17, 20.5, true, true, false, 'intermittent'],
+            'defrost limit still applies'                      => [17, 18.9, false, false, true, 'on'],
+            'missing radiator reading still permits UFH on'    => [null, 19.5, false, false, false, 'on'],
+            'missing radiator reading still permits UFH boost' => [null, 18.9, false, false, false, 'boost'],
+            'missing room readings keep baseline'              => [null, null, true, false, false, 'intermittent'],
+        ];
+    }
+
+    public function test_heat_rad_zone_off_repeats_the_off_target_and_resumes_after_reenabling() : void
+    {
+        config()->set('nibe.heatRadZone', false);
+        Setting::create(['key' => 'hiveRadiatorOffTarget', 'value' => '16']);
+        $api = Mockery::mock(HomeAssistantAPI::class);
+        $api->shouldReceive('adjustHiveThermostat')->twice()->with(16);
+        $this->app->instance(HomeAssistantAPI::class, $api);
+        HomeAssistantController::adjustHiveThermostat();
+        HomeAssistantController::adjustHiveThermostat();
+
+        config()->set('nibe.heatRadZone', true);
+        RadiatorHeatDemand::record(true);
+        $this->assertHiveTarget(30, 30);
+        $this->assertSame(0, ActivityLog::where('level', 'error')->count());
+    }
+
+    public function test_heat_rad_zone_off_continues_sending_after_a_failed_off_command() : void
+    {
+        config()->set('nibe.heatRadZone', false);
+        $attempts = 0;
+        $api = Mockery::mock(HomeAssistantAPI::class);
+        $api->shouldReceive('adjustHiveThermostat')->times(3)->with(16)->andReturnUsing(function() use (&$attempts)
+        {
+            $attempts++;
+            if ($attempts === 1)
+            {
+                throw new \RuntimeException('Simulated Hive failure.');
+            }
+        });
+        $this->app->instance(HomeAssistantAPI::class, $api);
+        HomeAssistantController::adjustHiveThermostat();
+        $this->assertNull(Setting::where('key', 'hiveRadiatorOffTarget')->value('value'));
+        HomeAssistantController::adjustHiveThermostat();
+        HomeAssistantController::adjustHiveThermostat();
+        $this->assertSame(3, $attempts);
+        $this->assertNull(Setting::where('key', 'hiveRadiatorOffTarget')->value('value'));
+    }
+
     public function test_a_missing_initial_room_fallback_disables_compensation_without_throwing(): void
     {
         $this->assertNull(RoomTemperatureProbe::read());
@@ -663,7 +1097,7 @@ class ControlledNibeController extends NibeController
         return self::$boost;
     }
 
-    public static function isPeakImport(CarbonInterface $time): bool
+    public static function isPeakImport(CarbonInterface $time, int $leadMinutes = 0) : bool
     {
         return self::$peak;
     }
@@ -676,9 +1110,17 @@ class ControlledNibeController extends NibeController
 
 class ScheduledPeakNibeController extends ControlledNibeController
 {
-    public static function isPeakImport(CarbonInterface $time) : bool
+    public static function isPeakImport(CarbonInterface $time, int $leadMinutes = 0) : bool
     {
-        return NibeController::isPeakImport($time);
+        return NibeController::isPeakImport($time, $leadMinutes);
+    }
+}
+
+class ScheduledBoostNibeController extends ScheduledPeakNibeController
+{
+    public static function isBoostActive(float $outdoorTemp, float $avgOutdoorTemp) : bool
+    {
+        return NibeController::isBoostActive($outdoorTemp, $avgOutdoorTemp);
     }
 }
 

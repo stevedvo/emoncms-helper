@@ -2,6 +2,8 @@
 	namespace App\Http\Requests;
 
 	use App\Services\ControlSettings;
+	use App\Services\TariffPeriods;
+	use Carbon\CarbonImmutable;
 	use Illuminate\Foundation\Http\FormRequest;
 
 	class UpdateControlSettingsRequest extends FormRequest
@@ -75,14 +77,41 @@
 				$order('nibe.hotWaterAfternoonTemperature', 'nibe.hotWaterUrgentTemperature', 'The urgent hot water threshold must not exceed the afternoon threshold.');
 				$order('nibe.hotWaterSundayTemperature', 'nibe.hotWaterUrgentTemperature', 'The urgent hot water threshold must not exceed the Sunday afternoon threshold.');
 
-				if ($candidate['octopus.offsetToOn'] - $candidate['octopus.offsetToOff'] >= 120)
+				$tariff = TariffPeriods::settings();
+				$daily = $tariff['daily'];
+				// An arbitrary winter day keeps recurring clock-time checks independent of DST changes.
+				$day = CarbonImmutable::parse('2026-01-15', TariffPeriods::ZONE);
+				$durations = [];
+
+				foreach ($daily as $name => $period)
 				{
-					$validator->errors()->add('values.octopus__offsetToOff', 'The start and end offsets must leave a positive duration for the shortest two-hour boost window.');
+					[$start, $end] = TariffPeriods::window($day, $period);
+					$durations[$name] = $end->diffInMinutes($start);
 				}
 
-				if ($candidate['nibe.peakImportStartOffsetMinutes'] - $candidate['nibe.peakImportEndOffsetMinutes'] >= 180)
+				$shortest = min(180, $durations['morning'], $durations['afternoon'], $durations['evening']);
+
+				if ($shortest + $candidate['octopus.offsetToOff'] - $candidate['octopus.offsetToOn'] <= 0)
 				{
-					$validator->errors()->add('values.nibe__peakImportEndOffsetMinutes', 'The peak start and end offsets must leave a positive duration for the 16:00 to 19:00 peak window.');
+					$validator->errors()->add('values.octopus__offsetToOff', 'The start and end offsets must leave a positive duration for every configured boost window.');
+				}
+
+				if ($durations['peak'] + $candidate['nibe.peakImportEndOffsetMinutes'] - $candidate['nibe.peakImportStartOffsetMinutes'] <= 0 || $durations['peak'] + $candidate['nibe.peakImportEndOffsetMinutes'] - $candidate['nibe.peakImportStartOffsetMinutes'] >= 1440)
+				{
+					$validator->errors()->add('values.nibe__peakImportEndOffsetMinutes', 'The peak offsets must leave a positive control window shorter than 24 hours.');
+				}
+
+				foreach ($tariff['extra'] as $event)
+				{
+					$start = CarbonImmutable::parse($event['start'], TariffPeriods::ZONE);
+					$end = CarbonImmutable::parse($event['end'], TariffPeriods::ZONE);
+					[$heatingStart, $heatingEnd] = TariffPeriods::heatingWindow($start, $end, $event['type'], $candidate);
+
+					if ($end->isAfter(CarbonImmutable::now()) && $heatingEnd->lessThanOrEqualTo($heatingStart))
+					{
+						$key = $event['type'] === 'cheap' ? 'octopus.offsetToOff' : 'nibe.peakImportEndOffsetMinutes';
+						$validator->errors()->add('values.'.ControlSettings::field($key), 'The heating offsets must leave a positive duration for dated window "'.$event['name'].'".');
+					}
 				}
 
 				$order('nibe.offsetMaximum', 'nibe.offsetMinimum', 'The maximum offset must be at least the minimum offset.');
