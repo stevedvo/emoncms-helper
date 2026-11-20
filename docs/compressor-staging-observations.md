@@ -79,6 +79,6 @@ The local telemetry is therefore stronger corroboration of this installation's t
 
 ## Relevance to the helper
 
-The checked-in default targets are -180 DM for normal/intermittent operation, -360 for boost, and -450 for extraBoost. Those targets reflect the intention to encourage the normal, first higher and second higher compressor stages respectively; see [mode targets](heat-pump-control.md#modes-and-degree-minute-targets). The app steers DM through flow-temperature settings and does not write the compressor frequency or implement the staging transitions itself.
+The checked-in default targets are -180 DM for normal/intermittent operation, -360 for boost, and -480 for extraBoost. Those targets reflect the intention to encourage the normal, first higher and second higher compressor stages respectively; see [mode targets](heat-pump-control.md#modes-and-degree-minute-targets). The app steers DM through flow-temperature settings and does not write the compressor frequency or implement the staging transitions itself.
 
 This is separate from the helper's radiator room-temperature hysteresis for Hive valve control. An ASHP stage can remain active while DM recovers between its entry and release levels, independently of the current radiator valve decision.

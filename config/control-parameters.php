@@ -30,7 +30,7 @@
 		'nibe.cheapMode'                      => $toggle('Flow settings', 'Restrict flow settings (cheap mode)', false, 'Apply the restrictive offset limit across modes. This does not test the current electricity price.'),
 		'nibe.dmTarget'                       => $number('Heating', 'Normal degree-minute target', -180, -2000, 2000, 'DM', 'Target used by both intermittent and on modes.', true),
 		'nibe.dmTargetOff'                    => $number('Heating', 'Off degree-minute target', 30, -2000, 2000, 'DM', 'Target when heating is not required. Hot-water priority reduces this by 60.', true),
-		'nibe.dmTargetBoost'                  => $number('Heating', 'Boost degree-minute target', -360, -2000, 2000, 'DM', 'Boost target. ExtraBoost uses normal + boost + 90.', true),
+		'nibe.dmTargetBoost'                  => $number('Heating', 'Boost degree-minute target', -360, -2000, 2000, 'DM', 'Boost target. ExtraBoost uses normal + boost + 60.', true),
 		'nibe.dmTargetCooling'                => $number('Heating', 'Cooling degree-minute target', 75, -2000, 2000, 'DM', 'Target while the heat pump is in cooling mode.', true),
 		'nibe.coolingStartTemp'               => $number('Heating', 'Cooling outdoor threshold', 24, 10, 40, '°C', 'Choose cooling when NIBE average outdoor temperature is above this value.'),
 		'nibe.loadCompTempOff'                => $number('Room temperatures', 'Radiators: off threshold', 21.5, 5, 35, '°C', 'Central radiator demand threshold. Peak, boost and forecast adjustments shift it; Hive hysteresis sets the switching margin each side.'),

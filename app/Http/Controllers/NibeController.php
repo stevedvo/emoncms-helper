@@ -1613,7 +1613,7 @@
 
 			if ($htgMode == "extraBoost")
 			{
-				$dmTarget = ControlSettings::get('nibe.dmTarget') + ControlSettings::get('nibe.dmTargetBoost') + 90;
+				$dmTarget = ControlSettings::get('nibe.dmTarget') + ControlSettings::get('nibe.dmTargetBoost') + 60;
 
 				ActivityLog::create(
 				[

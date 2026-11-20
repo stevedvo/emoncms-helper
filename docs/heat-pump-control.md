@@ -11,7 +11,7 @@ The owner clarified the following installation details on **20 October 2026**:
 - The UFH wall thermostat is set to **23°C**, so at the usual room temperatures it is effectively always calling for heat and holding the UFH zone valve open. It has no Internet connection and locally controls only whether that valve is open or closed. It can still close the valve when its own setpoint is satisfied. The helper's UFH thresholds and preheat target govern the requested ASHP heating mode; they do not adjust this thermostat or directly operate its valve. The helper does not receive the valve's position.
 - The NIBE has an owner-configured compressor curve. The experimental description was refined on **5 November 2026**: higher stages are requested near **-320 DM** and **-420 DM**, with reductions on recovery near **-320** and **-220 DM**. Stored requests show **25 → 55 → 85 Hz**, but historical March cycles also show **35 → 60 → 85 Hz** and **45 → 65 → 85 Hz**. The stages therefore do not consistently mean +30 Hz or a fixed 55 Hz first higher request. See the [compressor staging observations](compressor-staging-observations.md) for the dated evidence, a provisional midpoint interpretation and the limits of manufacturer corroboration. This supersedes the earlier approximate -300 DM first-stage estimate; it is not a universal NIBE specification.
 
-These compressor stages explain the intent of the checked-in DM targets: normal `on` targets **-180**, `boost` targets **-360** to encourage the first higher stage, and `extraBoost` targets **-450** to encourage the next. The helper steers DM through flow-temperature settings rather than writing DM or frequency directly, and NIBE retains control of the actual compressor response. A UFH shortfall requesting `boost` therefore participates in the same deliberate compressor-staging strategy as radiator demand.
+These compressor stages explain the intent of the checked-in DM targets: normal `on` targets **-180**, `boost` targets **-360** to encourage the first higher stage, and `extraBoost` targets **-480** to encourage the next. The helper steers DM through flow-temperature settings rather than writing DM or frequency directly, and NIBE retains control of the actual compressor response. A UFH shortfall requesting `boost` therefore participates in the same deliberate compressor-staging strategy as radiator demand.
 
 ## Manual UFH-only operation
 
@@ -68,7 +68,7 @@ The nudge helpers move one step, stopping at the ends. The `atLeast...` helpers 
 | `intermittent` | `dmTarget` | -180 | Maintain demand subject to a restricted offset; permit cycling when that limit is reached. |
 | `on` | `dmTarget` | -180 | Same target, with normal offset range and minimum-flow escalation available. |
 | `boost` | `dmTargetBoost` | -360 | Request a larger heat deficit. |
-| `extraBoost` | `dmTarget + dmTargetBoost + 90` | -450 | Request a still larger heat deficit; the +90 is hard-coded. |
+| `extraBoost` | `dmTarget + dmTargetBoost + 60` | -480 | Request a still larger heat deficit; the +60 is hard-coded. |
 | `cooling` | `dmTargetCooling` | +75 | Use calculated cooling flow temperature and cooling offset. |
 
 An unrecognised mode returns target 0 and logs a warning. The `outdoorTemp` argument to `calculateTargetDm()` does not currently affect its result.
